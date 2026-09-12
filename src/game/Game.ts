@@ -9,6 +9,8 @@ import { RoadManager } from '@/game/managers/RoadManager';
 import { PlayerManager } from '@/game/managers/PlayerManager';
 import { InputManager } from '@/game/managers/InputManager';
 import { TrafficManager } from '@/game/managers/TrafficManager';
+import { PowerupManager } from '@/game/managers/PowerupManager';
+import { PickupManager } from '@/game/managers/PickupManager';
 import { SaveManager } from '@/game/SaveManager';
 import { SPEED } from '@/game/config/Balance';
 
@@ -31,6 +33,8 @@ export class Game {
   readonly player: PlayerManager;
   readonly input: InputManager;
   readonly traffic: TrafficManager;
+  readonly powerups: PowerupManager;
+  readonly pickups: PickupManager;
 
   private readonly managers = new ManagerRegistry();
   private readonly loop: GameLoop;
@@ -59,7 +63,15 @@ export class Game {
       new PlayerManager(ctx, this.save.snapshot.activeCar, this.save.upgradesFor(this.save.snapshot.activeCar)),
     );
     this.road = this.managers.add(new RoadManager(ctx));
+    this.powerups = this.managers.add(new PowerupManager(ctx, this.player));
     this.traffic = this.managers.add(new TrafficManager(ctx, this.road, this.player));
+    this.pickups = this.managers.add(new PickupManager(ctx, this.road, this.player, this.powerups));
+
+    // A shield or a ghost decides whether a collision happens at all, so the
+    // question is asked before the crash cue is raised rather than after. An
+    // event bus cannot un-emit, and a crash that fires and is then "cancelled"
+    // would already have ended the run and shaken the camera.
+    this.traffic.crashGuard = (kind) => this.powerups.absorbCrash(kind);
 
     this.managers.initAll();
 

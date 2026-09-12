@@ -99,6 +99,11 @@ const CHECKED_CUES = new Set([
   'traffic:brake',
   'traffic:despawn',
   'traffic:horn',
+  'pickup:collect',
+  'pickup:magnetised',
+  'powerup:activate',
+  'powerup:expire',
+  'powerup:blocked-crash',
   'save:write',
 ]);
 
@@ -107,11 +112,6 @@ const PENDING_CUES = new Set([
   'player:drift',
   'player:airborne',
   'player:land',
-  'pickup:collect',
-  'pickup:magnetised',
-  'powerup:activate',
-  'powerup:expire',
-  'powerup:blocked-crash',
   'score:add',
   'score:combo',
   'score:combo-break',
@@ -678,6 +678,162 @@ check('collision', 'near-miss-reports-a-positive-gap',
   `near-miss payload: ${JSON.stringify(nearMiss.cues?.['player:near-miss']?.last)}`);
 
 await shot(page, 'traffic');
+
+/* -- pickups and power-ups ---------------------------------------------------
+ * Five cues. Collection is driven by steering onto a coin, and each effect is
+ * asserted by the difference it makes to the world rather than by its timer
+ * being non-zero — a power-up whose timer runs while nothing changes is the
+ * failure mode worth catching. */
+
+phase = 'pickups';
+const collect = await page.evaluate(() => {
+  const cr = window.carRacer;
+  cr.setCollisions(false);
+  cr.startRun(555);
+  cr.drive(20, 0);
+  cr.clearCues();
+
+  // Steer onto the nearest coin run and follow it.
+  let laid = 0;
+  for (let i = 0; i < 90; i++) {
+    const live = cr.pickups().filter((p) => p.ahead > 4 && p.ahead < 120);
+    laid = Math.max(laid, cr.pickups().length);
+    const target = live.sort((a, b) => a.ahead - b.ahead)[0];
+    if (target) cr.place({ x: target.x, vx: 0 });
+    cr.drive(0.5, 0);
+    if (cr.cues['pickup:collect'].count > 4) break;
+  }
+  return { cues: JSON.parse(JSON.stringify(cr.cues)), laid, coins: cr.state().coins };
+});
+
+check('pickup', 'pickups-are-laid', collect.laid > 0,
+  `peak live pickups on the road: ${collect.laid}`);
+check('pickup', 'collect-cue-fires', collect.cues['pickup:collect'].count > 0,
+  `pickup:collect fired ${collect.cues['pickup:collect'].count} times while following a coin run`);
+check('pickup', 'collect-payload-has-value',
+  collect.cues['pickup:collect'].last &&
+  ['coin', 'gem', 'shield', 'nitro', 'magnet', 'ghost', 'slowmo'].includes(collect.cues['pickup:collect'].last.kind),
+  `last collect: ${JSON.stringify(collect.cues['pickup:collect'].last)}`);
+
+const magnet = await page.evaluate(() => {
+  const cr = window.carRacer;
+  cr.setCollisions(false);
+  cr.startRun(777);
+  cr.drive(20, 0);
+
+  // Measure how far the nearest pickup is from the player's line, with the
+  // magnet off and then on, over the same elapsed time from the same state.
+  const gapWithout = (() => {
+    cr.clearCues();
+    cr.drive(1.2, 0);
+    const live = cr.pickups().filter((p) => p.ahead > 2 && p.ahead < 18);
+    return { n: cr.cues['pickup:magnetised'].count, live: live.length };
+  })();
+
+  cr.startRun(777);
+  cr.drive(20, 0);
+  cr.clearCues();
+  cr.givePowerup('magnet');
+  cr.drive(1.2, 0);
+  const withMagnet = cr.cues['pickup:magnetised'].count;
+
+  return { without: gapWithout.n, with: withMagnet, timers: cr.powerups() };
+});
+
+check('pickup', 'magnetised-cue-fires', magnet.with > 0,
+  `pickup:magnetised fired ${magnet.with} times with the magnet up`);
+check('pickup', 'magnet-does-nothing-when-inactive', magnet.without === 0,
+  `pickup:magnetised fired ${magnet.without} times with no magnet running — want 0`);
+
+const effects = await page.evaluate(() => {
+  const cr = window.carRacer;
+  cr.setCollisions(false);
+
+  // Nitro: the speed ceiling must actually rise. Pickups are switched off for
+  // the duration — a road that keeps handing out fresh nitro cannot be used to
+  // measure how the first one wears off.
+  cr.startRun(11);
+  cr.drive(14, 0);
+  cr.setPickupSpawning(false);
+  const baseCeiling = cr.state().speedCeiling;
+  cr.clearCues();
+  cr.givePowerup('nitro');
+  cr.drive(0.5, 0);
+  const boostedCeiling = cr.state().speedCeiling;
+  const activateCue = JSON.parse(JSON.stringify(cr.cues['powerup:activate']));
+
+  // Expiry: run the clock past the duration and confirm it lets go.
+  cr.clearCues();
+  cr.drive(12, 0);
+  const expireCue = JSON.parse(JSON.stringify(cr.cues['powerup:expire']));
+  const afterExpiry = cr.state().speedCeiling;
+  const timers = cr.powerups();
+  cr.setPickupSpawning(true);
+
+  return { baseCeiling, boostedCeiling, afterExpiry, activateCue, expireCue, timers };
+});
+
+check('powerup', 'activate-cue-fires', effects.activateCue.count > 0,
+  `powerup:activate fired ${effects.activateCue.count} times`);
+check('powerup', 'activate-payload-carries-duration',
+  effects.activateCue.last && effects.activateCue.last.duration > 0,
+  `activate payload: ${JSON.stringify(effects.activateCue.last)}`);
+check('powerup', 'nitro-raises-the-ceiling', effects.boostedCeiling > effects.baseCeiling + 5,
+  `speed ceiling ${effects.baseCeiling.toFixed(1)} -> ${effects.boostedCeiling.toFixed(1)} on nitro`);
+check('powerup', 'expire-cue-fires', effects.expireCue.count > 0,
+  `powerup:expire fired ${effects.expireCue.count} times after the duration elapsed`);
+// The ceiling also climbs with distance travelled, so an equality against the
+// pre-nitro value would fail for the wrong reason. What must be true is that
+// the boost itself is gone.
+check('powerup', 'effect-actually-ends',
+  effects.afterExpiry < effects.boostedCeiling - 5 && effects.timers.nitro === 0,
+  `ceiling ${effects.baseCeiling.toFixed(1)} base -> ${effects.boostedCeiling.toFixed(1)} boosted -> ` +
+  `${effects.afterExpiry.toFixed(1)} after expiry, nitro timer ${effects.timers.nitro}`);
+check('powerup', 'timers-drain-to-zero',
+  Object.values(effects.timers).every((t) => t === 0),
+  `remaining timers: ${JSON.stringify(effects.timers)}`);
+
+/* The shield's whole job is to turn a fatal collision into a survivable one, so
+ * it is tested by crashing with it up and checking the run is still going. */
+const shielded = await page.evaluate(() => {
+  const cr = window.carRacer;
+  for (let seed = 1; seed < 60; seed++) {
+    cr.setCollisions(false);
+    cr.startRun(seed);
+    cr.drive(26, 0);
+    const ahead = cr.traffic()
+      .filter((t) => t.ahead > 12 && t.ahead < 150)
+      .sort((a, b) => a.ahead - b.ahead)[0];
+    if (!ahead) continue;
+
+    cr.clearCues();
+    cr.setCollisions(true);
+    cr.givePowerup('shield');
+    cr.place({ x: ahead.x, vx: 0 });
+    for (let i = 0; i < 40; i++) {
+      cr.drive(0.25, 0);
+      if (cr.cues['powerup:blocked-crash'].count > 0 || cr.cues['player:crash'].count > 0) break;
+    }
+    if (cr.cues['powerup:blocked-crash'].count > 0 || cr.cues['player:crash'].count > 0) {
+      return { seed, cues: JSON.parse(JSON.stringify(cr.cues)), state: cr.state(), timers: cr.powerups() };
+    }
+  }
+  return null;
+});
+
+check('powerup', 'shield-blocks-the-crash',
+  shielded && shielded.cues['powerup:blocked-crash'].count > 0,
+  shielded
+    ? `blocked-crash ${shielded.cues['powerup:blocked-crash'].count}, crash ${shielded.cues['player:crash'].count}`
+    : 'never made contact with a shield up across 60 seeds');
+check('powerup', 'shield-keeps-the-run-alive',
+  shielded && shielded.state.runState === 'driving',
+  `runState after a shielded impact: ${shielded?.state.runState}`);
+check('powerup', 'shield-is-consumed-by-the-hit',
+  shielded && shielded.timers.shield === 0,
+  `shield remaining after absorbing a hit: ${shielded?.timers.shield?.toFixed(2)}s — want 0`);
+
+await shot(page, 'pickups');
 
 /* -- stability --------------------------------------------------------------- */
 

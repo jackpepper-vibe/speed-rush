@@ -82,6 +82,11 @@ export class PlayerManager implements Manager {
     return this.carId;
   }
 
+  /** The car's boost stat, multiplying nitro duration. */
+  get boostDuration(): number {
+    return this.stats.boost;
+  }
+
   /** 0 at a standstill, 1 at the current ceiling — drives camera, grade, audio. */
   get speedFraction(): number {
     return THREE.MathUtils.clamp(this.speed / (SPEED.baseMax * this.stats.topSpeed), 0, 1.4);

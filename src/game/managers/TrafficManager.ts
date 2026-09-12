@@ -63,6 +63,12 @@ export class TrafficManager implements Manager {
    */
   collisionsEnabled = true;
 
+  /**
+   * Asked before a collision is allowed to become a crash. Returning true means
+   * something absorbed it — a shield, a ghost — and the run continues.
+   */
+  crashGuard: (kind: TrafficKind) => boolean = () => false;
+
   constructor(
     private readonly ctx: GameContext,
     private readonly road: RoadManager,
@@ -370,6 +376,8 @@ export class TrafficManager implements Manager {
 
     if (overlapX && overlapZ) {
       if (!this.collisionsEnabled) return;
+      // Absorbed by a shield or a ghost: the contact happened, the crash did not.
+      if (this.crashGuard(v.kind)) return;
       this.ctx.bus.emit('player:crash', {
         with: v.kind,
         speed: this.player.speed,

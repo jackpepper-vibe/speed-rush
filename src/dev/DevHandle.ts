@@ -71,6 +71,18 @@ export interface DevHandle {
   /** Live traffic in road space. */
   traffic(): { kind: string; lane: number; x: number; ahead: number; speed: number }[];
 
+  /** Live pickups in road space. */
+  pickups(): { kind: string; x: number; ahead: number; magnetised: boolean }[];
+
+  /** Start a power-up directly, for tests about its effect rather than its pickup. */
+  givePowerup(id: string): void;
+
+  /** Stop new pickups being laid, without removing the ones already out. */
+  setPickupSpawning(enabled: boolean): void;
+
+  /** Seconds remaining on each running effect. */
+  powerups(): Record<string, number>;
+
   /** A flat readout of everything worth asserting on. */
   state(): Record<string, unknown>;
   /** Constants the probe should test against rather than duplicate. */
@@ -139,6 +151,26 @@ export function installDevHandle(game: Game, version: string): DevHandle {
 
     traffic() {
       return game.traffic.snapshot();
+    },
+
+    pickups() {
+      return game.pickups.snapshot();
+    },
+
+    givePowerup(id) {
+      game.powerups.activate(id as never);
+    },
+
+    setPickupSpawning(enabled) {
+      game.pickups.spawningEnabled = enabled;
+    },
+
+    powerups() {
+      const out: Record<string, number> = {};
+      for (const id of ['shield', 'nitro', 'magnet', 'ghost', 'slowmo'] as const) {
+        out[id] = game.powerups.timeLeft(id);
+      }
+      return out;
     },
 
     state() {
