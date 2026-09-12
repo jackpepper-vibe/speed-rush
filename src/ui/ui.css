@@ -1,0 +1,275 @@
+/* Speed Rush interface.
+ *
+ * DOM rather than canvas, deliberately: text stays crisp at any device pixel
+ * ratio, it scales with the user's font settings, and the buttons are real
+ * buttons a screen reader and a keyboard already understand. The canvas is for
+ * the world; everything a player reads sits above it.
+ */
+
+:root {
+  color-scheme: dark;
+  --ink: #f2f4f8;
+  --dim: #8b93a3;
+  --faint: #5a6273;
+  --hot: #ff5a2c;
+  --hot-soft: #ff8a5c;
+  --gold: #ffc21e;
+  --panel: rgba(9, 11, 18, 0.88);
+  --edge: rgba(255, 255, 255, 0.09);
+  --radius: 14px;
+  --shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body { height: 100%; background: #05060a; overflow: hidden; }
+
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  color: var(--ink);
+  touch-action: none;
+}
+
+#stage { display: block; width: 100vw; height: 100vh; }
+
+/* Tabular figures throughout: a speedometer whose digits change width jitters
+   the whole readout every time it passes a 1. */
+.stat-value, .stat-value-sm, .gear, .coins, .combo b, .countdown,
+.results dd, .records dd, .leaderboard td, .price {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* ---------------------------------------------------------------- the HUD */
+
+.hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  padding: clamp(12px, 2.2vw, 26px);
+  z-index: 10;
+}
+.hud[hidden] { display: none; }
+
+.hud-corner { position: absolute; display: grid; gap: 6px; }
+.hud-tl { top: clamp(12px, 2.2vw, 26px); left: clamp(12px, 2.2vw, 26px); }
+.hud-tr { top: clamp(12px, 2.2vw, 26px); right: clamp(12px, 2.2vw, 26px); justify-items: end; }
+
+.stat { display: grid; gap: 1px; }
+.stat-right { justify-items: end; }
+.stat-label {
+  font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--faint);
+}
+.stat-value {
+  font-size: clamp(1.6rem, 4vw, 2.5rem); font-weight: 800; line-height: 1;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.7);
+}
+.stat-value-sm { font-size: 0.95rem; font-weight: 600; color: var(--dim); }
+.stat-unit { font-size: 10px; letter-spacing: 0.18em; color: var(--faint); }
+.stat-sub { margin-top: 2px; }
+
+.gear {
+  margin-top: 4px; min-width: 34px; text-align: center;
+  font-size: 0.85rem; font-weight: 800;
+  padding: 3px 9px; border-radius: 8px;
+  background: rgba(255, 90, 44, 0.16);
+  border: 1px solid rgba(255, 90, 44, 0.35);
+  color: var(--hot-soft);
+}
+
+.hud-top-centre {
+  position: absolute; top: clamp(12px, 2.2vw, 26px); left: 50%;
+  transform: translateX(-50%);
+  display: grid; justify-items: center; gap: 8px;
+}
+
+.coin-dot {
+  width: 11px; height: 11px; border-radius: 50%;
+  background: radial-gradient(circle at 34% 30%, #ffe488, var(--gold) 62%, #a9740a);
+  display: inline-block; flex: none;
+}
+.coins {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 1.05rem; font-weight: 800; color: var(--gold);
+}
+
+.combo { display: grid; justify-items: center; gap: 3px; }
+.combo[hidden] { display: none; }
+.combo b {
+  font-size: 1.3rem; font-weight: 900; color: var(--hot-soft);
+  text-shadow: 0 0 18px rgba(255, 90, 44, 0.6);
+}
+.combo-chain { font-size: 10px; letter-spacing: 0.16em; color: var(--faint); text-transform: uppercase; }
+.combo-track {
+  width: 108px; height: 3px; border-radius: 2px;
+  background: rgba(255, 255, 255, 0.14); overflow: hidden;
+}
+.combo-bar {
+  display: block; height: 100%; width: 100%;
+  background: linear-gradient(90deg, var(--hot), var(--gold));
+  transform-origin: left center;
+}
+
+.powerups {
+  position: absolute; bottom: clamp(14px, 3vw, 32px); left: 50%;
+  transform: translateX(-50%);
+  display: flex; gap: 9px;
+}
+.pu {
+  width: 54px; display: grid; justify-items: center; gap: 4px;
+  padding: 7px 4px 6px; border-radius: 11px;
+  background: var(--panel); border: 1px solid var(--edge);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--pu) 45%, transparent);
+}
+.pu-name {
+  font-size: 8.5px; letter-spacing: 0.13em; text-transform: uppercase;
+  color: var(--pu); font-weight: 700;
+}
+.pu-time { font-size: 0.8rem; font-weight: 800; color: var(--ink); }
+.pu-track { width: 38px; height: 3px; border-radius: 2px; background: rgba(255, 255, 255, 0.16); overflow: hidden; }
+.pu-bar { display: block; height: 100%; background: var(--pu); transform-origin: left center; }
+
+.countdown {
+  position: absolute; inset: 0; display: grid; place-content: center;
+  font-size: clamp(4rem, 17vw, 11rem); font-weight: 900; letter-spacing: -0.03em;
+  color: var(--ink); text-shadow: 0 0 60px rgba(255, 90, 44, 0.75);
+}
+.countdown[hidden] { display: none; }
+
+.flash {
+  position: absolute; inset: 0; opacity: 0;
+  background: radial-gradient(circle at 50% 62%, rgba(255, 90, 44, 0.5), transparent 62%);
+  transition: opacity 0.4s ease-out;
+}
+.flash.on { opacity: 1; transition-duration: 0.05s; }
+
+/* --------------------------------------------------------------- screens */
+
+.screens { position: fixed; inset: 0; z-index: 20; pointer-events: none; }
+
+.screen {
+  position: absolute; inset: 0;
+  display: grid; align-content: center; justify-items: center;
+  gap: 18px; padding: clamp(20px, 5vw, 56px);
+  background: radial-gradient(ellipse at 50% 40%, rgba(8, 10, 17, 0.82), rgba(3, 4, 8, 0.96));
+  backdrop-filter: blur(7px);
+  pointer-events: auto;
+  overflow-y: auto;
+}
+.screen[hidden] { display: none; }
+
+.title {
+  font-size: clamp(2.6rem, 9vw, 5.2rem); font-weight: 900;
+  letter-spacing: -0.035em; line-height: 0.92;
+}
+.title span { color: var(--hot); }
+
+.tagline { color: var(--dim); font-size: 0.95rem; }
+
+.screen h2 { font-size: clamp(1.5rem, 4.5vw, 2.3rem); font-weight: 800; }
+
+.wallet {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 1.05rem; font-weight: 800; color: var(--gold);
+}
+
+.actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+
+.btn {
+  font: inherit; font-weight: 700; font-size: 0.92rem;
+  padding: 11px 26px; border-radius: 11px; cursor: pointer;
+  color: var(--ink); background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--edge);
+  transition: transform 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+.btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.13); transform: translateY(-1px); }
+.btn:active:not(:disabled) { transform: translateY(0); }
+.btn:focus-visible { outline: 2px solid var(--hot-soft); outline-offset: 3px; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-primary {
+  background: linear-gradient(180deg, var(--hot), #e0431c);
+  border-color: transparent; padding-inline: 34px;
+  box-shadow: 0 8px 26px rgba(255, 90, 44, 0.35);
+}
+.btn-primary:hover:not(:disabled) { background: linear-gradient(180deg, #ff6b3f, #e84a20); }
+.btn-ghost { background: transparent; color: var(--dim); }
+
+.records, .results {
+  display: flex; gap: clamp(16px, 4vw, 38px); flex-wrap: wrap; justify-content: center;
+}
+.records div, .results div { display: grid; gap: 3px; justify-items: center; }
+.records dt, .results dt {
+  font-size: 9.5px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--faint);
+}
+.records dd { font-size: 1.05rem; font-weight: 700; }
+.results dd { font-size: clamp(1.3rem, 4vw, 2rem); font-weight: 800; }
+
+.result-best { color: var(--gold); font-weight: 800; letter-spacing: 0.05em; }
+.result-best[hidden] { display: none; }
+
+.leaderboard { border-collapse: collapse; font-size: 0.86rem; min-width: min(340px, 84vw); }
+.leaderboard caption {
+  font-size: 9.5px; letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--faint); padding-bottom: 7px;
+}
+.leaderboard td { padding: 5px 10px; border-top: 1px solid var(--edge); }
+.leaderboard .lb-rank { color: var(--faint); width: 2.2em; }
+.leaderboard .lb-name { color: var(--dim); }
+.leaderboard .lb-score { text-align: right; font-weight: 700; }
+.leaderboard .lb-empty { color: var(--faint); text-align: center; padding: 14px; }
+
+.keys { color: var(--faint); font-size: 0.78rem; }
+
+/* ---------------------------------------------------------------- garage */
+
+.screen-wide { align-content: start; padding-top: clamp(24px, 6vh, 64px); }
+.screen-head {
+  display: flex; align-items: baseline; gap: 18px; justify-content: center; flex-wrap: wrap;
+}
+
+.garage-list {
+  list-style: none; display: grid; gap: 11px; width: min(760px, 94vw);
+}
+.car {
+  display: grid; gap: 10px; padding: 14px 16px;
+  grid-template-columns: 1fr auto; align-items: center;
+  background: var(--panel); border: 1px solid var(--edge); border-radius: var(--radius);
+}
+.car.is-equipped { border-color: rgba(255, 90, 44, 0.5); }
+.car-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.car-swatch { width: 16px; height: 16px; border-radius: 5px; flex: none; }
+.car-name { font-weight: 800; font-size: 1.02rem; }
+.car-tag {
+  font-size: 9px; letter-spacing: 0.15em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 5px; font-weight: 700;
+  background: rgba(255, 90, 44, 0.18); color: var(--hot-soft);
+}
+.car-blurb { color: var(--dim); font-size: 0.82rem; grid-column: 1 / -1; }
+.price { display: flex; align-items: center; gap: 6px; font-weight: 800; color: var(--gold); }
+
+.stats-row { display: flex; gap: 8px; flex-wrap: wrap; grid-column: 1 / -1; }
+.stat-chip {
+  display: grid; gap: 4px; justify-items: start;
+  padding: 7px 9px; border-radius: 9px; min-width: 104px;
+  background: rgba(255, 255, 255, 0.04); border: 1px solid var(--edge);
+}
+.chip-head { display: flex; justify-content: space-between; width: 100%; gap: 8px; align-items: baseline; }
+.chip-name { font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint); }
+.chip-level { font-size: 9px; color: var(--dim); font-weight: 700; }
+.pips { display: flex; gap: 3px; }
+.pip { width: 12px; height: 3px; border-radius: 2px; background: rgba(255, 255, 255, 0.16); }
+.pip.on { background: var(--hot); }
+.chip-buy {
+  font: inherit; font-size: 10px; font-weight: 700; cursor: pointer;
+  padding: 3px 7px; border-radius: 6px; width: 100%;
+  background: rgba(255, 255, 255, 0.07); border: 1px solid var(--edge); color: var(--gold);
+}
+.chip-buy:hover:not(:disabled) { background: rgba(255, 255, 255, 0.13); }
+.chip-buy:disabled { opacity: 0.35; cursor: not-allowed; color: var(--faint); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

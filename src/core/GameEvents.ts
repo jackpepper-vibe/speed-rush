@@ -1,7 +1,7 @@
 import type { Vector3 } from 'three';
 
 /** Run lifecycle. */
-export type RunState = 'menu' | 'countdown' | 'driving' | 'crashed' | 'gameover';
+export type RunState = 'menu' | 'garage' | 'countdown' | 'driving' | 'paused' | 'gameover';
 
 export type BiomeId = 'coast' | 'city' | 'desert' | 'forest' | 'tunnel';
 export type WeatherId = 'clear' | 'rain' | 'storm' | 'fog';

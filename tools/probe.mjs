@@ -307,7 +307,8 @@ const booted = await page.evaluate(() => {
   return window.carRacer.state();
 });
 
-check('boot', 'run-started', booted.runState === 'driving', `runState: ${booted.runState}`);
+// The game opens on the menu now, with the world rendering behind it.
+check('boot', 'opens-on-the-menu', booted.runState === 'menu', `runState at boot: ${booted.runState}`);
 check('boot', 'context-alive', booted.contextLost === false,
   `WebGL context lost during boot: ${booted.contextLost} (quality tier: ${booted.quality})`);
 check('boot', 'scene-populated', booted.sceneChildren >= 4,
@@ -1392,6 +1393,286 @@ check('audio', 'held-voices-are-reused',
   audioGrowth.after.buffers - audioGrowth.before.buffers < 60,
   `buffer sources created across 30s of continuous sliding: ` +
   `${audioGrowth.after.buffers - audioGrowth.before.buffers}, want < 60`);
+
+/* -- interface ----------------------------------------------------------------
+ * The third coverage gate. Presence is the cheap half; the real test is that
+ * what the player reads agrees with what the simulation believes. A speedometer
+ * frozen at a plausible number photographs perfectly, and so does a combo meter
+ * that stopped updating three seconds ago. So every readout is compared against
+ * the state it claims to be showing, and the screens are checked for being
+ * mutually exclusive — two overlays at once is a dead interface. */
+
+phase = 'ui';
+const uiIds = await page.evaluate(() => window.carRacer.uiElements());
+
+/* Presence. */
+{
+  const missing = await page.evaluate((ids) => {
+    const absent = [];
+    for (const id of [...ids.hud, ...ids.screens]) {
+      if (!document.getElementById(id)) absent.push(id);
+    }
+    return absent;
+  }, uiIds);
+
+  check('ui', 'no-undrawn-elements', missing.length === 0,
+    `${missing.length} of ${uiIds.hud.length + uiIds.screens.length} declared elements are absent from the DOM: ` +
+    `${missing.join(', ') || 'none'}`);
+}
+
+/* The HUD must be hidden on the menu and shown while driving. */
+{
+  const visibility = await page.evaluate(() => {
+    const cr = window.carRacer;
+    const hud = () => !document.getElementById('hud').hidden;
+    const screen = (id) => !document.getElementById(id).hidden;
+
+    cr.toMenu();
+    cr.step(30);
+    const onMenu = { hud: hud(), menu: screen('screen-menu'), pause: screen('screen-pause') };
+
+    cr.setCollisions(false);
+    cr.startRun(202);
+    cr.drive(1, 0);
+    const driving = { hud: hud(), menu: screen('screen-menu'), pause: screen('screen-pause') };
+
+    cr.pause();
+    cr.step(30);
+    const paused = { hud: hud(), pause: screen('screen-pause'), state: cr.state().runState };
+
+    cr.unpause();
+    cr.drive(0.5, 0);
+    const resumed = { pause: screen('screen-pause'), state: cr.state().runState };
+
+    cr.toGarage();
+    cr.step(30);
+    const garage = { garage: screen('screen-garage'), menu: screen('screen-menu') };
+
+    cr.toMenu();
+    cr.step(30);
+    return { onMenu, driving, paused, resumed, garage };
+  });
+
+  check('ui', 'hud-hidden-on-the-menu',
+    visibility.onMenu.hud === false && visibility.onMenu.menu === true,
+    `on the menu: hud shown ${visibility.onMenu.hud}, menu shown ${visibility.onMenu.menu}`);
+  check('ui', 'hud-shown-while-driving',
+    visibility.driving.hud === true && visibility.driving.menu === false,
+    `while driving: hud shown ${visibility.driving.hud}, menu shown ${visibility.driving.menu}`);
+  check('ui', 'pause-overlay-appears',
+    visibility.paused.pause === true && visibility.paused.state === 'paused',
+    `paused: overlay ${visibility.paused.pause}, runState ${visibility.paused.state}`);
+  check('ui', 'pause-overlay-clears',
+    visibility.resumed.pause === false && visibility.resumed.state === 'driving',
+    `resumed: overlay ${visibility.resumed.pause}, runState ${visibility.resumed.state}`);
+  check('ui', 'garage-replaces-the-menu',
+    visibility.garage.garage === true && visibility.garage.menu === false,
+    `garage shown ${visibility.garage.garage}, menu shown ${visibility.garage.menu}`);
+}
+
+/* Live values, read off the DOM and compared to the simulation. */
+{
+  const live = await page.evaluate(() => {
+    const cr = window.carRacer;
+    const read = (id) => document.getElementById(id).textContent.trim();
+    const num = (id) => Number(read(id).replace(/[^0-9.-]/g, ''));
+
+    cr.setCollisions(false);
+    cr.setPickupSpawning(true);
+    cr.clearPowerups();
+    cr.startRun(1212);
+    cr.drive(18, 0.3);
+
+    const s = cr.state();
+    const shown = {
+      speed: num('hud-speed'),
+      score: num('hud-score'),
+      distance: read('hud-distance'),
+      gear: read('hud-gear'),
+      coins: num('hud-coin-count'),
+    };
+
+    // Power-up slots: one per running effect, each with a live timer.
+    cr.givePowerup('shield');
+    cr.givePowerup('magnet');
+    cr.drive(0.3, 0);
+    const slots = [...document.querySelectorAll('#hud-powerups .pu')].map((n) => n.dataset.powerup);
+    const firstTimer = Number(document.querySelector('[data-time="shield"]')?.textContent ?? '-1');
+    cr.drive(2, 0);
+    const laterTimer = Number(document.querySelector('[data-time="shield"]')?.textContent ?? '-1');
+
+    // Combo meter: hidden at rest, shown with a chain.
+    const comboHiddenAtRest = document.getElementById('hud-combo').hidden;
+    for (let i = 0; i < 60; i++) {
+      const beside = cr.traffic().filter((t) => t.ahead > 5 && t.ahead < 90)
+        .sort((a, b) => a.ahead - b.ahead)[0];
+      if (beside) cr.place({ x: beside.x + 2.7, vx: 0 });
+      cr.drive(0.4, 0);
+      if (cr.state().comboChain > 0) break;
+    }
+    // The HUD is specified to write at 20Hz, so a chain gained in the last few
+    // milliseconds of the loop above is legitimately not on screen yet. One
+    // more sync window, then read.
+    cr.drive(0.12, 0);
+    const comboShown = !document.getElementById('hud-combo').hidden;
+    const comboMult = read('hud-combo-mult');
+    const comboState = cr.state();
+
+    return {
+      shown, state: s, slots, firstTimer, laterTimer,
+      comboHiddenAtRest, comboShown, comboMult,
+      comboChain: comboState.comboChain, multiplier: comboState.multiplier,
+    };
+  });
+
+  check('ui', 'speedometer-matches-the-car',
+    Math.abs(live.shown.speed - live.state.speedKmh) <= 1.5,
+    `HUD reads ${live.shown.speed} km/h, car is doing ${live.state.speedKmh.toFixed(1)}`);
+  check('ui', 'score-matches-the-run',
+    Math.abs(live.shown.score - Math.round(live.state.score)) <= 25,
+    `HUD reads ${live.shown.score}, score is ${Math.round(live.state.score)}`);
+  check('ui', 'distance-readout-is-live',
+    live.shown.distance !== '0 m' && /\d/.test(live.shown.distance),
+    `distance readout: "${live.shown.distance}" after 18s`);
+  check('ui', 'gear-is-engaged', live.shown.gear !== 'N' && Number(live.shown.gear) >= 1,
+    `gear readout at ${live.state.speedKmh.toFixed(0)} km/h: "${live.shown.gear}"`);
+  check('ui', 'coin-counter-is-live', live.shown.coins >= 0 && Number.isFinite(live.shown.coins),
+    `coin readout: ${live.shown.coins}, run coins: ${live.state.runCoins}`);
+
+  check('ui', 'powerup-slot-per-effect',
+    live.slots.length === 2 && live.slots.includes('shield') && live.slots.includes('magnet'),
+    `slots rendered for two running effects: [${live.slots.join(', ')}]`);
+  check('ui', 'powerup-timer-counts-down',
+    live.laterTimer < live.firstTimer && live.laterTimer >= 0,
+    `shield timer ${live.firstTimer} -> ${live.laterTimer} across 2s`);
+
+  check('ui', 'combo-meter-hidden-at-rest', live.comboHiddenAtRest === true,
+    `combo meter hidden with no chain: ${live.comboHiddenAtRest}`);
+  check('ui', 'combo-meter-shows-on-a-chain',
+    live.comboShown === true && live.comboChain > 0,
+    `combo meter shown ${live.comboShown} on a chain of ${live.comboChain}`);
+  check('ui', 'combo-multiplier-matches-state',
+    live.comboMult === `x${live.multiplier.toFixed(1)}`,
+    `HUD reads "${live.comboMult}", state multiplier is ${live.multiplier.toFixed(1)}`);
+}
+
+/* The countdown has to be drawn, not merely fired. */
+{
+  const counted = await page.evaluate(async () => {
+    const cr = window.carRacer;
+    cr.toMenu();
+    cr.step(10);
+    cr.startCountdown(3);
+    const seen = [];
+    for (let i = 0; i < 26; i++) {
+      cr.drive(0.2, 0);
+      const node = document.getElementById('hud-countdown');
+      if (!node.hidden && node.textContent) seen.push(node.textContent.trim());
+    }
+    return { seen: [...new Set(seen)], hiddenAfter: document.getElementById('hud-countdown').hidden };
+  });
+
+  check('ui', 'countdown-is-drawn', counted.seen.length >= 3,
+    `countdown rendered: [${counted.seen.join(', ')}]`);
+  check('ui', 'countdown-shows-go', counted.seen.includes('GO'),
+    `countdown sequence included GO: [${counted.seen.join(', ')}]`);
+  check('ui', 'countdown-clears-when-the-run-starts', counted.hiddenAfter === true,
+    `countdown still shown after the run began: ${!counted.hiddenAfter}`);
+}
+
+/* Results and leaderboard. */
+{
+  const results = await page.evaluate(() => {
+    const cr = window.carRacer;
+    const read = (id) => document.getElementById(id).textContent.trim();
+    cr.resetSave();
+    cr.setCollisions(false);
+    cr.startRun(31);
+    cr.drive(12, 0);
+    const score = Math.round(cr.state().score);
+    cr.endRun();
+    cr.step(30);
+    const shown = {
+      visible: !document.getElementById('screen-gameover').hidden,
+      score: Number(read('result-score').replace(/[^0-9.-]/g, '')),
+    };
+    cr.toMenu();
+    cr.step(30);
+    const rows = document.querySelectorAll('#leaderboard-rows tr').length;
+    const empty = document.querySelector('#leaderboard-rows .lb-empty') !== null;
+    return { shown, score, rows, empty };
+  });
+
+  check('ui', 'results-screen-appears', results.shown.visible === true,
+    `game-over screen shown after the run ended: ${results.shown.visible}`);
+  check('ui', 'results-score-matches-the-run',
+    Math.abs(results.shown.score - results.score) <= 2,
+    `results read ${results.shown.score}, run scored ${results.score}`);
+  check('ui', 'leaderboard-lists-the-run', results.rows >= 1 && !results.empty,
+    `${results.rows} leaderboard rows after one run, empty-state shown: ${results.empty}`);
+}
+
+/* The garage screen has to render the roster and actually transact from it. */
+{
+  const garageUi = await page.evaluate(() => {
+    const cr = window.carRacer;
+    cr.resetSave();
+    cr.grantCoins(60000);
+    cr.toGarage();
+    cr.step(30);
+
+    const cards = document.querySelectorAll('#garage-list .car').length;
+    const buyButton = document.querySelector('[data-buy]');
+    const targetId = buyButton?.dataset.buy ?? null;
+    const coinsBefore = cr.state().coins;
+
+    buyButton?.click();
+    cr.step(10);
+
+    const owned = cr.garage().find((e) => e.def.id === targetId)?.owned ?? false;
+    const coinsAfter = cr.state().coins;
+
+    // The card should now offer Equip instead of a price.
+    const equipButton = document.querySelector(`[data-equip="${targetId}"]`);
+    equipButton?.click();
+    cr.step(10);
+    // Against the saved selection, not the car currently on the road: equipping
+    // in the garage takes effect when the next run builds its mesh.
+    const equipped = cr.state().activeCar === targetId;
+
+    const upgradeButton = document.querySelector(`[data-upgrade^="${targetId}:"]`);
+    const levelBefore = cr.garage().find((e) => e.def.id === targetId)?.levels ?? {};
+    upgradeButton?.click();
+    cr.step(10);
+    const levelAfter = cr.garage().find((e) => e.def.id === targetId)?.levels ?? {};
+
+    return {
+      cards, targetId, owned, coinsBefore, coinsAfter, equipped,
+      hadUpgradeButton: upgradeButton !== null,
+      levelBefore: Object.values(levelBefore).reduce((a, b) => a + b, 0),
+      levelAfter: Object.values(levelAfter).reduce((a, b) => a + b, 0),
+    };
+  });
+
+  check('ui', 'garage-renders-the-roster', garageUi.cards >= 6,
+    `${garageUi.cards} car cards rendered`);
+  check('ui', 'garage-buy-button-purchases',
+    garageUi.owned === true && garageUi.coinsAfter < garageUi.coinsBefore,
+    `clicking buy on ${garageUi.targetId}: owned ${garageUi.owned}, ` +
+    `coins ${garageUi.coinsBefore} -> ${garageUi.coinsAfter}`);
+  check('ui', 'garage-equip-button-equips', garageUi.equipped === true,
+    `clicking equip made ${garageUi.targetId} the active car: ${garageUi.equipped}`);
+  check('ui', 'garage-upgrade-button-upgrades',
+    garageUi.hadUpgradeButton && garageUi.levelAfter === garageUi.levelBefore + 1,
+    `clicking upgrade: total levels ${garageUi.levelBefore} -> ${garageUi.levelAfter}`);
+}
+
+await page.evaluate(() => {
+  const cr = window.carRacer;
+  cr.toMenu();
+  cr.step(20);
+});
+await shot(page, 'menu');
 
 /* -- stability --------------------------------------------------------------- */
 

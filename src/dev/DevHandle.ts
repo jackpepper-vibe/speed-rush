@@ -2,6 +2,7 @@ import type { Game } from '@/game/Game';
 import type { GameEventName, GameEvents } from '@/core/GameEvents';
 import { ROAD, SCORE, SPEED } from '@/game/config/Balance';
 import { AUDIBLE_CUES } from '@/game/managers/AudioManager';
+import { HUD_ELEMENTS, SCREEN_ELEMENTS } from '@/ui/UIManager';
 
 /**
  * The surface the probe drives the game through.
@@ -102,6 +103,14 @@ export interface DevHandle {
   audibleCues(): string[];
   setMuted(muted: boolean): void;
   resumeAudio(): void;
+
+  /** Element ids the HUD coverage gate is measured against. */
+  uiElements(): { hud: string[]; screens: string[] };
+  /** Drive the interface: menu, garage, pause. */
+  toMenu(): void;
+  toGarage(): void;
+  pause(): void;
+  unpause(): void;
 
   /** Garage: the roster, and the three transactions. */
   garage(): unknown[];
@@ -223,6 +232,26 @@ export function installDevHandle(game: Game, version: string): DevHandle {
       game.audio.resume();
     },
 
+    uiElements() {
+      return { hud: [...HUD_ELEMENTS], screens: [...SCREEN_ELEMENTS] };
+    },
+
+    toMenu() {
+      game.toMenu();
+    },
+
+    toGarage() {
+      game.toGarage();
+    },
+
+    pause() {
+      game.pause();
+    },
+
+    unpause() {
+      game.unpause();
+    },
+
     garage() {
       return game.garage.list();
     },
@@ -280,7 +309,10 @@ export function installDevHandle(game: Game, version: string): DevHandle {
         airborne: p.airborne,
         lane: p.lane,
         slipping: p.slipping,
+        // The car being driven right now, and the one the garage has selected.
+        // They differ between equipping and the next run starting.
         carId: p.currentCarId,
+        activeCar: game.save.snapshot.activeCar,
         coins: game.save.coins,
         best: game.save.snapshot.best,
         multiplier: game.scoring.multiplier,

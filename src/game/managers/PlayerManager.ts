@@ -148,6 +148,8 @@ export class PlayerManager implements Manager {
   }
 
   private lastSlope = 0;
+  /** True while the car is in continuous contact with a barrier. */
+  private againstBarrier = false;
 
   private integrateSpeed(dt: number, distance: number): void {
     const km = distance / 1000;
@@ -191,17 +193,33 @@ export class PlayerManager implements Manager {
 
     this.x += this.vx * dt;
 
-    // Barriers: hard stop with a bounce, not a wall the car sinks into.
+    /*
+     * Barriers: a hard stop with a bounce, not a wall the car sinks into.
+     *
+     * The impact penalty fires on contact only. Applied every tick it was
+     * compounding at 120Hz, so a car held against the rail was crushed to the
+     * minimum speed in well under a second — the HUD read a steady 56 km/h with
+     * the gearbox in neutral while the player still had the throttle pinned.
+     * Sustained contact is a scrub, not a series of collisions.
+     */
     const limit = barrierLimit() - 1.0;
     if (Math.abs(this.x) > limit) {
       this.x = Math.sign(this.x) * limit;
       this.vx *= -0.28;
-      this.speed = Math.max(SPEED.min, this.speed * 0.86);
-      this.ctx.bus.emit('player:crash', {
-        with: 'barrier',
-        speed: this.speed,
-        position: this.mesh.position.clone(),
-      });
+
+      if (!this.againstBarrier) {
+        this.againstBarrier = true;
+        this.speed = Math.max(SPEED.min, this.speed * 0.86);
+        this.ctx.bus.emit('player:crash', {
+          with: 'barrier',
+          speed: this.speed,
+          position: this.mesh.position.clone(),
+        });
+      } else {
+        this.speed = Math.max(SPEED.min, this.speed - HANDLING.shoulderDrag * 2.5 * dt);
+      }
+    } else {
+      this.againstBarrier = false;
     }
 
     const slipping = this.slipping;

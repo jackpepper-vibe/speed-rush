@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { EventBus } from '@/core/EventBus';
 import type { GameEvents, RunState } from '@/core/GameEvents';
 import { GameLoop } from '@/core/GameLoop';
-import { ManagerRegistry, type GameContext } from '@/core/Manager';
+import { ManagerRegistry, type GameContext, type Manager } from '@/core/Manager';
 import { Random } from '@/core/Random';
 import { SceneRig } from '@/game/render/SceneRig';
 import { RoadManager } from '@/game/managers/RoadManager';
@@ -27,6 +27,9 @@ import { SPEED } from '@/game/config/Balance';
  * that adding a system is one registration rather than an edit spread across
  * the update path.
  */
+/** How long "GO" stays on screen after the count reaches zero. */
+const GO_HOLD_SECONDS = 0.45;
+
 export class Game {
   readonly bus = new EventBus<GameEvents>();
   readonly rig: SceneRig;
@@ -45,6 +48,14 @@ export class Game {
   readonly audio: AudioManager;
 
   private readonly managers = new ManagerRegistry();
+  /**
+   * Managers that tick in every state, not just while driving.
+   *
+   * The interface is the case this exists for: it has to keep running on the
+   * menu, in the garage and behind the pause overlay, which are exactly the
+   * states where the simulation is deliberately frozen.
+   */
+  private readonly alwaysUpdate: Manager[] = [];
   private readonly loop: GameLoop;
 
   private state: RunState = 'menu';
@@ -120,6 +131,47 @@ export class Game {
   }
 
   /**
+   * Register a manager built outside the composition root.
+   *
+   * The interface needs a finished `Game` to read from, so it cannot be
+   * constructed in the constructor alongside everything else.
+   */
+  attach<T extends Manager>(manager: T): T {
+    // Deliberately not added to the main registry: that one is driven only
+    // while driving, and being in both lists would tick it twice a frame.
+    this.alwaysUpdate.push(manager);
+    manager.init?.();
+    return manager;
+  }
+
+  /** Return to the front screen, abandoning any run in progress. */
+  toMenu(): void {
+    if (this.state === 'driving' || this.state === 'paused') this.endRun('quit');
+    this.state = 'menu';
+  }
+
+  /** Open the garage. Distinct from the menu so the UI can tell them apart. */
+  toGarage(): void {
+    this.state = 'garage';
+  }
+
+  /** Freeze a run in place. The world keeps rendering behind the overlay. */
+  pause(): void {
+    if (this.state !== 'driving') return;
+    this.state = 'paused';
+  }
+
+  unpause(): void {
+    if (this.state !== 'paused') return;
+    this.state = 'driving';
+  }
+
+  togglePause(): void {
+    if (this.state === 'driving') this.pause();
+    else if (this.state === 'paused') this.unpause();
+  }
+
+  /**
    * Run the three-count before the lights go green.
    *
    * Separate from `startRun` so a caller that wants to drive immediately — the
@@ -172,6 +224,9 @@ export class Game {
   /* ----------------------------------------------------------------- frame */
 
   private readonly tick = (dt: number): void => {
+    // The interface runs in every state, including the frozen ones.
+    for (const m of this.alwaysUpdate) m.update(dt, this.player.speed, this.road.travelled);
+
     if (this.state === 'countdown') {
       this.input.update();
       this.countdown -= dt;
@@ -182,7 +237,10 @@ export class Game {
         this.countdownWhole = whole;
         this.bus.emit('run:countdown', { remaining: Math.max(0, whole) });
       }
-      if (this.countdown <= 0) this.startRun();
+      // Hold on GO for a beat before releasing the car. Starting the run on the
+      // same tick that reaches zero meant the final frame was raised and
+      // overwritten within 8ms — the cue fired, and "GO" was never once drawn.
+      if (this.countdown <= -GO_HOLD_SECONDS) this.startRun();
       return;
     }
 
@@ -227,6 +285,8 @@ export class Game {
 
   dispose(): void {
     this.loop.stop();
+    for (const m of this.alwaysUpdate) m.dispose?.();
+    this.alwaysUpdate.length = 0;
     this.managers.disposeAll();
     this.bus.clear();
     this.rig.dispose();

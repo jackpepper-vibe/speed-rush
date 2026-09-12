@@ -4,29 +4,108 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Speed Rush</title>
-  <style>
-    :root { color-scheme: dark; }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { height: 100%; background: #05060a; overflow: hidden; }
-    body {
-      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-      -webkit-font-smoothing: antialiased;
-      touch-action: none;
-    }
-    #stage { display: block; width: 100vw; height: 100vh; }
-    #boot {
-      position: fixed; inset: 0; display: grid; place-content: center;
-      gap: 14px; justify-items: center; color: #6b7280;
-      letter-spacing: 0.32em; font-size: 11px; text-transform: uppercase;
-    }
-    #boot .bar { width: 160px; height: 2px; background: #1a1d24; overflow: hidden; }
-    #boot .bar i { display: block; height: 100%; width: 40%; background: #ff5a2c; animation: slide 1.1s ease-in-out infinite; }
-    @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
-  </style>
+  <meta name="description" content="Five lanes of traffic that thinks for itself. Thread the gaps, bank the combo, watch the grip in the wet." />
+  <meta name="theme-color" content="#05060a" />
+  <link rel="stylesheet" href="/src/ui/ui.css" />
 </head>
 <body>
   <canvas id="stage"></canvas>
-  <div id="boot"><span>Speed Rush</span><span class="bar"><i></i></span></div>
+
+  <!-- In-run HUD. Hidden unless a run is live; every value is written from
+       game state each frame, never computed here. -->
+  <div id="hud" class="hud" hidden>
+    <div class="hud-corner hud-tl">
+      <div class="stat">
+        <span class="stat-label">Score</span>
+        <b id="hud-score" class="stat-value">0</b>
+      </div>
+      <div class="stat stat-sub">
+        <span class="stat-label">Distance</span>
+        <b id="hud-distance" class="stat-value-sm">0 m</b>
+      </div>
+    </div>
+
+    <div class="hud-corner hud-tr">
+      <div class="stat stat-right">
+        <span class="stat-label">Speed</span>
+        <b id="hud-speed" class="stat-value">0</b>
+        <span class="stat-unit">km/h</span>
+      </div>
+      <div id="hud-gear" class="gear">N</div>
+    </div>
+
+    <div class="hud-top-centre">
+      <div id="hud-coins" class="coins"><i class="coin-dot"></i><span id="hud-coin-count">0</span></div>
+      <div id="hud-combo" class="combo" hidden>
+        <b id="hud-combo-mult">x1.0</b>
+        <span id="hud-combo-chain" class="combo-chain">0 chain</span>
+        <div class="combo-track"><i id="hud-combo-bar" class="combo-bar"></i></div>
+      </div>
+    </div>
+
+    <div id="hud-powerups" class="powerups"></div>
+
+    <div id="hud-countdown" class="countdown" hidden></div>
+    <div id="hud-flash" class="flash" aria-hidden="true"></div>
+  </div>
+
+  <!-- Screens. Exactly one is shown at a time. -->
+  <div id="screens" class="screens">
+
+    <section id="screen-menu" class="screen" hidden>
+      <h1 class="title">Speed<span>Rush</span></h1>
+      <p class="tagline">Five lanes. Traffic that thinks for itself.</p>
+      <div class="wallet"><i class="coin-dot"></i><b id="menu-coins">0</b></div>
+      <div class="actions">
+        <button id="btn-drive" class="btn btn-primary" type="button">Drive</button>
+        <button id="btn-garage" class="btn" type="button">Garage</button>
+        <button id="btn-mute" class="btn btn-ghost" type="button" aria-pressed="false">Sound: on</button>
+      </div>
+      <dl class="records">
+        <div><dt>Best score</dt><dd id="menu-best">0</dd></div>
+        <div><dt>Furthest</dt><dd id="menu-best-distance">0 m</dd></div>
+        <div><dt>Runs</dt><dd id="menu-runs">0</dd></div>
+      </dl>
+      <table id="screen-leaderboard" class="leaderboard">
+        <caption>Best runs</caption>
+        <tbody id="leaderboard-rows"></tbody>
+      </table>
+      <p class="keys">Arrow keys or A / D to steer &middot; Space to brake &middot; Esc to pause</p>
+    </section>
+
+    <section id="screen-garage" class="screen screen-wide" hidden>
+      <header class="screen-head">
+        <h2>Garage</h2>
+        <div class="wallet"><i class="coin-dot"></i><b id="garage-coins">0</b></div>
+      </header>
+      <ul id="garage-list" class="garage-list"></ul>
+      <button id="btn-garage-back" class="btn btn-ghost" type="button">Back</button>
+    </section>
+
+    <section id="screen-pause" class="screen" hidden>
+      <h2>Paused</h2>
+      <div class="actions">
+        <button id="btn-resume" class="btn btn-primary" type="button">Resume</button>
+        <button id="btn-quit" class="btn" type="button">Quit to menu</button>
+      </div>
+    </section>
+
+    <section id="screen-gameover" class="screen" hidden>
+      <h2 id="gameover-head">Run over</h2>
+      <dl class="results">
+        <div><dt>Score</dt><dd id="result-score">0</dd></div>
+        <div><dt>Distance</dt><dd id="result-distance">0 m</dd></div>
+        <div><dt>Coins</dt><dd id="result-coins">0</dd></div>
+      </dl>
+      <p id="result-best" class="result-best" hidden>New best!</p>
+      <div class="actions">
+        <button id="btn-again" class="btn btn-primary" type="button">Again</button>
+        <button id="btn-menu" class="btn" type="button">Menu</button>
+      </div>
+    </section>
+
+  </div>
+
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>
