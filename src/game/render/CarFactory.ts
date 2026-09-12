@@ -3,6 +3,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import type { TrafficKind } from '@/core/GameEvents';
 import type { CarDef } from '@/game/config/Cars';
 import { makeGlowTexture } from './RoadTextures';
+import { BODY_STATIONS, loftBody } from './BodyLoft';
 
 /**
  * Procedural car meshes.
@@ -265,36 +266,71 @@ export function buildCar(opts: {
   const sill = p.wheelR * p.ride;
   const bodyY = sill + p.hgt / 2;
 
-  /* Main body: waisted, so the flanks curve in toward the roof. */
-  const lower = new THREE.Mesh(tapered(p.wid, p.hgt, p.len, 0.94, 0.985, 0.1, seg), body);
-  lower.position.y = bodyY;
-  lower.castShadow = true;
-  lower.receiveShadow = true;
-  group.add(lower);
-
-  /* Nose: a second, lower volume that drops toward the bumper. */
   const noseH = p.hgt * p.nose;
-  const nose = new THREE.Mesh(tapered(p.wid * 0.96, noseH, p.len * 0.3, 0.88, 0.72, 0.08, seg), body);
-  nose.position.set(0, sill + noseH / 2 + p.hgt * 0.1, -p.len * 0.38);
-  nose.castShadow = true;
-  group.add(nose);
-
-  /* Cabin and its glasshouse. */
   const cabinH = p.hgt * (p.cabZ > 0.8 ? 1.05 : 0.8);
   const cabinZ = p.len * p.cabZ;
-  const cabin = new THREE.Mesh(
-    tapered(p.wid * p.cabX, cabinH, cabinZ, 0.86, 0.74, 0.12, seg), body,
-  );
-  cabin.position.set(0, sill + p.hgt + cabinH / 2 - 0.06, p.len * p.cabOffset);
-  cabin.castShadow = true;
-  group.add(cabin);
 
-  const glass = new THREE.Mesh(
-    tapered(p.wid * p.cabX * 0.96, cabinH * 0.78, cabinZ * 0.94, 0.86, 0.76, 0.1, seg), GLASS,
-  );
-  glass.position.copy(cabin.position);
-  glass.position.y += 0.035;
-  group.add(glass);
+  const stations = BODY_STATIONS[opts.profile];
+
+  if (stations && detail === 'high') {
+    /*
+     * One continuous surface from nose to tail.
+     *
+     * The bonnet, screen, roof and deck are all the same skin here, which is
+     * the point: a roofline can only flow into a rear deck if they are the
+     * same surface. Assembled from separate volumes they meet at a seam, and
+     * a seam is what the eye reads as "made of boxes" however well each
+     * individual volume is rounded.
+     */
+    const geometry = loftBody(stations, {
+      length: p.len,
+      ringSegments: 34,
+      lengthSegments: 56,
+    });
+    const shell = new THREE.Mesh(geometry, body);
+    shell.scale.set(p.wid / 2, 1, 1);
+    shell.position.y = sill * 0.32;
+    shell.castShadow = true;
+    shell.receiveShadow = true;
+    group.add(shell);
+
+    // Glass laid over the greenhouse region of the same loft, pushed out a
+    // hair so it sits on the surface rather than fighting it.
+    const glassGeo = loftBody(
+      stations.filter((s) => s.t > -0.45 && s.t < 0.6),
+      { length: p.len, ringSegments: 26, lengthSegments: 26 },
+    );
+    const glass = new THREE.Mesh(glassGeo, GLASS);
+    glass.scale.set((p.wid / 2) * 1.004, 1.004, 0.995);
+    glass.position.y = sill * 0.32 + 0.02;
+    group.add(glass);
+  } else {
+    /* Cheap build: stacked volumes, for traffic seen from behind at distance. */
+    const lower = new THREE.Mesh(tapered(p.wid, p.hgt, p.len, 0.94, 0.985, 0.1, seg), body);
+    lower.position.y = bodyY;
+    lower.castShadow = true;
+    lower.receiveShadow = true;
+    group.add(lower);
+
+    const nose = new THREE.Mesh(tapered(p.wid * 0.96, noseH, p.len * 0.3, 0.88, 0.72, 0.08, seg), body);
+    nose.position.set(0, sill + noseH / 2 + p.hgt * 0.1, -p.len * 0.38);
+    nose.castShadow = true;
+    group.add(nose);
+
+    const cabin = new THREE.Mesh(
+      tapered(p.wid * p.cabX, cabinH, cabinZ, 0.86, 0.74, 0.12, seg), body,
+    );
+    cabin.position.set(0, sill + p.hgt + cabinH / 2 - 0.06, p.len * p.cabOffset);
+    cabin.castShadow = true;
+    group.add(cabin);
+
+    const glass = new THREE.Mesh(
+      tapered(p.wid * p.cabX * 0.96, cabinH * 0.78, cabinZ * 0.94, 0.86, 0.76, 0.1, seg), GLASS,
+    );
+    glass.position.copy(cabin.position);
+    glass.position.y += 0.035;
+    group.add(glass);
+  }
 
   /* Sills, bumpers, grille. */
   const sillBar = new THREE.Mesh(bevel(p.wid * 1.005, 0.16, p.len * 0.82, 0.05, 1), trimMat);

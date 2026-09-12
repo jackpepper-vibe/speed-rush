@@ -1,0 +1,306 @@
+import * as THREE from 'three';
+
+/**
+ * Car bodies built by lofting cross-sections along the length.
+ *
+ * The previous bodies were stacks of bevelled boxes. Bevelling rounds an edge
+ * but it cannot make a surface flow — a haunch that swells over the rear arch
+ * and falls into the tail, or a roofline that melts into the deck, is a
+ * longitudinal curve, and no arrangement of boxes has one. That is what reads
+ * as "blocky" at a glance regardless of how many boxes are used.
+ *
+ * A body here is a handful of hand-placed stations — nose, arch, screen, roof,
+ * deck, tail — each describing the section at that point. The stations are
+ * interpolated with a Catmull-Rom spline into many intermediate sections, and
+ * those are skinned into a single closed mesh with averaged normals. The result
+ * is one continuous surface whose adjacent faces differ by a few degrees, which
+ * is exactly what the silhouette gate measures.
+ */
+
+/** One cross-section of the body. */
+export interface Station {
+  /** Position along the car, -1 at the nose to +1 at the tail. */
+  t: number;
+  /** Half-width of the section. */
+  halfWidth: number;
+  /** Underside and upper surface heights. */
+  yBottom: number;
+  yTop: number;
+  /**
+   * How much narrower the section is at the top than at the waist. 1 is a slab;
+   * 0.5 is a strongly tumblehome greenhouse.
+   */
+  roofRatio: number;
+  /**
+   * Section cornering. Low values give a soft, almost elliptical section; high
+   * values a squarer one with tight corner radii. Real cars run soft at the
+   * nose and squarer through the cabin.
+   */
+  squareness: number;
+}
+
+export interface LoftOptions {
+  /** Points around each section. More is smoother and costs a ring of quads. */
+  ringSegments?: number;
+  /** Interpolated sections between the outermost stations. */
+  lengthSegments?: number;
+  /** Overall length in world units; `t` is scaled to this. */
+  length: number;
+}
+
+/**
+ * Evaluate a section outline.
+ *
+ * A superellipse, which is the cheapest shape that goes from ellipse to
+ * rounded-rectangle with one parameter — and a car section is somewhere between
+ * the two at every point along the body.
+ */
+function sectionPoint(station: Station, angle: number, out: THREE.Vector2): THREE.Vector2 {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  const n = 2 / station.squareness;
+
+  const cx = Math.sign(c) * Math.pow(Math.abs(c), n);
+  const cy = Math.sign(s) * Math.pow(Math.abs(s), n);
+
+  const midY = (station.yTop + station.yBottom) / 2;
+  const halfHeight = (station.yTop - station.yBottom) / 2;
+
+  // Narrow the upper half toward the roof: the tumblehome that separates a car
+  // from a van, applied as a function of height rather than as a second shape.
+  const upper = Math.max(0, cy);
+  const width = station.halfWidth * (1 - (1 - station.roofRatio) * upper);
+
+  return out.set(cx * width, midY + cy * halfHeight);
+}
+
+/**
+ * Interpolate the station list onto a dense set of sections.
+ *
+ * Catmull-Rom through the control values rather than straight lines between
+ * them: a linear blend between two stations produces a visible crease at every
+ * station, which is the same fault as the boxes in a subtler form.
+ */
+function resample(stations: Station[], count: number): Station[] {
+  const sorted = [...stations].sort((a, b) => a.t - b.t);
+  const curveFor = (pick: (s: Station) => number): THREE.CatmullRomCurve3 =>
+    new THREE.CatmullRomCurve3(
+      sorted.map((s) => new THREE.Vector3(s.t, pick(s), 0)),
+      false,
+      'catmullrom',
+      0.5,
+    );
+
+  const width = curveFor((s) => s.halfWidth);
+  const bottom = curveFor((s) => s.yBottom);
+  const top = curveFor((s) => s.yTop);
+  const roof = curveFor((s) => s.roofRatio);
+  const square = curveFor((s) => s.squareness);
+
+  const point = new THREE.Vector3();
+  const out: Station[] = [];
+  for (let i = 0; i <= count; i++) {
+    const u = i / count;
+    out.push({
+      t: width.getPoint(u, point).x,
+      halfWidth: Math.max(0.02, width.getPoint(u, point).y),
+      yBottom: bottom.getPoint(u, point).y,
+      yTop: top.getPoint(u, point).y,
+      roofRatio: THREE.MathUtils.clamp(roof.getPoint(u, point).y, 0.2, 1),
+      squareness: THREE.MathUtils.clamp(square.getPoint(u, point).y, 0.15, 0.98),
+    });
+  }
+  // Guard against the spline overshooting into a reversed body.
+  for (let i = 1; i < out.length; i++) {
+    if (out[i].t <= out[i - 1].t) out[i].t = out[i - 1].t + 1e-4;
+  }
+  return out;
+}
+
+/**
+ * Skin a station list into a closed body.
+ *
+ * Normals are computed across the whole mesh at the end rather than per quad,
+ * so a vertex shared by four faces averages them and the surface shades as one
+ * continuous thing. This is the step that actually removes the faceting; the
+ * spline only decides where the surface goes.
+ */
+export function loftBody(stations: Station[], options: LoftOptions): THREE.BufferGeometry {
+  const ring = options.ringSegments ?? 28;
+  const along = options.lengthSegments ?? 44;
+  const half = options.length / 2;
+
+  const sections = resample(stations, along);
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+
+  const p = new THREE.Vector2();
+
+  for (let i = 0; i < sections.length; i++) {
+    const section = sections[i];
+    const z = section.t * half;
+    for (let j = 0; j < ring; j++) {
+      // Start at the outer waist so the seam falls on the flank, where a
+      // texture discontinuity is least visible.
+      sectionPoint(section, (j / ring) * Math.PI * 2, p);
+      positions.push(p.x, p.y, z);
+      uvs.push(j / ring, i / (sections.length - 1));
+    }
+  }
+
+  for (let i = 0; i < sections.length - 1; i++) {
+    for (let j = 0; j < ring; j++) {
+      const a = i * ring + j;
+      const b = i * ring + ((j + 1) % ring);
+      const c = (i + 1) * ring + ((j + 1) % ring);
+      const d = (i + 1) * ring + j;
+      indices.push(a, b, d, b, c, d);
+    }
+  }
+
+  // Cap both ends by fanning to a centre vertex, so the body is closed and
+  // does not show its hollow interior through the windscreen.
+  for (const [index, sign] of [[0, -1], [sections.length - 1, 1]] as const) {
+    const section = sections[index];
+    const centre = positions.length / 3;
+    positions.push(0, (section.yTop + section.yBottom) / 2, section.t * half);
+    uvs.push(0.5, 0.5);
+    for (let j = 0; j < ring; j++) {
+      const a = index * ring + j;
+      const b = index * ring + ((j + 1) % ring);
+      if (sign < 0) indices.push(centre, b, a);
+      else indices.push(centre, a, b);
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+/* ------------------------------------------------------------- body shapes */
+
+/**
+ * Station sets per body style.
+ *
+ * Written as a profile you could read off a side elevation: where the nose
+ * starts, how far the arches swell, where the screen rakes back, where the roof
+ * runs, and how the tail is cut off.
+ */
+export const BODY_STATIONS: Record<string, Station[]> = {
+  super: [
+    { t: -1.00, halfWidth: 0.52, yBottom: 0.26, yTop: 0.40, roofRatio: 0.80, squareness: 0.30 },
+    { t: -0.88, halfWidth: 0.80, yBottom: 0.16, yTop: 0.56, roofRatio: 0.74, squareness: 0.36 },
+    { t: -0.66, halfWidth: 0.97, yBottom: 0.13, yTop: 0.70, roofRatio: 0.70, squareness: 0.44 },
+    { t: -0.40, halfWidth: 1.02, yBottom: 0.12, yTop: 0.92, roofRatio: 0.62, squareness: 0.52 },
+    { t: -0.12, halfWidth: 1.03, yBottom: 0.12, yTop: 1.22, roofRatio: 0.50, squareness: 0.58 },
+    { t: 0.16, halfWidth: 1.04, yBottom: 0.12, yTop: 1.24, roofRatio: 0.48, squareness: 0.58 },
+    { t: 0.44, halfWidth: 1.06, yBottom: 0.13, yTop: 1.06, roofRatio: 0.56, squareness: 0.54 },
+    { t: 0.74, halfWidth: 1.05, yBottom: 0.16, yTop: 0.84, roofRatio: 0.68, squareness: 0.48 },
+    { t: 0.92, halfWidth: 0.96, yBottom: 0.22, yTop: 0.76, roofRatio: 0.76, squareness: 0.42 },
+    { t: 1.00, halfWidth: 0.84, yBottom: 0.28, yTop: 0.70, roofRatio: 0.84, squareness: 0.36 },
+  ],
+  hyper: [
+    { t: -1.00, halfWidth: 0.54, yBottom: 0.22, yTop: 0.34, roofRatio: 0.82, squareness: 0.26 },
+    { t: -0.86, halfWidth: 0.84, yBottom: 0.13, yTop: 0.50, roofRatio: 0.74, squareness: 0.32 },
+    { t: -0.62, halfWidth: 1.02, yBottom: 0.10, yTop: 0.62, roofRatio: 0.68, squareness: 0.40 },
+    { t: -0.34, halfWidth: 1.07, yBottom: 0.10, yTop: 0.86, roofRatio: 0.58, squareness: 0.48 },
+    { t: -0.06, halfWidth: 1.08, yBottom: 0.10, yTop: 1.14, roofRatio: 0.44, squareness: 0.54 },
+    { t: 0.22, halfWidth: 1.09, yBottom: 0.10, yTop: 1.12, roofRatio: 0.44, squareness: 0.54 },
+    { t: 0.52, halfWidth: 1.11, yBottom: 0.12, yTop: 0.92, roofRatio: 0.54, squareness: 0.50 },
+    { t: 0.80, halfWidth: 1.08, yBottom: 0.15, yTop: 0.74, roofRatio: 0.66, squareness: 0.44 },
+    { t: 1.00, halfWidth: 0.90, yBottom: 0.22, yTop: 0.66, roofRatio: 0.80, squareness: 0.34 },
+  ],
+  wedge: [
+    { t: -1.00, halfWidth: 0.56, yBottom: 0.24, yTop: 0.36, roofRatio: 0.84, squareness: 0.30 },
+    { t: -0.84, halfWidth: 0.82, yBottom: 0.15, yTop: 0.52, roofRatio: 0.76, squareness: 0.38 },
+    { t: -0.58, halfWidth: 0.96, yBottom: 0.13, yTop: 0.66, roofRatio: 0.72, squareness: 0.46 },
+    { t: -0.28, halfWidth: 1.00, yBottom: 0.12, yTop: 0.90, roofRatio: 0.60, squareness: 0.54 },
+    { t: 0.02, halfWidth: 1.01, yBottom: 0.12, yTop: 1.16, roofRatio: 0.50, squareness: 0.60 },
+    { t: 0.34, halfWidth: 1.02, yBottom: 0.13, yTop: 1.08, roofRatio: 0.54, squareness: 0.58 },
+    { t: 0.68, halfWidth: 1.03, yBottom: 0.15, yTop: 0.88, roofRatio: 0.66, squareness: 0.50 },
+    { t: 1.00, halfWidth: 0.88, yBottom: 0.24, yTop: 0.74, roofRatio: 0.80, squareness: 0.38 },
+  ],
+  coupe: [
+    { t: -1.00, halfWidth: 0.58, yBottom: 0.26, yTop: 0.46, roofRatio: 0.86, squareness: 0.34 },
+    { t: -0.82, halfWidth: 0.84, yBottom: 0.18, yTop: 0.62, roofRatio: 0.80, squareness: 0.42 },
+    { t: -0.54, halfWidth: 0.94, yBottom: 0.16, yTop: 0.76, roofRatio: 0.76, squareness: 0.50 },
+    { t: -0.24, halfWidth: 0.97, yBottom: 0.15, yTop: 1.04, roofRatio: 0.62, squareness: 0.56 },
+    { t: 0.06, halfWidth: 0.98, yBottom: 0.15, yTop: 1.30, roofRatio: 0.52, squareness: 0.60 },
+    { t: 0.38, halfWidth: 0.99, yBottom: 0.16, yTop: 1.24, roofRatio: 0.56, squareness: 0.58 },
+    { t: 0.72, halfWidth: 0.98, yBottom: 0.18, yTop: 0.94, roofRatio: 0.70, squareness: 0.52 },
+    { t: 1.00, halfWidth: 0.86, yBottom: 0.26, yTop: 0.80, roofRatio: 0.82, squareness: 0.42 },
+  ],
+  muscle: [
+    { t: -1.00, halfWidth: 0.64, yBottom: 0.26, yTop: 0.52, roofRatio: 0.88, squareness: 0.40 },
+    { t: -0.80, halfWidth: 0.92, yBottom: 0.18, yTop: 0.70, roofRatio: 0.84, squareness: 0.50 },
+    { t: -0.50, halfWidth: 1.02, yBottom: 0.16, yTop: 0.82, roofRatio: 0.80, squareness: 0.58 },
+    { t: -0.20, halfWidth: 1.04, yBottom: 0.15, yTop: 1.10, roofRatio: 0.66, squareness: 0.64 },
+    { t: 0.10, halfWidth: 1.05, yBottom: 0.15, yTop: 1.34, roofRatio: 0.58, squareness: 0.66 },
+    { t: 0.42, halfWidth: 1.07, yBottom: 0.16, yTop: 1.26, roofRatio: 0.62, squareness: 0.64 },
+    { t: 0.76, halfWidth: 1.06, yBottom: 0.18, yTop: 0.96, roofRatio: 0.76, squareness: 0.56 },
+    { t: 1.00, halfWidth: 0.94, yBottom: 0.26, yTop: 0.86, roofRatio: 0.86, squareness: 0.46 },
+  ],
+  hatch: [
+    { t: -1.00, halfWidth: 0.60, yBottom: 0.26, yTop: 0.54, roofRatio: 0.88, squareness: 0.38 },
+    { t: -0.80, halfWidth: 0.86, yBottom: 0.18, yTop: 0.70, roofRatio: 0.84, squareness: 0.48 },
+    { t: -0.52, halfWidth: 0.92, yBottom: 0.17, yTop: 0.82, roofRatio: 0.80, squareness: 0.56 },
+    { t: -0.20, halfWidth: 0.94, yBottom: 0.16, yTop: 1.16, roofRatio: 0.68, squareness: 0.60 },
+    { t: 0.14, halfWidth: 0.95, yBottom: 0.16, yTop: 1.42, roofRatio: 0.62, squareness: 0.62 },
+    { t: 0.52, halfWidth: 0.95, yBottom: 0.17, yTop: 1.40, roofRatio: 0.64, squareness: 0.62 },
+    { t: 0.86, halfWidth: 0.93, yBottom: 0.19, yTop: 1.20, roofRatio: 0.72, squareness: 0.56 },
+    { t: 1.00, halfWidth: 0.86, yBottom: 0.26, yTop: 1.02, roofRatio: 0.82, squareness: 0.46 },
+  ],
+};
+
+/** Fraction of adjacent faces meeting within `limit` degrees. The anti-box metric. */
+export function silhouetteSmoothness(geometry: THREE.BufferGeometry, limit = 20): number {
+  const index = geometry.getIndex();
+  const pos = geometry.getAttribute('position');
+  if (!index) return 0;
+
+  // Face normal per triangle, keyed by edge, so shared edges can be compared.
+  const normals: THREE.Vector3[] = [];
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const ab = new THREE.Vector3();
+  const ac = new THREE.Vector3();
+
+  for (let f = 0; f < index.count; f += 3) {
+    a.fromBufferAttribute(pos, index.getX(f));
+    b.fromBufferAttribute(pos, index.getX(f + 1));
+    c.fromBufferAttribute(pos, index.getX(f + 2));
+    ab.subVectors(b, a);
+    ac.subVectors(c, a);
+    normals.push(new THREE.Vector3().crossVectors(ab, ac).normalize());
+  }
+
+  const byEdge = new Map<string, number[]>();
+  for (let f = 0; f < index.count; f += 3) {
+    const face = f / 3;
+    const v = [index.getX(f), index.getX(f + 1), index.getX(f + 2)];
+    for (let e = 0; e < 3; e++) {
+      const key = [v[e], v[(e + 1) % 3]].sort((x, y) => x - y).join(':');
+      const list = byEdge.get(key);
+      if (list) list.push(face);
+      else byEdge.set(key, [face]);
+    }
+  }
+
+  let shared = 0;
+  let smooth = 0;
+  const cosLimit = Math.cos(THREE.MathUtils.degToRad(limit));
+  for (const faces of byEdge.values()) {
+    if (faces.length !== 2) continue;
+    shared += 1;
+    const dot = normals[faces[0]].dot(normals[faces[1]]);
+    if (dot >= cosLimit) smooth += 1;
+  }
+  return shared ? smooth / shared : 0;
+}
