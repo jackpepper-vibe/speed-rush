@@ -1,0 +1,181 @@
+import type { Game } from '@/game/Game';
+import type { GameEventName, GameEvents } from '@/core/GameEvents';
+import { ROAD, SPEED } from '@/game/config/Balance';
+
+/**
+ * The surface the probe drives the game through.
+ *
+ * Two things live here and nothing else. First, a recorder: it subscribes to
+ * every name in the event map and keeps a count and the last payload for each,
+ * so "did the near-miss cue fire, and with what gap" is a property of the
+ * running game rather than something inferred from a screenshot. Second, a set
+ * of deterministic drivers — `step`, `drive`, `teleport` — that advance the
+ * simulation by an exact number of ticks with no clock involved.
+ *
+ * It is attached in every build, not just development ones. A handle that is
+ * compiled out is a handle that has never been tested against the code that
+ * actually ships, and the cost here is a few hundred bytes and one subscription
+ * per event name.
+ */
+
+/** Every cue the recorder watches. Kept explicit so a new event without a probe
+ *  check shows up as a missing key rather than silently going unrecorded. */
+export const RECORDED_EVENTS: GameEventName[] = [
+  'run:start', 'run:countdown', 'run:end', 'run:tick',
+  'player:lane-change', 'player:steer', 'player:drift', 'player:crash',
+  'player:near-miss', 'player:airborne', 'player:land',
+  'traffic:spawn', 'traffic:lane-change', 'traffic:brake', 'traffic:despawn', 'traffic:horn',
+  'pickup:collect', 'pickup:magnetised',
+  'powerup:activate', 'powerup:expire', 'powerup:blocked-crash',
+  'score:add', 'score:combo', 'score:combo-break', 'score:milestone',
+  'biome:change', 'weather:change', 'daynight:change',
+  'world:tunnel-enter', 'world:tunnel-exit',
+  'garage:purchase', 'garage:equip', 'garage:upgrade', 'save:write',
+];
+
+export interface CueRecord {
+  count: number;
+  last: unknown;
+  /** Tick index at which the cue most recently fired. */
+  atTick: number;
+}
+
+export interface DevHandle {
+  readonly version: string;
+  /** Cue counts and last payloads, keyed by event name. */
+  readonly cues: Record<string, CueRecord>;
+  /** Reset every counter without touching game state. */
+  clearCues(): void;
+  /** Cues that have fired at least once. */
+  firedCues(): string[];
+  /** Cues in the recorded set that have never fired. */
+  silentCues(): string[];
+
+  /** Advance exactly n simulation ticks. */
+  step(n: number): void;
+  /** Advance `seconds` of simulation holding a fixed input. */
+  drive(seconds: number, steer?: number, brake?: boolean): void;
+  /** Begin a run with an optional fixed seed. */
+  startRun(seed?: number): void;
+  endRun(): void;
+
+  /** Place the car laterally and set its speed, for targeted tests. */
+  place(opts: { x?: number; vx?: number; speed?: number }): void;
+
+  /** A flat readout of everything worth asserting on. */
+  state(): Record<string, unknown>;
+  /** Constants the probe should test against rather than duplicate. */
+  config(): Record<string, unknown>;
+
+  readonly game: Game;
+}
+
+export function installDevHandle(game: Game, version: string): DevHandle {
+  const cues: Record<string, CueRecord> = {};
+  for (const name of RECORDED_EVENTS) {
+    cues[name] = { count: 0, last: null, atTick: -1 };
+    game.bus.on(name, ((payload: GameEvents[typeof name]) => {
+      const rec = cues[name];
+      rec.count += 1;
+      rec.last = payload;
+      rec.atTick = game.tickCount;
+    }) as never);
+  }
+
+  const handle: DevHandle = {
+    version,
+    cues,
+
+    clearCues() {
+      for (const name of RECORDED_EVENTS) {
+        cues[name].count = 0;
+        cues[name].last = null;
+        cues[name].atTick = -1;
+      }
+    },
+
+    firedCues() {
+      return RECORDED_EVENTS.filter((n) => cues[n].count > 0);
+    },
+
+    silentCues() {
+      return RECORDED_EVENTS.filter((n) => cues[n].count === 0);
+    },
+
+    step(n) {
+      game.step(n);
+    },
+
+    drive(seconds, steer = 0, brake = false) {
+      game.drive(seconds, steer, brake);
+    },
+
+    startRun(seed) {
+      game.startRun(seed);
+    },
+
+    endRun() {
+      game.endRun('quit');
+    },
+
+    place({ x, vx, speed }) {
+      if (x !== undefined) game.player.x = x;
+      if (vx !== undefined) game.player.vx = vx;
+      if (speed !== undefined) game.player.speed = speed;
+    },
+
+    state() {
+      const p = game.player;
+      return {
+        runState: game.runState,
+        tick: game.tickCount,
+        score: game.currentScore,
+        distance: game.distance,
+        speed: p.speed,
+        speedKmh: game.speedKmh,
+        speedFraction: p.speedFraction,
+        speedCeiling: p.speedCeiling,
+        x: p.x,
+        vx: p.vx,
+        y: p.y,
+        airborne: p.airborne,
+        lane: p.lane,
+        slipping: p.slipping,
+        carId: p.currentCarId,
+        coins: game.save.coins,
+        best: game.save.snapshot.best,
+        sceneChildren: game.rig.scene.children.length,
+        cameraY: game.rig.camera.position.y,
+        cameraZ: game.rig.camera.position.z,
+        // Snapshotted after the last complete frame rather than read live:
+        // the composer's passes each reset the live counters, so a direct read
+        // reports only the final fullscreen quad.
+        drawCalls: game.rig.frameStats.calls,
+        triangles: game.rig.frameStats.triangles,
+        geometries: game.rig.renderer.info.memory.geometries,
+        textures: game.rig.renderer.info.memory.textures,
+        quality: game.rig.quality.tier,
+        contextLost: game.rig.contextLost,
+        roadSeamGap: game.road.maxSeamGap(),
+      };
+    },
+
+    config() {
+      return {
+        laneCount: ROAD.laneCount,
+        laneWidth: ROAD.laneWidth,
+        halfWidth: ROAD.halfWidth,
+        laneX: Array.from({ length: ROAD.laneCount }, (_, i) => ROAD.laneX(i)),
+        speedStart: SPEED.start,
+        speedMax: SPEED.baseMax,
+        speedAbsoluteMax: SPEED.absoluteMax,
+        recordedEvents: RECORDED_EVENTS,
+      };
+    },
+
+    game,
+  };
+
+  (window as unknown as { carRacer: DevHandle }).carRacer = handle;
+  return handle;
+}
