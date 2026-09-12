@@ -256,6 +256,9 @@ export class Game {
     }
 
     this.player.input = this.input.state;
+    // Only while driving: the sky is a function of distance travelled, so a
+    // paused game has nothing new to reflect.
+    this.rig.advanceClock(dt);
     const distance = this.road.travelled;
     this.managers.update(dt, this.player.speed, distance);
     this.bus.emit('run:tick', { distance: this.road.travelled, speed: this.player.speed });

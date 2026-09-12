@@ -17,6 +17,17 @@ import { resolveQuality, type QualitySettings } from './Quality';
  * for the renderer, so there is one place where "how the game looks right now"
  * is decided.
  */
+/**
+ * How far the sky has to move before the environment is worth rebuilding, and
+ * the floor on how often that can happen.
+ *
+ * The pair matters: the threshold alone would rebuild every frame during a fast
+ * dusk, and the render gap alone would rebuild forever under a static midday
+ * sky. A PMREM pass is cheap next to a frame but not free.
+ */
+const ENV_SIGNATURE_STEP = 1.5;
+const ENV_MIN_SECONDS = 2;
+
 export class SceneRig {
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
@@ -46,6 +57,38 @@ export class SceneRig {
 
   /** Counters for the last completed frame, across every pass. */
   readonly frameStats = { calls: 0, triangles: 0 };
+
+  /*
+   * Environment map, generated from the sky.
+   *
+   * This is what makes car paint behave like paint. Without it a panel is a
+   * flat colour that never changes from dawn to midnight; with it the metallic
+   * flake and clearcoat have something to reflect, so the same car reads warm
+   * at dusk and cold under a storm without anything touching its material.
+   *
+   * Regenerated only when the palette has actually moved, and never more than
+   * once every few seconds — a PMREM pass renders a small cubemap, which is
+   * cheap next to a frame but not free, and the sky is a smooth gradient that
+   * gains nothing from being resampled continuously.
+   */
+  private readonly pmrem: THREE.PMREMGenerator;
+  private readonly envScene = new THREE.Scene();
+  private envTarget: THREE.WebGLRenderTarget | null = null;
+  private envBuilds = 0;
+  /** Palette signature the current map was built from, and the live one. */
+  private envBuiltSignature = Number.NaN;
+  private envSignature = 0;
+  /**
+   * World time, advanced by the simulation rather than by frames.
+   *
+   * The rate limit has to mean "not more often than this much of the journey",
+   * not "not more often than this many frames". Frames and world time only
+   * track each other while something is driving the loop in real time; a
+   * headless run advances two minutes of daylight inside a single render, and a
+   * frame-counted limit silently refuses to rebuild for any of it.
+   */
+  private envClock = 0;
+  private envLastBuild = Number.NEGATIVE_INFINITY;
 
   /** Chase-camera state, integrated rather than snapped. */
   private readonly camTarget = new THREE.Vector3();
@@ -82,6 +125,14 @@ export class SceneRig {
 
     this.sky = new SkyDome();
     this.scene.add(this.sky.mesh);
+
+    // A second dome sharing the same material, so the environment is always
+    // the sky the player is actually under rather than a stale copy of it.
+    this.pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.pmrem.compileEquirectangularShader();
+    const envSky = new THREE.Mesh(this.sky.mesh.geometry, this.sky.mesh.material);
+    envSky.frustumCulled = false;
+    this.envScene.add(envSky);
 
     this.hemi = new THREE.HemisphereLight(0xbcd8ff, 0x4a4335, 1.15);
     this.scene.add(this.hemi);
@@ -155,6 +206,54 @@ export class SceneRig {
 
     this.sky.setPalette(opts.skyTop, opts.skyBottom, opts.horizon);
     this.renderer.toneMappingExposure = opts.exposure;
+
+    // A scalar standing in for "what the sky looks like". The environment is
+    // rebuilt when this has moved, rather than on a timer — a timer measured in
+    // frames says nothing about whether there is anything new to reflect.
+    this.envSignature =
+      opts.skyTop * 1e-3 + opts.skyBottom * 1e-4 + opts.horizon * 1e-5 +
+      opts.sunIntensity * 40 + opts.sunElevation * 25;
+  }
+
+  /**
+   * Rebuild the environment map if the sky has moved on.
+   *
+   * Driven from the frame rather than from `applyLighting`, which is called
+   * every tick: the cooldown is what keeps a continuous day cycle from asking
+   * for a cubemap a hundred and twenty times a second.
+   */
+  /** Advance the world clock the environment refresh is rate-limited against. */
+  advanceClock(dt: number): void {
+    this.envClock += dt;
+  }
+
+  private refreshEnvironment(): void {
+    if (this.contextLost) return;
+
+    const moved = Math.abs(this.envSignature - this.envBuiltSignature);
+    const first = Number.isNaN(this.envBuiltSignature);
+    if (!first && (moved < ENV_SIGNATURE_STEP || this.envClock - this.envLastBuild < ENV_MIN_SECONDS)) {
+      return;
+    }
+    this.envBuiltSignature = this.envSignature;
+    this.envLastBuild = this.envClock;
+
+    const previous = this.envTarget;
+    this.envTarget = this.pmrem.fromScene(this.envScene);
+    this.scene.environment = this.envTarget.texture;
+    this.envBuilds += 1;
+    // Disposed after the replacement is bound, so no frame is left pointing at
+    // a texture that has just been released.
+    previous?.dispose();
+  }
+
+  /** How many times the environment has been regenerated. Read by the probe. */
+  get environmentBuilds(): number {
+    return this.envBuilds;
+  }
+
+  get hasEnvironment(): boolean {
+    return this.scene.environment !== null;
   }
 
   setBloom(strength: number, radius: number, threshold: number): void {
@@ -239,6 +338,7 @@ export class SceneRig {
    */
   render(): void {
     if (this.contextLost) return;
+    this.refreshEnvironment();
     this.renderer.info.autoReset = false;
     this.renderer.info.reset();
     this.composer.render();
@@ -273,6 +373,8 @@ export class SceneRig {
     this.canvas.removeEventListener('webglcontextlost', this.onContextLost);
     this.canvas.removeEventListener('webglcontextrestored', this.onContextRestored);
     this.composer.dispose();
+    this.envTarget?.dispose();
+    this.pmrem.dispose();
     this.renderer.dispose();
     this.sky.dispose();
   }

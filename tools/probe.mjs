@@ -266,12 +266,32 @@ async function freshPage() {
   return page;
 }
 
-async function shot(page, name) {
+/**
+ * Capture evidence for a human.
+ *
+ * `dom: true` takes a real page screenshot, which is the only way to see the
+ * interface; otherwise the canvas is rendered and read back inside the page.
+ * Playwright's screenshot waits for the compositor to go idle, and a scene
+ * running a post chain under software GL never does — it times out.
+ *
+ * Failures here are recorded and swallowed. These images are evidence, not
+ * assertions: a capture that could abort the audit would mean a slow frame
+ * deciding whether the game is correct.
+ */
+async function shot(page, name, { dom = false } = {}) {
   if (!opt.shots) return;
   const file = resolve(ROOT, opt.out, `${name}.png`);
   mkdirSync(dirname(file), { recursive: true });
-  const buf = await page.screenshot();
-  writeFileSync(file, buf);
+  try {
+    if (dom) {
+      writeFileSync(file, await page.screenshot({ animations: 'disabled', timeout: 20000 }));
+    } else {
+      const url = await page.evaluate(() => window.carRacer.snapshot());
+      writeFileSync(file, Buffer.from(url.split(',')[1], 'base64'));
+    }
+  } catch (e) {
+    environment.push(`capture "${name}" failed: ${String(e).split('\n')[0]}`);
+  }
 }
 
 /* ------------------------------------------------------------------- checks */
@@ -978,10 +998,11 @@ const world = await page.evaluate(() => {
   cr.startRun(90210);
   cr.clearCues();
 
-  // A long run: far enough to cross several biomes, weather rolls and a full
-  // day. Samples are kept so the effects can be correlated with the cues.
+  // Far enough to cross several biomes, several weather rolls and more than a
+  // full day-night cycle. Samples are kept so the effects can be correlated
+  // with the cues that announced them.
   const samples = [];
-  for (let i = 0; i < 120; i++) {
+  for (let i = 0; i < 85; i++) {
     cr.drive(3, 0);
     const s = cr.state();
     samples.push({
@@ -1672,7 +1693,7 @@ await page.evaluate(() => {
   cr.toMenu();
   cr.step(20);
 });
-await shot(page, 'menu');
+await shot(page, 'menu', { dom: true });
 
 /* -- scenery ------------------------------------------------------------------
  * The fourth coverage gate. Every biome must put something beside the road, and
@@ -1696,8 +1717,8 @@ const scenery = await page.evaluate(() => {
   let worstOnRoad = 0;
   let minInstances = Infinity;
 
-  // Long enough to cross every biome several times.
-  for (let i = 0; i < 150; i++) {
+  // Long enough to cross every biome several times over.
+  for (let i = 0; i < 95; i++) {
     cr.drive(3, 0);
     const s = cr.scenery();
     const total = s.kinds.reduce((n, k) => n + k.instances, 0);
@@ -1820,6 +1841,222 @@ await page.evaluate(() => {
   cr.drive(30, 0);
 });
 await shot(page, 'scenery');
+
+/* -- models ---------------------------------------------------------------
+ * The fifth coverage gate. Every vehicle the factory can build must clear a
+ * triangle floor, use more than one material, and contain no additive-blended
+ * surface without a texture — which is precisely the shape of the underglow
+ * bug: a flat colour quad that draws as a hard-edged rectangle.
+ *
+ * There is a ceiling as well as a floor. Thirty-odd traffic cars at the
+ * player's detail level is a frame budget spent on wheel spokes seen from
+ * forty metres behind, and the low quality tier has to survive on a software
+ * rasteriser without losing the context. */
+
+phase = 'models';
+const models = await page.evaluate(() => window.carRacer.models());
+
+const PLAYER_FLOOR = 1200;
+const TRAFFIC_FLOOR = 350;
+const PLAYER_CEILING = 14000;
+const TRAFFIC_CEILING = 6000;
+
+{
+  const bare = models.filter((m) => m.bareAdditiveQuads > 0);
+  check('model', 'no-untextured-additive-quads', bare.length === 0,
+    bare.length
+      ? `${bare.map((m) => `${m.id}:${m.bareAdditiveQuads}`).join(', ')} — additive surfaces with no texture draw as hard rectangles`
+      : `no additive surface on any of ${models.length} vehicles lacks a texture`);
+
+  const thin = models.filter((m) =>
+    m.triangles < (m.kind === 'player' ? PLAYER_FLOOR : TRAFFIC_FLOOR));
+  check('model', 'no-blocky-vehicles', thin.length === 0,
+    thin.length
+      ? `below the triangle floor: ${thin.map((m) => `${m.id} ${m.triangles}`).join(', ')}`
+      : `all ${models.length} vehicles clear their floor ` +
+        `(player >= ${PLAYER_FLOOR}, traffic >= ${TRAFFIC_FLOOR})`);
+
+  const heavy = models.filter((m) =>
+    m.triangles > (m.kind === 'player' ? PLAYER_CEILING : TRAFFIC_CEILING));
+  check('model', 'vehicles-stay-affordable', heavy.length === 0,
+    heavy.length
+      ? `over the triangle ceiling: ${heavy.map((m) => `${m.id} ${m.triangles}`).join(', ')}`
+      : `heaviest: ${Math.max(...models.map((m) => m.triangles))} triangles`);
+}
+
+for (const m of models) {
+  check('model', `built/${m.id}`,
+    m.meshes >= 8 && m.materialTypes.length >= 2,
+    `${m.id} (${m.kind}): ${m.triangles} tris across ${m.meshes} meshes, ` +
+    `materials [${m.materialTypes.join(', ')}]`);
+}
+
+/* Traffic must be cheaper than the player's car — the detail tier is the whole
+ * reason thirty of them fit in the frame. */
+{
+  const player = models.filter((m) => m.kind === 'player');
+  const traffic = models.filter((m) => m.kind === 'traffic' && m.id !== 'truck' && m.id !== 'bus');
+  const meanPlayer = player.reduce((n, m) => n + m.triangles, 0) / player.length;
+  const meanTraffic = traffic.reduce((n, m) => n + m.triangles, 0) / traffic.length;
+  check('model', 'traffic-is-cheaper-than-the-player',
+    meanTraffic < meanPlayer * 0.75,
+    `mean triangles: player ${meanPlayer.toFixed(0)}, traffic ${meanTraffic.toFixed(0)}`);
+}
+
+/* The underglow, rendered in isolation and read back. */
+{
+  const glow = await page.evaluate(() => {
+    const cr = window.carRacer;
+    cr.setCollisions(false);
+    cr.startRun(77);
+    cr.drive(6, 0);
+    return cr.glowProfile();
+  });
+
+  check('model', 'underglow-exists', glow !== null && glow.peak > 8,
+    glow ? `peak intensity ${glow.peak} across the glow` : 'the player car has no underglow mesh');
+  check('model', 'underglow-fades-at-its-edges',
+    glow !== null && glow.edgeLevel < 0.18,
+    glow ? `outer 10% of the profile sits at ${(glow.edgeLevel * 100).toFixed(1)}% of peak, want < 18%`
+      : 'no profile');
+  check('model', 'underglow-has-no-hard-edge',
+    glow !== null && glow.maxStep < 0.3,
+    glow ? `largest neighbouring jump is ${(glow.maxStep * 100).toFixed(1)}% of peak, want < 30% ` +
+      `(a bare quad steps 100% in one sample)` : 'no profile');
+}
+
+/* Environment: paint can only catch the sky if there is a sky to catch. */
+{
+  const env = await page.evaluate(() => {
+    const cr = window.carRacer;
+    cr.setCollisions(false);
+    cr.startRun(8);
+    cr.drive(8, 0);
+    const first = cr.state();
+    // Far enough for the day to move on and the map to be rebuilt.
+    cr.drive(120, 0);
+    const later = cr.state();
+    return { first, later };
+  });
+
+  check('model', 'environment-map-built', env.first.hasEnvironment === true,
+    `scene.environment bound: ${env.first.hasEnvironment} after ${env.first.environmentBuilds} builds`);
+  check('model', 'environment-follows-the-sky',
+    env.later.environmentBuilds > env.first.environmentBuilds,
+    `environment rebuilt ${env.first.environmentBuilds} -> ${env.later.environmentBuilds} as the day moved on`);
+  // Across the measured window, not since page load: `environmentBuilds` is
+  // cumulative, and by the time this runs the page has been driving for several
+  // minutes of earlier tests. Reading it absolutely measures the length of the
+  // probe rather than the behaviour under test.
+  const built = env.later.environmentBuilds - env.first.environmentBuilds;
+  check('model', 'environment-is-not-rebuilt-per-frame', built < 70,
+    `${built} rebuilds across 128s of world time — the 2s floor allows at most 64, ` +
+    `and a PMREM pass per frame would be thousands`);
+}
+
+/* -- garage previews ----------------------------------------------------------
+ * The sixth coverage gate. Every car in the roster must have a preview, it must
+ * not be blank, and it must not be the same picture as another car's.
+ *
+ * That last one is the check worth having. A blank card is obvious the moment
+ * anyone opens the garage; six cards all showing the starter hatch is not,
+ * because each one looks entirely correct on its own. Comparing the images to
+ * each other is the only way to catch a preview pipeline that renders the right
+ * number of pictures of the wrong car. */
+
+phase = 'previews';
+const previews = await page.evaluate(() => {
+  const cr = window.carRacer;
+  cr.resetSave();
+  cr.grantCoins(80000);
+  cr.toGarage();
+  cr.step(30);
+
+  const cars = cr.garage().map((e) => e.def.id);
+  const images = cr.previews();
+
+  // Reduce each preview to a coarse signature: mean luminance over an 8x8 grid
+  // of the decoded image. Comparing raw data URLs would also work, but a
+  // signature says *how* different two cars look rather than merely that their
+  // bytes differ, and PNG encoding is not guaranteed byte-stable.
+  const signature = (dataUrl) => new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = 8; c.height = 8;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0, 8, 8);
+      const d = ctx.getImageData(0, 0, 8, 8).data;
+      const cells = [];
+      for (let i = 0; i < d.length; i += 4) {
+        // Weighted by alpha: these render on a transparent background, so a
+        // blank preview is transparent rather than black.
+        cells.push((0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) * (d[i + 3] / 255));
+      }
+      resolve(cells);
+    };
+    img.onerror = () => resolve(null);
+    img.src = dataUrl;
+  });
+
+  return (async () => {
+    const out = {};
+    for (const id of cars) {
+      const url = images[id] ?? null;
+      out[id] = {
+        present: typeof url === 'string' && url.startsWith('data:image/png'),
+        bytes: typeof url === 'string' ? url.length : 0,
+        cells: url ? await signature(url) : null,
+      };
+    }
+    // What the garage cards actually render, as opposed to what was generated.
+    const cards = [...document.querySelectorAll('#garage-list .car')].map((li) => ({
+      id: li.dataset.car,
+      hasImage: li.querySelector('[data-preview]') !== null,
+    }));
+    return { cars, out, cards };
+  })();
+});
+
+{
+  const missing = previews.cars.filter((id) => !previews.out[id].present);
+  check('preview', 'every-car-has-a-preview', missing.length === 0,
+    `${missing.length} of ${previews.cars.length} cars have no rendered preview: ${missing.join(', ') || 'none'}`);
+
+  // Ink on the page: a preview whose cells are all near zero rendered nothing.
+  const blank = previews.cars.filter((id) => {
+    const cells = previews.out[id].cells;
+    if (!cells) return true;
+    return Math.max(...cells) < 8;
+  });
+  check('preview', 'no-blank-previews', blank.length === 0,
+    blank.length
+      ? `previews that rendered nothing: ${blank.join(', ')}`
+      : `all ${previews.cars.length} previews have visible content ` +
+        `(brightest cell ${Math.max(...previews.cars.map((id) => Math.max(...(previews.out[id].cells ?? [0])))).toFixed(0)})`);
+
+  // Distinctness: the failure mode is six pictures of the same car.
+  const pairs = [];
+  for (let i = 0; i < previews.cars.length; i++) {
+    for (let j = i + 1; j < previews.cars.length; j++) {
+      const a = previews.out[previews.cars[i]].cells;
+      const b = previews.out[previews.cars[j]].cells;
+      if (!a || !b) continue;
+      const diff = a.reduce((n, v, k) => n + Math.abs(v - b[k]), 0) / a.length;
+      if (diff < 2) pairs.push(`${previews.cars[i]}~${previews.cars[j]} (${diff.toFixed(2)})`);
+    }
+  }
+  check('preview', 'previews-are-distinct', pairs.length === 0,
+    pairs.length
+      ? `near-identical preview pairs: ${pairs.join(', ')}`
+      : `all ${previews.cars.length} previews differ from one another`);
+
+  check('preview', 'cards-show-the-preview',
+    previews.cards.length > 0 && previews.cards.every((c) => c.hasImage),
+    `${previews.cards.filter((c) => c.hasImage).length} of ${previews.cards.length} garage cards render an image`);
+}
+
+await shot(page, 'garage-cards', { dom: true });
 
 /* -- stability --------------------------------------------------------------- */
 

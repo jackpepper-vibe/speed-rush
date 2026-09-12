@@ -234,20 +234,30 @@ body {
   list-style: none; display: grid; gap: 11px; width: min(760px, 94vw);
 }
 .car {
-  display: grid; gap: 10px; padding: 14px 16px;
-  grid-template-columns: 1fr auto; align-items: center;
+  display: grid; gap: 8px 14px; padding: 12px 16px;
+  grid-template-columns: auto 1fr auto; align-items: center;
   background: var(--panel); border: 1px solid var(--edge); border-radius: var(--radius);
 }
 .car.is-equipped { border-color: rgba(255, 90, 44, 0.5); }
+
+/* The preview sits left of the name and spans only the title row, so the
+   blurb and the upgrade chips run the full width beneath it. */
+.car-figure {
+  width: clamp(88px, 14vw, 124px); display: grid; place-items: center;
+}
+.car-figure img {
+  width: 100%; height: auto; display: block;
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.45));
+}
 .car-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.car-swatch { width: 16px; height: 16px; border-radius: 5px; flex: none; }
+.car-swatch { width: 26px; height: 26px; border-radius: 7px; flex: none; }
 .car-name { font-weight: 800; font-size: 1.02rem; }
 .car-tag {
   font-size: 9px; letter-spacing: 0.15em; text-transform: uppercase;
   padding: 2px 7px; border-radius: 5px; font-weight: 700;
   background: rgba(255, 90, 44, 0.18); color: var(--hot-soft);
 }
-.car-blurb { color: var(--dim); font-size: 0.82rem; grid-column: 1 / -1; }
+.car-blurb { color: var(--dim); font-size: 0.82rem; grid-column: 2 / -1; }
 .price { display: flex; align-items: center; gap: 6px; font-weight: 800; color: var(--gold); }
 
 .stats-row { display: flex; gap: 8px; flex-wrap: wrap; grid-column: 1 / -1; }

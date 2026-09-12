@@ -3,6 +3,7 @@ import type { PowerupId, RunState } from '@/core/GameEvents';
 import { POWERUPS, SPEED } from '@/game/config/Balance';
 import { UPGRADE, type UpgradableStat } from '@/game/config/Cars';
 import type { Game } from '@/game/Game';
+import { previewFor, renderCarPreviews } from './CarPreview';
 
 /**
  * The interface: HUD, menu, garage, pause and results.
@@ -307,6 +308,10 @@ export class UIManager implements Manager {
     this.garageDirty = false;
 
     this.text('garage-coins', this.game.save.coins.toLocaleString());
+    // Rendered on first open rather than at boot: it costs a second WebGL
+    // context for a few milliseconds, and a player who never visits the garage
+    // should never pay for it.
+    renderCarPreviews();
     const list = el('garage-list');
 
     list.replaceChildren(...this.game.garage.list().map((entry) => {
@@ -314,10 +319,29 @@ export class UIManager implements Manager {
       li.className = `car${entry.equipped ? ' is-equipped' : ''}`;
       li.dataset.car = entry.def.id;
 
+      // A rendered picture of the actual car, falling back to the paint swatch
+      // if the preview pass could not get a context.
+      const image = previewFor(entry.def.id);
+      const figure = document.createElement('div');
+      figure.className = 'car-figure';
+      if (image) {
+        const img = document.createElement('img');
+        img.src = image;
+        img.alt = `${entry.def.name}, three-quarter view`;
+        img.dataset.preview = entry.def.id;
+        img.loading = 'lazy';
+        figure.append(img);
+      } else {
+        const swatch = document.createElement('i');
+        swatch.className = 'car-swatch';
+        swatch.style.background = `#${entry.def.color.toString(16).padStart(6, '0')}`;
+        figure.append(swatch);
+      }
+      li.append(figure);
+
       const head = document.createElement('div');
       head.className = 'car-head';
       head.innerHTML =
-        `<i class="car-swatch" style="background:#${entry.def.color.toString(16).padStart(6, '0')}"></i>` +
         `<span class="car-name">${entry.def.name}</span>` +
         (entry.equipped ? '<span class="car-tag">Equipped</span>' : '');
       li.append(head);

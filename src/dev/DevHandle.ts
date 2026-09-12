@@ -3,6 +3,10 @@ import type { GameEventName, GameEvents } from '@/core/GameEvents';
 import { ROAD, SCORE, SPEED } from '@/game/config/Balance';
 import { AUDIBLE_CUES } from '@/game/managers/AudioManager';
 import { HUD_ELEMENTS, SCREEN_ELEMENTS } from '@/ui/UIManager';
+import { auditVehicles } from '@/game/render/CarFactory';
+import { CARS } from '@/game/config/Cars';
+import { measureGlow } from '@/dev/GlowProbe';
+import { renderCarPreviews } from '@/ui/CarPreview';
 
 /**
  * The surface the probe drives the game through.
@@ -103,6 +107,24 @@ export interface DevHandle {
   audibleCues(): string[];
   setMuted(muted: boolean): void;
   resumeAudio(): void;
+
+  /** Rendered garage previews, as car id to PNG data URL. */
+  previews(): Record<string, string>;
+
+  /** Triangle counts and material audit for every vehicle the factory builds. */
+  models(): unknown[];
+  /**
+   * The current frame as a PNG data URL, read straight off the canvas.
+   *
+   * Playwright's own screenshot waits for the compositor to go idle, which a
+   * scene running a post chain under software GL never does — it simply times
+   * out. Rendering and reading back in the same task sidesteps the wait
+   * entirely and is reproducible besides.
+   */
+  snapshot(): string;
+
+  /** Rendered intensity profile across the player's underglow. */
+  glowProfile(): { row: number[]; peak: number; maxStep: number; edgeLevel: number } | null;
 
   /** Live scenery instances per kind, and how many sit on the tarmac. */
   scenery(): { biome: string; kinds: { id: string; instances: number }[]; onRoad: number };
@@ -237,6 +259,27 @@ export function installDevHandle(game: Game, version: string): DevHandle {
       game.audio.resume();
     },
 
+    snapshot() {
+      // Rendered and read in one task: the drawing buffer is only guaranteed
+      // valid until the browser next composites, which happens between tasks.
+      game.rig.render();
+      return game.rig.renderer.domElement.toDataURL('image/png');
+    },
+
+    previews() {
+      return Object.fromEntries(renderCarPreviews());
+    },
+
+    models() {
+      return auditVehicles(CARS.map((c) => c.body));
+    },
+
+    glowProfile() {
+      const glow = game.player.mesh.userData.glow;
+      if (!glow) return null;
+      return measureGlow(game.rig.renderer, glow);
+    },
+
     scenery() {
       return game.scenery.snapshot();
     },
@@ -349,6 +392,8 @@ export function installDevHandle(game: Game, version: string): DevHandle {
         fogDensity: (game.rig.scene.fog as { density?: number })?.density ?? 0,
         sunIntensity: game.rig.sun.intensity,
         headlights: game.player.headlightIntensity,
+        environmentBuilds: game.rig.environmentBuilds,
+        hasEnvironment: game.rig.hasEnvironment,
         sceneryInstances: game.scenery.instanceCount,
         sceneryKinds: game.scenery.kindCount,
         muted: game.audio.isMuted,
