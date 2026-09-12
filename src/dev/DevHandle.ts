@@ -62,6 +62,15 @@ export interface DevHandle {
   /** Place the car laterally and set its speed, for targeted tests. */
   place(opts: { x?: number; vx?: number; speed?: number }): void;
 
+  /**
+   * Turn collisions off so handling, speed and stability can be measured over
+   * a long run without a crash cutting the measurement short. Never off in play.
+   */
+  setCollisions(enabled: boolean): void;
+
+  /** Live traffic in road space. */
+  traffic(): { kind: string; lane: number; x: number; ahead: number; speed: number }[];
+
   /** A flat readout of everything worth asserting on. */
   state(): Record<string, unknown>;
   /** Constants the probe should test against rather than duplicate. */
@@ -122,6 +131,14 @@ export function installDevHandle(game: Game, version: string): DevHandle {
       if (x !== undefined) game.player.x = x;
       if (vx !== undefined) game.player.vx = vx;
       if (speed !== undefined) game.player.speed = speed;
+    },
+
+    setCollisions(enabled) {
+      game.traffic.collisionsEnabled = enabled;
+    },
+
+    traffic() {
+      return game.traffic.snapshot();
     },
 
     state() {

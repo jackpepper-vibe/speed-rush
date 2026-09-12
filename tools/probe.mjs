@@ -93,20 +93,20 @@ const CHECKED_CUES = new Set([
   'player:steer',
   'player:lane-change',
   'player:crash',
+  'player:near-miss',
+  'traffic:spawn',
+  'traffic:lane-change',
+  'traffic:brake',
+  'traffic:despawn',
+  'traffic:horn',
   'save:write',
 ]);
 
 const PENDING_CUES = new Set([
   'run:countdown',
   'player:drift',
-  'player:near-miss',
   'player:airborne',
   'player:land',
-  'traffic:spawn',
-  'traffic:lane-change',
-  'traffic:brake',
-  'traffic:despawn',
-  'traffic:horn',
   'pickup:collect',
   'pickup:magnetised',
   'powerup:activate',
@@ -356,14 +356,16 @@ check('road', 'lanes-inside-surface',
 
 phase = 'determinism';
 const runA = await page.evaluate(() => {
+  window.carRacer.setCollisions(false);
   window.carRacer.startRun(1234);
   window.carRacer.drive(4, 0.6);
-  return window.carRacer.state();
+  return { ...window.carRacer.state(), traffic: window.carRacer.traffic().length };
 });
 const runB = await page.evaluate(() => {
+  window.carRacer.setCollisions(false);
   window.carRacer.startRun(1234);
   window.carRacer.drive(4, 0.6);
-  return window.carRacer.state();
+  return { ...window.carRacer.state(), traffic: window.carRacer.traffic().length };
 });
 
 check('determinism', 'same-seed-same-position', near(runA.x, runB.x, 1e-9),
@@ -372,12 +374,19 @@ check('determinism', 'same-seed-same-distance', near(runA.distance, runB.distanc
   `distance: ${runA.distance} vs ${runB.distance}`);
 check('determinism', 'same-seed-same-speed', near(runA.speed, runB.speed, 1e-9),
   `speed: ${runA.speed} vs ${runB.speed}`);
+// Traffic draws from the seeded stream; a mismatch here means something in the
+// world is still reaching for Math.random.
+check('determinism', 'same-seed-same-traffic', runA.traffic === runB.traffic,
+  `live vehicles after 4s: ${runA.traffic} vs ${runB.traffic}`);
 
 /* -- handling ---------------------------------------------------------------- */
 
 phase = 'handling';
 const steering = await page.evaluate(() => {
   const cr = window.carRacer;
+  // These measure handling, speed and stability, not collision. Leaving traffic
+  // lethal would end the run partway and silently truncate the measurement.
+  cr.setCollisions(false);
   cr.startRun(77);
   const start = cr.state().x;
   cr.drive(1.5, 1);
@@ -412,6 +421,9 @@ check('handling', 'grip-bleeds-lateral',
 phase = 'barrier';
 const barrier = await page.evaluate(() => {
   const cr = window.carRacer;
+  // These measure handling, speed and stability, not collision. Leaving traffic
+  // lethal would end the run partway and silently truncate the measurement.
+  cr.setCollisions(false);
   cr.startRun(5);
   cr.clearCues();
   // Long enough to be pinned against the rail rather than merely approaching it.
@@ -432,6 +444,9 @@ check('barrier', 'barrier-state-finite', finite(barrier.x, barrier.vx, barrier.s
 phase = 'speed';
 const speedRun = await page.evaluate(() => {
   const cr = window.carRacer;
+  // These measure handling, speed and stability, not collision. Leaving traffic
+  // lethal would end the run partway and silently truncate the measurement.
+  cr.setCollisions(false);
   cr.startRun(9);
   const t0 = cr.state();
   cr.drive(6, 0);
@@ -461,6 +476,9 @@ check('speed', 'kmh-readout-sane', speedRun.long.speedKmh > 100 && speedRun.long
 phase = 'cues';
 const cueRun = await page.evaluate(() => {
   const cr = window.carRacer;
+  // These measure handling, speed and stability, not collision. Leaving traffic
+  // lethal would end the run partway and silently truncate the measurement.
+  cr.setCollisions(false);
   cr.startRun(4242);
   cr.clearCues();
   cr.drive(3, 0);
@@ -498,11 +516,177 @@ check('cue', 'run-end-payload-sane',
 
 await shot(page, 'driving');
 
+/* -- traffic ------------------------------------------------------------------
+ * Six cues live here. Each is driven by the situation that should raise it,
+ * rather than by calling the emitter — an assertion that only proves `emit`
+ * works is worth nothing. */
+
+phase = 'traffic';
+const traffic = await page.evaluate(() => {
+  const cr = window.carRacer;
+  cr.setCollisions(false);
+  cr.startRun(2024);
+  cr.clearCues();
+
+  // Long enough for density to ramp, for cars to reach each other's mirrors,
+  // and for the first spawns to pass out of the back of the world.
+  const overlaps = [];
+  const offRoad = [];
+  let maxLive = 0;
+  for (let i = 0; i < 60; i++) {
+    cr.drive(1.5, 0);
+    const live = cr.traffic();
+    maxLive = Math.max(maxLive, live.length);
+
+    // No two vehicles may interpenetrate, and none may leave the tarmac.
+    for (let a = 0; a < live.length; a++) {
+      for (let b = a + 1; b < live.length; b++) {
+        const dx = Math.abs(live[a].x - live[b].x);
+        const dz = Math.abs(live[a].ahead - live[b].ahead);
+        if (dx < 1.6 && dz < 4.0) overlaps.push({ a: live[a], b: live[b], dx, dz });
+      }
+      if (Math.abs(live[a].x) > 10.5) offRoad.push(live[a]);
+    }
+  }
+
+  return { cues: JSON.parse(JSON.stringify(cr.cues)), overlaps, offRoad, maxLive, state: cr.state() };
+});
+
+check('traffic', 'spawn-cue-fires', traffic.cues['traffic:spawn'].count > 20,
+  `traffic:spawn fired ${traffic.cues['traffic:spawn'].count} times over 90s`);
+check('traffic', 'spawn-payload-in-lane',
+  traffic.cues['traffic:spawn'].last &&
+  traffic.cues['traffic:spawn'].last.lane >= 0 &&
+  traffic.cues['traffic:spawn'].last.lane < config.laneCount,
+  `last spawn: ${JSON.stringify(traffic.cues['traffic:spawn'].last)}`);
+check('traffic', 'spawns-slower-than-player',
+  traffic.cues['traffic:spawn'].last && traffic.cues['traffic:spawn'].last.speed < config.speedMax,
+  `last spawn speed ${traffic.cues['traffic:spawn'].last?.speed?.toFixed(1)} vs player base max ${config.speedMax}`);
+check('traffic', 'despawn-cue-fires', traffic.cues['traffic:despawn'].count > 10,
+  `traffic:despawn fired ${traffic.cues['traffic:despawn'].count} times`);
+check('traffic', 'spawns-are-recycled',
+  traffic.cues['traffic:despawn'].count <= traffic.cues['traffic:spawn'].count,
+  `${traffic.cues['traffic:despawn'].count} despawns vs ${traffic.cues['traffic:spawn'].count} spawns`);
+check('traffic', 'lane-change-cue-fires', traffic.cues['traffic:lane-change'].count > 0,
+  `traffic:lane-change fired ${traffic.cues['traffic:lane-change'].count} times over 90s`);
+check('traffic', 'lane-change-is-adjacent',
+  !traffic.cues['traffic:lane-change'].last ||
+  Math.abs(traffic.cues['traffic:lane-change'].last.to - traffic.cues['traffic:lane-change'].last.from) === 1,
+  `last AI lane change: ${JSON.stringify(traffic.cues['traffic:lane-change'].last)}`);
+check('traffic', 'brake-cue-fires', traffic.cues['traffic:brake'].count > 0,
+  `traffic:brake fired ${traffic.cues['traffic:brake'].count} times — cars are watching the one in front`);
+check('traffic', 'horn-cue-fires', traffic.cues['traffic:horn'].count > 0,
+  `traffic:horn fired ${traffic.cues['traffic:horn'].count} times`);
+check('traffic', 'no-interpenetration', traffic.overlaps.length === 0,
+  traffic.overlaps.length
+    ? `${traffic.overlaps.length} overlapping pairs, worst: ${JSON.stringify(traffic.overlaps[0])}`
+    : 'no two vehicles overlapped across 60 samples');
+check('traffic', 'stays-on-tarmac', traffic.offRoad.length === 0,
+  traffic.offRoad.length
+    ? `${traffic.offRoad.length} vehicles off the road, e.g. x=${traffic.offRoad[0].x.toFixed(2)}`
+    : `all traffic within +/-10.5u of the centreline (road half-width ${config.halfWidth})`);
+check('traffic', 'pool-is-bounded', traffic.maxLive <= 34,
+  `peak live vehicles: ${traffic.maxLive}, pool size 34`);
+check('traffic', 'road-is-populated', traffic.maxLive >= 6,
+  `peak live vehicles: ${traffic.maxLive}, want >= 6 for a road that feels used`);
+
+/* -- collision and near miss --------------------------------------------------
+ * Driven by steering into a car rather than by faking an overlap, so the
+ * collision box and the cue are both under test. */
+
+phase = 'collision';
+const impact = await page.evaluate(async () => {
+  const cr = window.carRacer;
+  cr.setCollisions(true);
+
+  // Hunt for a run that puts a car in front of us, then drive into it.
+  //
+  // The approach is driven with collisions off. Spawns arrive 420u ahead and
+  // close at roughly 20u/s, so nothing is within reach for the first twenty
+  // seconds of a run — looking sooner finds an empty road and reports that
+  // collision is broken when it has simply not been given anything to hit.
+  for (let seed = 1; seed < 60; seed++) {
+    cr.setCollisions(false);
+    cr.startRun(seed);
+    cr.drive(26, 0);
+    cr.clearCues();
+    cr.setCollisions(true);
+    const ahead = cr.traffic()
+      .filter((t) => t.ahead > 12 && t.ahead < 150)
+      .sort((a, b) => a.ahead - b.ahead)[0];
+    if (!ahead) continue;
+
+    // Line up on its lane and close the gap.
+    cr.place({ x: ahead.x, vx: 0 });
+    for (let i = 0; i < 40 && cr.cues['player:crash'].count === 0; i++) {
+      cr.drive(0.25, 0);
+    }
+    if (cr.cues['player:crash'].count > 0) {
+      return { hit: true, seed, cues: JSON.parse(JSON.stringify(cr.cues)), state: cr.state() };
+    }
+  }
+  return { hit: false, cues: JSON.parse(JSON.stringify(cr.cues)), state: cr.state() };
+});
+
+check('collision', 'driving-into-traffic-crashes', impact.hit,
+  impact.hit
+    ? `crashed into traffic on seed ${impact.seed}`
+    : 'drove into a lined-up vehicle across 60 seeds without ever registering a hit');
+check('collision', 'crash-cue-names-the-vehicle',
+  impact.hit && impact.cues['player:crash'].last &&
+  ['sedan', 'coupe', 'suv', 'van', 'truck', 'bus'].includes(impact.cues['player:crash'].last.with),
+  `crash payload: ${JSON.stringify(impact.cues['player:crash'].last)}`);
+check('collision', 'crash-ends-the-run', impact.hit && impact.state.runState === 'gameover',
+  `runState after hitting traffic: ${impact.state.runState}`);
+
+const nearMiss = await page.evaluate(() => {
+  const cr = window.carRacer;
+  cr.setCollisions(true);
+
+  // Pass close alongside without touching: offset by just over the combined
+  // half-widths, which is inside the near-miss band but outside the box.
+  for (let seed = 1; seed < 80; seed++) {
+    cr.setCollisions(false);
+    cr.startRun(seed);
+    cr.drive(26, 0);
+    cr.clearCues();
+    cr.setCollisions(true);
+    const ahead = cr.traffic()
+      .filter((t) => t.ahead > 14 && t.ahead < 150 && Math.abs(t.x) < 6)
+      .sort((a, b) => a.ahead - b.ahead)[0];
+    if (!ahead) continue;
+
+    cr.place({ x: ahead.x + 2.7, vx: 0 });
+    for (let i = 0; i < 40; i++) {
+      cr.drive(0.25, 0);
+      if (cr.cues['player:crash'].count > 0) break;
+      if (cr.cues['player:near-miss'].count > 0) {
+        return { got: true, seed, cues: JSON.parse(JSON.stringify(cr.cues)) };
+      }
+    }
+  }
+  return { got: false, cues: JSON.parse(JSON.stringify(cr.cues)) };
+});
+
+check('collision', 'near-miss-cue-fires', nearMiss.got,
+  nearMiss.got
+    ? `player:near-miss fired on seed ${nearMiss.seed} passing alongside without contact`
+    : 'passed close alongside traffic across 80 seeds without a near miss ever registering');
+check('collision', 'near-miss-reports-a-positive-gap',
+  !nearMiss.got || (nearMiss.cues['player:near-miss'].last &&
+    nearMiss.cues['player:near-miss'].last.gap > 0),
+  `near-miss payload: ${JSON.stringify(nearMiss.cues?.['player:near-miss']?.last)}`);
+
+await shot(page, 'traffic');
+
 /* -- stability --------------------------------------------------------------- */
 
 phase = 'stability';
 const stability = await page.evaluate(() => {
   const cr = window.carRacer;
+  // These measure handling, speed and stability, not collision. Leaving traffic
+  // lethal would end the run partway and silently truncate the measurement.
+  cr.setCollisions(false);
   cr.startRun(31337);
   // A long, messy run: constant direction changes, braking, full lock.
   for (let i = 0; i < 24; i++) {

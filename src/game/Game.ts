@@ -8,6 +8,7 @@ import { SceneRig } from '@/game/render/SceneRig';
 import { RoadManager } from '@/game/managers/RoadManager';
 import { PlayerManager } from '@/game/managers/PlayerManager';
 import { InputManager } from '@/game/managers/InputManager';
+import { TrafficManager } from '@/game/managers/TrafficManager';
 import { SaveManager } from '@/game/SaveManager';
 import { SPEED } from '@/game/config/Balance';
 
@@ -29,6 +30,7 @@ export class Game {
   readonly road: RoadManager;
   readonly player: PlayerManager;
   readonly input: InputManager;
+  readonly traffic: TrafficManager;
 
   private readonly managers = new ManagerRegistry();
   private readonly loop: GameLoop;
@@ -57,8 +59,15 @@ export class Game {
       new PlayerManager(ctx, this.save.snapshot.activeCar, this.save.upgradesFor(this.save.snapshot.activeCar)),
     );
     this.road = this.managers.add(new RoadManager(ctx));
+    this.traffic = this.managers.add(new TrafficManager(ctx, this.road, this.player));
 
     this.managers.initAll();
+
+    // Hitting traffic ends the run; scraping a barrier only costs speed, which
+    // the player manager has already applied by the time this is delivered.
+    this.bus.on('player:crash', ({ with: what }) => {
+      if (what !== 'barrier') this.endRun('crash');
+    });
 
     this.loop = new GameLoop(this.tick, this.render);
   }
