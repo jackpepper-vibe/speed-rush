@@ -108,6 +108,11 @@ const CHECKED_CUES = new Set([
   'score:combo',
   'score:combo-break',
   'score:milestone',
+  'biome:change',
+  'weather:change',
+  'daynight:change',
+  'world:tunnel-enter',
+  'world:tunnel-exit',
   'save:write',
 ]);
 
@@ -116,11 +121,6 @@ const PENDING_CUES = new Set([
   'player:drift',
   'player:airborne',
   'player:land',
-  'biome:change',
-  'weather:change',
-  'daynight:change',
-  'world:tunnel-enter',
-  'world:tunnel-exit',
   'garage:purchase',
   'garage:equip',
   'garage:upgrade',
@@ -357,12 +357,16 @@ check('road', 'lanes-inside-surface',
 phase = 'determinism';
 const runA = await page.evaluate(() => {
   window.carRacer.setCollisions(false);
+  window.carRacer.setPickupSpawning(false);
+  window.carRacer.clearPowerups();
   window.carRacer.startRun(1234);
   window.carRacer.drive(4, 0.6);
   return { ...window.carRacer.state(), traffic: window.carRacer.traffic().length };
 });
 const runB = await page.evaluate(() => {
   window.carRacer.setCollisions(false);
+  window.carRacer.setPickupSpawning(false);
+  window.carRacer.clearPowerups();
   window.carRacer.startRun(1234);
   window.carRacer.drive(4, 0.6);
   return { ...window.carRacer.state(), traffic: window.carRacer.traffic().length };
@@ -378,15 +382,31 @@ check('determinism', 'same-seed-same-speed', near(runA.speed, runB.speed, 1e-9),
 // world is still reaching for Math.random.
 check('determinism', 'same-seed-same-traffic', runA.traffic === runB.traffic,
   `live vehicles after 4s: ${runA.traffic} vs ${runB.traffic}`);
+// The two runs are separated by other scenarios on purpose, so the pools and
+// caches they inherit differ. Anything that consumes a variable number of
+// values from the stream depending on that inherited state shows up here as a
+// different world from the same seed — which is how a colour lookup inside a
+// pooled mesh rebuild came to decide the weather.
+check('determinism', 'same-seed-same-weather', runA.weather === runB.weather,
+  `weather after 4s: ${runA.weather} vs ${runB.weather}`);
+check('determinism', 'same-seed-same-biome', runA.biome === runB.biome,
+  `biome after 4s: ${runA.biome} vs ${runB.biome}`);
 
 /* -- handling ---------------------------------------------------------------- */
 
 phase = 'handling';
 const steering = await page.evaluate(() => {
   const cr = window.carRacer;
-  // These measure handling, speed and stability, not collision. Leaving traffic
-  // lethal would end the run partway and silently truncate the measurement.
+  // These measure handling, speed and stability, not collision or pickups.
+  // Leaving traffic lethal would end the run partway and truncate the
+  // measurement; leaving pickups on lets the car drive over a nitro crate
+  // mid-measurement, which silently rewrites the speed ceiling it is being
+  // measured against — and does so differently depending on which way it was
+  // steered, which is exactly how a symmetric control scheme came to look
+  // asymmetric.
   cr.setCollisions(false);
+  cr.setPickupSpawning(false);
+  cr.clearPowerups();
   cr.startRun(77);
   const start = cr.state().x;
   cr.drive(1.5, 1);
@@ -421,9 +441,16 @@ check('handling', 'grip-bleeds-lateral',
 phase = 'barrier';
 const barrier = await page.evaluate(() => {
   const cr = window.carRacer;
-  // These measure handling, speed and stability, not collision. Leaving traffic
-  // lethal would end the run partway and silently truncate the measurement.
+  // These measure handling, speed and stability, not collision or pickups.
+  // Leaving traffic lethal would end the run partway and truncate the
+  // measurement; leaving pickups on lets the car drive over a nitro crate
+  // mid-measurement, which silently rewrites the speed ceiling it is being
+  // measured against — and does so differently depending on which way it was
+  // steered, which is exactly how a symmetric control scheme came to look
+  // asymmetric.
   cr.setCollisions(false);
+  cr.setPickupSpawning(false);
+  cr.clearPowerups();
   cr.startRun(5);
   cr.clearCues();
   // Long enough to be pinned against the rail rather than merely approaching it.
@@ -444,9 +471,16 @@ check('barrier', 'barrier-state-finite', finite(barrier.x, barrier.vx, barrier.s
 phase = 'speed';
 const speedRun = await page.evaluate(() => {
   const cr = window.carRacer;
-  // These measure handling, speed and stability, not collision. Leaving traffic
-  // lethal would end the run partway and silently truncate the measurement.
+  // These measure handling, speed and stability, not collision or pickups.
+  // Leaving traffic lethal would end the run partway and truncate the
+  // measurement; leaving pickups on lets the car drive over a nitro crate
+  // mid-measurement, which silently rewrites the speed ceiling it is being
+  // measured against — and does so differently depending on which way it was
+  // steered, which is exactly how a symmetric control scheme came to look
+  // asymmetric.
   cr.setCollisions(false);
+  cr.setPickupSpawning(false);
+  cr.clearPowerups();
   cr.startRun(9);
   const t0 = cr.state();
   cr.drive(6, 0);
@@ -476,9 +510,16 @@ check('speed', 'kmh-readout-sane', speedRun.long.speedKmh > 100 && speedRun.long
 phase = 'cues';
 const cueRun = await page.evaluate(() => {
   const cr = window.carRacer;
-  // These measure handling, speed and stability, not collision. Leaving traffic
-  // lethal would end the run partway and silently truncate the measurement.
+  // These measure handling, speed and stability, not collision or pickups.
+  // Leaving traffic lethal would end the run partway and truncate the
+  // measurement; leaving pickups on lets the car drive over a nitro crate
+  // mid-measurement, which silently rewrites the speed ceiling it is being
+  // measured against — and does so differently depending on which way it was
+  // steered, which is exactly how a symmetric control scheme came to look
+  // asymmetric.
   cr.setCollisions(false);
+  cr.setPickupSpawning(false);
+  cr.clearPowerups();
   cr.startRun(4242);
   cr.clearCues();
   cr.drive(3, 0);
@@ -689,6 +730,11 @@ phase = 'pickups';
 const collect = await page.evaluate(() => {
   const cr = window.carRacer;
   cr.setCollisions(false);
+  // Earlier blocks switch pickups off to measure physics; this one is about
+  // pickups, so it turns them back on rather than inheriting whatever the
+  // previous scenario happened to leave set.
+  cr.setPickupSpawning(true);
+  cr.clearPowerups();
   cr.startRun(555);
   cr.drive(20, 0);
   cr.clearCues();
@@ -718,6 +764,8 @@ check('pickup', 'collect-payload-has-value',
 const magnet = await page.evaluate(() => {
   const cr = window.carRacer;
   cr.setCollisions(false);
+  cr.setPickupSpawning(true);
+  cr.clearPowerups();
   cr.startRun(777);
   cr.drive(20, 0);
 
@@ -752,9 +800,10 @@ const effects = await page.evaluate(() => {
   // Nitro: the speed ceiling must actually rise. Pickups are switched off for
   // the duration — a road that keeps handing out fresh nitro cannot be used to
   // measure how the first one wears off.
+  cr.setPickupSpawning(false);
+  cr.clearPowerups();
   cr.startRun(11);
   cr.drive(14, 0);
-  cr.setPickupSpawning(false);
   const baseCeiling = cr.state().speedCeiling;
   cr.clearCues();
   cr.givePowerup('nitro');
@@ -916,14 +965,122 @@ check('score', 'combo-break-resets-the-chain',
   scoring.chainAfter === 0 && near(scoring.multiplierAfter, 1, 1e-9),
   `chain ${scoring.chainAfter}, multiplier ${scoring.multiplierAfter} after the break`);
 
+/* -- world: biome, weather, day/night, tunnels --------------------------------
+ * Five cues. Each is asserted by the change it makes to the rendered world as
+ * well as by firing — a weather cue that announces a storm while the fog, the
+ * exposure and the grip all stay put is the failure this is looking for. */
+
+phase = 'world';
+const world = await page.evaluate(() => {
+  const cr = window.carRacer;
+  cr.setCollisions(false);
+  cr.startRun(90210);
+  cr.clearCues();
+
+  // A long run: far enough to cross several biomes, weather rolls and a full
+  // day. Samples are kept so the effects can be correlated with the cues.
+  const samples = [];
+  for (let i = 0; i < 120; i++) {
+    cr.drive(3, 0);
+    const s = cr.state();
+    samples.push({
+      distance: s.distance, biome: s.biome, weather: s.weather, phase: s.dayPhase,
+      inTunnel: s.inTunnel, grip: s.surfaceGrip, fog: s.fogDensity,
+      sun: s.sunIntensity, headlights: s.headlights,
+    });
+  }
+
+  return { cues: JSON.parse(JSON.stringify(cr.cues)), samples, state: cr.state() };
+});
+
+const seen = (key) => [...new Set(world.samples.map((s) => s[key]))];
+
+check('world', 'biome-change-cue-fires', world.cues['biome:change'].count > 0,
+  `biome:change fired ${world.cues['biome:change'].count} times over ~30km`);
+check('world', 'biome-actually-changes', seen('biome').length > 1,
+  `biomes visited: ${seen('biome').join(', ')}`);
+check('world', 'biome-payload-is-a-transition',
+  !world.cues['biome:change'].last ||
+  world.cues['biome:change'].last.from !== world.cues['biome:change'].last.to,
+  `last biome change: ${JSON.stringify(world.cues['biome:change'].last)}`);
+
+check('world', 'daynight-cue-fires', world.cues['daynight:change'].count > 0,
+  `daynight:change fired ${world.cues['daynight:change'].count} times`);
+check('world', 'day-runs-through-its-phases', seen('phase').length >= 3,
+  `phases seen: ${seen('phase').join(', ')}`);
+{
+  // Night has to be visibly night, not merely labelled so.
+  const night = world.samples.filter((s) => s.phase === 'night');
+  const day = world.samples.filter((s) => s.phase === 'day');
+  const avg = (rows, key) => rows.reduce((n, r) => n + r[key], 0) / (rows.length || 1);
+  check('world', 'night-is-darker-than-day',
+    night.length > 0 && day.length > 0 && avg(night, 'sun') < avg(day, 'sun'),
+    `mean sun intensity: night ${avg(night, 'sun').toFixed(2)} vs day ${avg(day, 'sun').toFixed(2)}`);
+  check('world', 'headlights-come-on-in-the-dark',
+    night.length > 0 && avg(night, 'headlights') > avg(day, 'headlights'),
+    `mean headlight intensity: night ${avg(night, 'headlights').toFixed(2)} vs day ${avg(day, 'headlights').toFixed(2)}`);
+}
+
+check('world', 'weather-change-cue-fires', world.cues['weather:change'].count > 0,
+  `weather:change fired ${world.cues['weather:change'].count} times over ~30km`);
+check('world', 'weather-payload-has-intensity',
+  !world.cues['weather:change'].last ||
+  (world.cues['weather:change'].last.to === 'clear'
+    ? world.cues['weather:change'].last.intensity === 0
+    : world.cues['weather:change'].last.intensity > 0),
+  `last weather change: ${JSON.stringify(world.cues['weather:change'].last)}`);
+{
+  const wet = world.samples.filter((s) => s.weather === 'rain' || s.weather === 'storm');
+  const dry = world.samples.filter((s) => s.weather === 'clear');
+  check('world', 'wet-roads-lose-grip',
+    wet.length === 0 || dry.length === 0 || Math.max(...wet.map((s) => s.grip)) < 1,
+    wet.length
+      ? `grip in the wet: ${Math.max(...wet.map((s) => s.grip)).toFixed(2)} vs ${dry[0]?.grip ?? 1} dry`
+      : 'no wet weather occurred in this run to measure');
+  check('world', 'bad-weather-thickens-the-fog',
+    wet.length === 0 || dry.length === 0 ||
+    Math.max(...wet.map((s) => s.fog)) > Math.min(...dry.map((s) => s.fog)),
+    wet.length
+      ? `fog density: worst wet ${Math.max(...wet.map((s) => s.fog)).toExponential(2)} vs clearest dry ${Math.min(...dry.map((s) => s.fog)).toExponential(2)}`
+      : 'no wet weather occurred in this run to measure');
+}
+
+check('world', 'tunnel-enter-cue-fires', world.cues['world:tunnel-enter'].count > 0,
+  `world:tunnel-enter fired ${world.cues['world:tunnel-enter'].count} times`);
+check('world', 'tunnel-exit-cue-fires', world.cues['world:tunnel-exit'].count > 0,
+  `world:tunnel-exit fired ${world.cues['world:tunnel-exit'].count} times`);
+check('world', 'every-tunnel-is-left',
+  world.cues['world:tunnel-enter'].count - world.cues['world:tunnel-exit'].count <= 1,
+  `${world.cues['world:tunnel-enter'].count} entered, ${world.cues['world:tunnel-exit'].count} exited`);
+check('world', 'tunnel-has-a-length',
+  !world.cues['world:tunnel-enter'].last || world.cues['world:tunnel-enter'].last.length > 0,
+  `last tunnel: ${JSON.stringify(world.cues['world:tunnel-enter'].last)}`);
+{
+  const inside = world.samples.filter((s) => s.inTunnel);
+  check('world', 'tunnels-light-the-headlights',
+    inside.length === 0 || inside.every((s) => s.headlights > 0),
+    inside.length
+      ? `${inside.length} samples inside a tunnel, min headlight intensity ${Math.min(...inside.map((s) => s.headlights)).toFixed(2)}`
+      : 'no tunnel sample landed in this run');
+}
+
+await shot(page, 'world');
+
 /* -- stability --------------------------------------------------------------- */
 
 phase = 'stability';
 const stability = await page.evaluate(() => {
   const cr = window.carRacer;
-  // These measure handling, speed and stability, not collision. Leaving traffic
-  // lethal would end the run partway and silently truncate the measurement.
+  // These measure handling, speed and stability, not collision or pickups.
+  // Leaving traffic lethal would end the run partway and truncate the
+  // measurement; leaving pickups on lets the car drive over a nitro crate
+  // mid-measurement, which silently rewrites the speed ceiling it is being
+  // measured against — and does so differently depending on which way it was
+  // steered, which is exactly how a symmetric control scheme came to look
+  // asymmetric.
   cr.setCollisions(false);
+  cr.setPickupSpawning(false);
+  cr.clearPowerups();
   cr.startRun(31337);
   // A long, messy run: constant direction changes, braking, full lock.
   for (let i = 0; i < 24; i++) {

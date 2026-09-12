@@ -86,7 +86,9 @@ export class TrafficManager implements Manager {
 
   private buildVehicle(): Vehicle {
     const kind = 'sedan';
-    const mesh = buildTrafficCar(kind, () => this.ctx.rng.next());
+    // Pool construction happens at init, outside any run, so it must not touch
+    // the simulation's random stream at all.
+    const mesh = buildTrafficCar(kind, 0);
     mesh.visible = false;
     this.root.add(mesh);
     return {
@@ -185,6 +187,9 @@ export class TrafficManager implements Manager {
 
     const kind = this.pickKind();
     const lane = this.ctx.rng.int(0, ROAD.laneCount - 1);
+    // Drawn unconditionally, before the lane-clear test can bail out, so the
+    // number of values taken from the stream per spawn attempt is fixed.
+    const colorRoll = this.ctx.rng.next();
     const spawnDistance = distance + ROAD.drawDistance;
 
     // Refuse a spawn that would materialise on top of another car. Dropping the
@@ -196,7 +201,7 @@ export class TrafficManager implements Manager {
     const fraction = this.ctx.rng.range(TRAFFIC.speedFractionMin, TRAFFIC.speedFractionMax);
     const cruise = SPEED.baseMax * fraction * (kind === 'truck' || kind === 'bus' ? 0.82 : 1);
 
-    this.reskin(vehicle, kind);
+    this.reskin(vehicle, kind, colorRoll);
     vehicle.active = true;
     vehicle.distance = spawnDistance;
     vehicle.lane = lane;
@@ -232,11 +237,11 @@ export class TrafficManager implements Manager {
    * different numbers — but it happens only when the kind actually changes,
    * which the pool makes rare.
    */
-  private reskin(v: Vehicle, kind: TrafficKind): void {
+  private reskin(v: Vehicle, kind: TrafficKind, colorRoll: number): void {
     if (v.kind === kind && v.mesh.parent) return;
     this.root.remove(v.mesh);
     disposeGroup(v.mesh);
-    v.mesh = buildTrafficCar(kind, () => this.ctx.rng.next());
+    v.mesh = buildTrafficCar(kind, colorRoll);
     this.root.add(v.mesh);
     v.kind = kind;
   }

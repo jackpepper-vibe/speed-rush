@@ -87,6 +87,9 @@ export interface DevHandle {
   /** Seconds remaining on each running effect. */
   powerups(): Record<string, number>;
 
+  /** Cancel every running effect, for a measurement that needs a clean car. */
+  clearPowerups(): void;
+
   /** A flat readout of everything worth asserting on. */
   state(): Record<string, unknown>;
   /** Constants the probe should test against rather than duplicate. */
@@ -169,6 +172,10 @@ export function installDevHandle(game: Game, version: string): DevHandle {
       game.pickups.spawningEnabled = enabled;
     },
 
+    clearPowerups() {
+      game.powerups.reset();
+    },
+
     setTrafficSpawning(enabled) {
       game.traffic.spawningEnabled = enabled;
     },
@@ -218,6 +225,14 @@ export function installDevHandle(game: Game, version: string): DevHandle {
         triangles: game.rig.frameStats.triangles,
         geometries: game.rig.renderer.info.memory.geometries,
         textures: game.rig.renderer.info.memory.textures,
+        biome: game.world.currentBiome,
+        weather: game.world.currentWeather,
+        dayPhase: game.world.currentPhase,
+        inTunnel: game.world.isInTunnel,
+        surfaceGrip: game.world.surfaceGrip,
+        fogDensity: (game.rig.scene.fog as { density?: number })?.density ?? 0,
+        sunIntensity: game.rig.sun.intensity,
+        headlights: game.player.headlightIntensity,
         quality: game.rig.quality.tier,
         contextLost: game.rig.contextLost,
         roadSeamGap: game.road.maxSeamGap(),

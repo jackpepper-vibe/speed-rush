@@ -244,7 +244,14 @@ export class PlayerManager implements Manager {
 
   /** Headlight intensity, raised at night and in storms by the world systems. */
   setHeadlights(intensity: number): void {
+    this.headlights = intensity;
     for (const spot of this.mesh.userData.headlights) spot.intensity = intensity;
+  }
+
+  private headlights = 0;
+
+  get headlightIntensity(): number {
+    return this.headlights;
   }
 
   reset(): void {

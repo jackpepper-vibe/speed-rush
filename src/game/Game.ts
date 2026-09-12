@@ -12,6 +12,7 @@ import { TrafficManager } from '@/game/managers/TrafficManager';
 import { PowerupManager } from '@/game/managers/PowerupManager';
 import { PickupManager } from '@/game/managers/PickupManager';
 import { ScoreManager } from '@/game/managers/ScoreManager';
+import { WorldManager } from '@/game/managers/WorldManager';
 import { SaveManager } from '@/game/SaveManager';
 import { SPEED } from '@/game/config/Balance';
 
@@ -37,6 +38,7 @@ export class Game {
   readonly powerups: PowerupManager;
   readonly pickups: PickupManager;
   readonly scoring: ScoreManager;
+  readonly world: WorldManager;
 
   private readonly managers = new ManagerRegistry();
   private readonly loop: GameLoop;
@@ -66,6 +68,7 @@ export class Game {
     this.powerups = this.managers.add(new PowerupManager(ctx, this.player));
     this.traffic = this.managers.add(new TrafficManager(ctx, this.road, this.player));
     this.pickups = this.managers.add(new PickupManager(ctx, this.road, this.player, this.powerups));
+    this.world = this.managers.add(new WorldManager(ctx, this.rig, this.player, this.powerups));
     // Last in the order: it scores what the managers before it just did.
     this.scoring = this.managers.add(new ScoreManager(ctx));
 
@@ -159,9 +162,9 @@ export class Game {
   private readonly render = (): void => {
     const dt = 1 / 60;
     const frac = this.player.speedFraction;
-
+    // The grade is set by the world manager, which knows about weather and
+    // nitro; setting it here too would fight it every other frame.
     this.rig.updateCamera(this.player.x, this.player.y, 0, Math.min(frac, 1), this.player.vx, dt);
-    this.rig.setGrade(Math.min(frac, 1), 0, 0);
     this.rig.render();
   };
 

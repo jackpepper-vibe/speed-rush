@@ -338,8 +338,19 @@ const TRAFFIC_PALETTE = [
   0xc9a227, 0x6d4b8f, 0xb85c2a, 0x3a7d8c,
 ];
 
-export function buildTrafficCar(kind: TrafficKind, rng: () => number): CarMesh {
-  const color = TRAFFIC_PALETTE[Math.floor(rng() * TRAFFIC_PALETTE.length)];
+/**
+ * Build a traffic vehicle.
+ *
+ * Takes a caller-supplied 0..1 roll rather than a random source, deliberately.
+ * Drawing here would make the number of values consumed from the simulation's
+ * stream depend on whether a pooled vehicle happened to need rebuilding, which
+ * silently made the same seed produce a different world.
+ */
+export function buildTrafficCar(kind: TrafficKind, colorRoll: number): CarMesh {
+  const color = TRAFFIC_PALETTE[Math.min(
+    TRAFFIC_PALETTE.length - 1,
+    Math.floor(colorRoll * TRAFFIC_PALETTE.length),
+  )];
   const trim = 0x1c1c22;
   if (kind === 'truck') return buildRig(color, 0xd5d8dd, false);
   if (kind === 'bus') return buildRig(0xc8531f, trim, true);
