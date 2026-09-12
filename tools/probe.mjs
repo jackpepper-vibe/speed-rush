@@ -113,10 +113,6 @@ const CHECKED_CUES = new Set([
   'daynight:change',
   'world:tunnel-enter',
   'world:tunnel-exit',
-  'save:write',
-]);
-
-const PENDING_CUES = new Set([
   'run:countdown',
   'player:drift',
   'player:airborne',
@@ -124,7 +120,11 @@ const PENDING_CUES = new Set([
   'garage:purchase',
   'garage:equip',
   'garage:upgrade',
+  'save:write',
 ]);
+
+/** Empty: every declared cue now has an assertion. */
+const PENDING_CUES = new Set([]);
 
 /* -------------------------------------------------------------- dev server */
 
@@ -1065,6 +1065,199 @@ check('world', 'tunnel-has-a-length',
 }
 
 await shot(page, 'world');
+
+/* -- jumps and drift ---------------------------------------------------------
+ * Three cues. Airborne and land are raised by cresting a hill fast enough, so
+ * the test drives until the road throws the car rather than calling `launch`. */
+
+phase = 'air';
+const air = await page.evaluate(() => {
+  const cr = window.carRacer;
+  cr.setCollisions(false);
+  cr.setPickupSpawning(false);
+  cr.clearPowerups();
+  cr.startRun(4004);
+  // Up to speed first: below the threshold a crest is just a gentle rise.
+  cr.drive(12, 0);
+  cr.clearCues();
+
+  let peakHeight = 0;
+  for (let i = 0; i < 200; i++) {
+    cr.drive(0.4, 0);
+    peakHeight = Math.max(peakHeight, cr.state().y);
+    if (cr.cues['player:land'].count > 0) break;
+  }
+  return { cues: JSON.parse(JSON.stringify(cr.cues)), peakHeight, state: cr.state() };
+});
+
+check('air', 'airborne-cue-fires', air.cues['player:airborne'].count > 0,
+  `player:airborne fired ${air.cues['player:airborne'].count} times cresting hills at speed`);
+check('air', 'car-actually-leaves-the-road', air.peakHeight > 0.15,
+  `peak height above the surface: ${air.peakHeight.toFixed(2)}u`);
+check('air', 'land-cue-fires', air.cues['player:land'].count > 0,
+  `player:land fired ${air.cues['player:land'].count} times`);
+check('air', 'land-reports-an-impact',
+  air.cues['player:land'].last && air.cues['player:land'].last.impact > 0,
+  `land payload: ${JSON.stringify(air.cues['player:land'].last)}`);
+check('air', 'car-comes-back-down', air.state.airborne === false && near(air.state.y, 0, 1e-6),
+  `y=${air.state.y}, airborne=${air.state.airborne} after landing`);
+
+const drift = await page.evaluate(() => {
+  const cr = window.carRacer;
+  cr.setCollisions(false);
+  cr.setPickupSpawning(false);
+  cr.clearPowerups();
+  cr.startRun(6006);
+  cr.drive(12, 0);
+
+  // A hard direction reversal at speed is what breaks traction.
+  cr.clearCues();
+  const slipping = [];
+  for (let i = 0; i < 14; i++) {
+    cr.drive(0.9, i % 2 === 0 ? 1 : -1);
+    slipping.push(cr.state().slipping);
+  }
+  return {
+    cues: JSON.parse(JSON.stringify(cr.cues)),
+    everSlipped: slipping.some(Boolean),
+  };
+});
+
+check('drift', 'drift-cue-fires', drift.cues['player:drift'].count > 0,
+  `player:drift fired ${drift.cues['player:drift'].count} times through hard direction changes`);
+check('drift', 'drift-reports-intensity',
+  drift.cues['player:drift'].last && drift.cues['player:drift'].last.intensity > 0,
+  `drift payload: ${JSON.stringify(drift.cues['player:drift'].last)}`);
+check('drift', 'slip-state-is-reported', drift.everSlipped,
+  `the slipping flag was raised during the manoeuvre: ${drift.everSlipped}`);
+
+/* -- countdown ---------------------------------------------------------------- */
+
+phase = 'countdown';
+const countdown = await page.evaluate(() => {
+  const cr = window.carRacer;
+  cr.clearCues();
+  cr.startCountdown(3);
+  const during = cr.state().runState;
+  cr.drive(4.2, 0);
+  return {
+    during,
+    after: cr.state().runState,
+    cues: JSON.parse(JSON.stringify(cr.cues['run:countdown'])),
+  };
+});
+
+check('countdown', 'countdown-cue-fires', countdown.cues.count >= 3,
+  `run:countdown fired ${countdown.cues.count} times counting down from 3`);
+check('countdown', 'countdown-holds-the-run', countdown.during === 'countdown',
+  `runState during the count: ${countdown.during}`);
+check('countdown', 'countdown-reaches-zero',
+  countdown.cues.last && countdown.cues.last.remaining === 0,
+  `last countdown payload: ${JSON.stringify(countdown.cues.last)}`);
+check('countdown', 'countdown-starts-the-run', countdown.after === 'driving',
+  `runState after the count elapsed: ${countdown.after}`);
+
+/* -- garage -------------------------------------------------------------------
+ * Three cues, plus the money rules around them. A shop that gives things away
+ * is a bug no screenshot will ever show. */
+
+phase = 'garage';
+const garage = await page.evaluate(() => {
+  const cr = window.carRacer;
+  cr.resetSave();
+
+  const roster = cr.garage();
+  const locked = roster.find((e) => !e.owned);
+  const startingBalance = cr.state().coins;
+
+  // Too poor: the purchase must fail and must not charge.
+  const brokeAttempt = cr.buyCar(locked.def.id);
+  const balanceAfterFailure = cr.state().coins;
+
+  // Now afford it.
+  cr.grantCoins(locked.def.price + 5000);
+  const funded = cr.state().coins;
+  cr.clearCues();
+  const bought = cr.buyCar(locked.def.id);
+  const afterPurchase = cr.state().coins;
+  const purchaseCue = JSON.parse(JSON.stringify(cr.cues['garage:purchase']));
+
+  // Buying the same car twice must not charge again.
+  const boughtTwice = cr.buyCar(locked.def.id);
+  const afterSecond = cr.state().coins;
+
+  const equipped = cr.equipCar(locked.def.id);
+  const equipCue = JSON.parse(JSON.stringify(cr.cues['garage:equip']));
+  const activeCar = cr.state().carId;
+
+  // Upgrades: price, effect on stats, and the level ceiling.
+  const before = cr.garage().find((e) => e.def.id === locked.def.id);
+  const upgradePrice = before.upgradePrices.grip;
+  const balanceBeforeUpgrade = cr.state().coins;
+  const upgraded = cr.upgradeCar(locked.def.id, 'grip');
+  const balanceAfterUpgrade = cr.state().coins;
+  const upgradeCue = JSON.parse(JSON.stringify(cr.cues['garage:upgrade']));
+  const after = cr.garage().find((e) => e.def.id === locked.def.id);
+
+  // Push one stat to its ceiling and confirm it refuses to go further.
+  for (let i = 0; i < 12; i++) cr.upgradeCar(locked.def.id, 'grip');
+  const maxed = cr.garage().find((e) => e.def.id === locked.def.id);
+  const beyondMax = cr.upgradeCar(locked.def.id, 'grip');
+
+  // An unowned car cannot be equipped or upgraded.
+  const stillLocked = cr.garage().find((e) => !e.owned);
+  const equipLocked = stillLocked ? cr.equipCar(stillLocked.def.id) : false;
+  const upgradeLocked = stillLocked ? cr.upgradeCar(stillLocked.def.id, 'grip') : true;
+
+  return {
+    startingBalance, brokeAttempt, balanceAfterFailure, funded, bought, afterPurchase,
+    boughtTwice, afterSecond, equipped, activeCar, price: locked.def.price,
+    upgradePrice, balanceBeforeUpgrade, upgraded, balanceAfterUpgrade,
+    levelBefore: before.levels.grip ?? 0, levelAfter: after.levels.grip ?? 0,
+    maxedLevel: maxed.levels.grip ?? 0, maxedPrice: maxed.upgradePrices.grip,
+    beyondMax, equipLocked, upgradeLocked,
+    purchaseCue, equipCue, upgradeCue,
+  };
+});
+
+check('garage', 'purchase-cue-fires', garage.purchaseCue.count > 0,
+  `garage:purchase fired ${garage.purchaseCue.count} times`);
+check('garage', 'purchase-succeeds-when-funded', garage.bought === true,
+  `buyCar returned ${garage.bought} with ${garage.funded} coins for a ${garage.price} car`);
+check('garage', 'purchase-charges-the-right-amount',
+  garage.funded - garage.afterPurchase === garage.price,
+  `balance ${garage.funded} -> ${garage.afterPurchase}, car costs ${garage.price}`);
+check('garage', 'purchase-refused-when-broke', garage.brokeAttempt === false,
+  `buyCar returned ${garage.brokeAttempt} with ${garage.startingBalance} coins`);
+check('garage', 'failed-purchase-does-not-charge',
+  garage.balanceAfterFailure === garage.startingBalance,
+  `balance ${garage.startingBalance} -> ${garage.balanceAfterFailure} after a refused purchase`);
+check('garage', 'cannot-buy-the-same-car-twice',
+  garage.boughtTwice === false && garage.afterSecond === garage.afterPurchase,
+  `second purchase returned ${garage.boughtTwice}, balance ${garage.afterPurchase} -> ${garage.afterSecond}`);
+
+check('garage', 'equip-cue-fires', garage.equipCue.count > 0,
+  `garage:equip fired ${garage.equipCue.count} times`);
+check('garage', 'equip-changes-the-car', garage.equipped === true,
+  `equipCar returned ${garage.equipped}; active car is now ${garage.activeCar}`);
+check('garage', 'cannot-equip-an-unowned-car', garage.equipLocked === false,
+  `equipping a locked car returned ${garage.equipLocked}`);
+
+check('garage', 'upgrade-cue-fires', garage.upgradeCue.count > 0,
+  `garage:upgrade fired ${garage.upgradeCue.count} times`);
+check('garage', 'upgrade-raises-the-level',
+  garage.upgraded === true && garage.levelAfter === garage.levelBefore + 1,
+  `grip level ${garage.levelBefore} -> ${garage.levelAfter}`);
+check('garage', 'upgrade-charges-its-quoted-price',
+  garage.balanceBeforeUpgrade - garage.balanceAfterUpgrade === garage.upgradePrice,
+  `quoted ${garage.upgradePrice}, charged ${garage.balanceBeforeUpgrade - garage.balanceAfterUpgrade}`);
+check('garage', 'upgrades-stop-at-the-ceiling',
+  garage.beyondMax === false && garage.maxedPrice === null,
+  `level ${garage.maxedLevel} at the ceiling, further upgrade returned ${garage.beyondMax}, price quoted ${garage.maxedPrice}`);
+check('garage', 'cannot-upgrade-an-unowned-car', garage.upgradeLocked === false,
+  `upgrading a locked car returned ${garage.upgradeLocked}`);
+
+await shot(page, 'garage');
 
 /* -- stability --------------------------------------------------------------- */
 

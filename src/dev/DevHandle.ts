@@ -90,6 +90,19 @@ export interface DevHandle {
   /** Cancel every running effect, for a measurement that needs a clean car. */
   clearPowerups(): void;
 
+  /** Begin the pre-run countdown rather than dropping straight into driving. */
+  startCountdown(from?: number): void;
+
+  /** Garage: the roster, and the three transactions. */
+  garage(): unknown[];
+  buyCar(carId: string): boolean;
+  equipCar(carId: string): boolean;
+  upgradeCar(carId: string, stat: string): boolean;
+  /** Grant coins, so a purchase can be tested without grinding for them. */
+  grantCoins(n: number): number;
+  /** Wipe the save slot, for a test that needs a fresh wallet and garage. */
+  resetSave(): void;
+
   /** A flat readout of everything worth asserting on. */
   state(): Record<string, unknown>;
   /** Constants the probe should test against rather than duplicate. */
@@ -174,6 +187,34 @@ export function installDevHandle(game: Game, version: string): DevHandle {
 
     clearPowerups() {
       game.powerups.reset();
+    },
+
+    startCountdown(from) {
+      game.startCountdown(from);
+    },
+
+    garage() {
+      return game.garage.list();
+    },
+
+    buyCar(carId) {
+      return game.garage.purchase(carId);
+    },
+
+    equipCar(carId) {
+      return game.garage.equip(carId);
+    },
+
+    upgradeCar(carId, stat) {
+      return game.garage.upgrade(carId, stat as never);
+    },
+
+    grantCoins(n) {
+      return game.save.addCoins(n);
+    },
+
+    resetSave() {
+      game.save.clear();
     },
 
     setTrafficSpawning(enabled) {

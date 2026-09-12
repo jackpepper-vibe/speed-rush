@@ -68,8 +68,17 @@ export const HANDLING = {
   /** Visual body roll, radians at full lateral velocity. */
   maxRoll: 0.19,
   maxYaw: 0.28,
-  /** Lateral speed above which tyres break traction and squeal. */
-  slipThreshold: 9.2,
+  /**
+   * Lateral speed above which tyres break traction and squeal.
+   *
+   * Steering authority and grip damping both scale with the surface, so the
+   * lateral velocity a full lock settles at is the same wet or dry — roughly
+   * 7.7 at top speed. What the surface changes is this threshold, which is
+   * multiplied by grip, so a wet road starts sliding at a little under five.
+   * Set above 7.7 and the car can never break traction at all, which is the
+   * state the first build shipped in.
+   */
+  slipThreshold: 6.8,
   /** Grip multiplier by surface state. */
   gripWet: 0.72,
   gripStorm: 0.58,

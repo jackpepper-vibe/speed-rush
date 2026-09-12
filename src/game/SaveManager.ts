@@ -124,8 +124,16 @@ export class SaveManager {
     this.flush();
   }
 
+  /**
+   * Upgrade levels for a car, as a copy.
+   *
+   * Returning the stored object directly handed callers a live reference into
+   * the save: two reads taken either side of a purchase were the same object,
+   * so code comparing before and after saw no change — or rather, saw the
+   * final value in both places.
+   */
   upgradesFor(carId: string): Partial<Record<UpgradableStat, number>> {
-    return this.data.upgrades[carId] ?? {};
+    return { ...this.data.upgrades[carId] };
   }
 
   setName(name: string): void {

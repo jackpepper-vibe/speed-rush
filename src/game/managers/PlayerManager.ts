@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { GameContext, Manager } from '@/core/Manager';
 import { HANDLING, ROAD, SPEED } from '@/game/config/Balance';
-import { barrierLimit, isOnShoulder, laneAt } from '@/game/world/RoadGeometry';
+import { barrierLimit, hillSlopeAt, isOnShoulder, laneAt } from '@/game/world/RoadGeometry';
 import { buildPlayerCar, type CarMesh } from '@/game/render/CarFactory';
 import { carById, effectiveStats, type CarStats, type UpgradableStat } from '@/game/config/Cars';
 
@@ -112,9 +112,42 @@ export class PlayerManager implements Manager {
   update(dt: number, _speed: number, distance: number): void {
     this.integrateSpeed(dt, distance);
     this.integrateLateral(dt);
+    this.testCrest(distance);
     this.integrateVertical(dt);
     this.pose(dt);
   }
+
+  /**
+   * Leave the road at the top of a hill.
+   *
+   * A crest is where the gradient turns over from climbing to falling. Taking
+   * one fast enough throws the car, and the road dropping away underneath does
+   * more for the sense of speed than any amount of motion blur.
+   *
+   * The launch is a rule, not a simulation, and that is a deliberate choice.
+   * Following the road over these crests demands about 4 units of downward
+   * acceleration against a gravity of 26, so a physical model would keep the
+   * car pinned to the tarmac forever — the hills would have to be seven times
+   * taller before it ever left the ground, and a road like that is unreadable
+   * at speed. Above a speed threshold, cresting launches you; below it, the
+   * car follows the surface and gentle rises stay gentle.
+   */
+  private testCrest(distance: number): void {
+    const slope = hillSlopeAt(distance);
+    const previous = this.lastSlope;
+    this.lastSlope = slope;
+
+    if (this.airborne) return;
+    // The gradient turning over from climbing to falling.
+    if (previous <= 0 || slope > 0) return;
+
+    const fraction = this.speed / (SPEED.baseMax * this.stats.topSpeed);
+    if (fraction < 0.55) return;
+
+    this.launch(2.6 + fraction * 5.2);
+  }
+
+  private lastSlope = 0;
 
   private integrateSpeed(dt: number, distance: number): void {
     const km = distance / 1000;
@@ -266,6 +299,7 @@ export class PlayerManager implements Manager {
     this.gripSurface = 1;
     this.lastLane = Math.floor(ROAD.laneCount / 2);
     this.wasSlipping = false;
+    this.lastSlope = 0;
     this.mesh.position.set(0, 0, 0);
     this.mesh.rotation.set(0, 0, 0);
   }

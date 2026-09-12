@@ -13,6 +13,7 @@ import { PowerupManager } from '@/game/managers/PowerupManager';
 import { PickupManager } from '@/game/managers/PickupManager';
 import { ScoreManager } from '@/game/managers/ScoreManager';
 import { WorldManager } from '@/game/managers/WorldManager';
+import { GarageManager } from '@/game/managers/GarageManager';
 import { SaveManager } from '@/game/SaveManager';
 import { SPEED } from '@/game/config/Balance';
 
@@ -39,6 +40,7 @@ export class Game {
   readonly pickups: PickupManager;
   readonly scoring: ScoreManager;
   readonly world: WorldManager;
+  readonly garage: GarageManager;
 
   private readonly managers = new ManagerRegistry();
   private readonly loop: GameLoop;
@@ -71,6 +73,8 @@ export class Game {
     this.world = this.managers.add(new WorldManager(ctx, this.rig, this.player, this.powerups));
     // Last in the order: it scores what the managers before it just did.
     this.scoring = this.managers.add(new ScoreManager(ctx));
+    // Not a simulation; registered so it shares the same lifecycle and bus.
+    this.garage = this.managers.add(new GarageManager(ctx, this.save));
 
     // A shield or a ghost decides whether a collision happens at all, so the
     // question is asked before the crash cue is raised rather than after. An
@@ -111,6 +115,23 @@ export class Game {
     this.loop.start();
   }
 
+  /**
+   * Run the three-count before the lights go green.
+   *
+   * Separate from `startRun` so a caller that wants to drive immediately — the
+   * probe, a replay — is not forced to sit through it, and so the HUD has a
+   * cue to animate against rather than a timer of its own to keep in step.
+   */
+  startCountdown(from = 3): void {
+    this.managers.resetAll();
+    this.state = 'countdown';
+    this.countdown = from;
+    this.countdownWhole = from + 1;
+  }
+
+  private countdown = 0;
+  private countdownWhole = 0;
+
   /** Begin a run. Managers return to their run-start state first. */
   startRun(seed?: number): void {
     if (seed !== undefined) {
@@ -147,6 +168,20 @@ export class Game {
   /* ----------------------------------------------------------------- frame */
 
   private readonly tick = (dt: number): void => {
+    if (this.state === 'countdown') {
+      this.input.update();
+      this.countdown -= dt;
+      // Announced once per whole number, so a listener gets "3", "2", "1", "0"
+      // rather than a stream it has to de-duplicate itself.
+      const whole = Math.ceil(this.countdown);
+      if (whole < this.countdownWhole) {
+        this.countdownWhole = whole;
+        this.bus.emit('run:countdown', { remaining: Math.max(0, whole) });
+      }
+      if (this.countdown <= 0) this.startRun();
+      return;
+    }
+
     if (this.state !== 'driving') {
       // The world still renders behind menus, just frozen.
       this.input.update();
