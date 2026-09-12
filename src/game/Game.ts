@@ -15,6 +15,7 @@ import { ScoreManager } from '@/game/managers/ScoreManager';
 import { WorldManager } from '@/game/managers/WorldManager';
 import { GarageManager } from '@/game/managers/GarageManager';
 import { AudioManager } from '@/game/managers/AudioManager';
+import { SceneryManager } from '@/game/managers/SceneryManager';
 import { SaveManager } from '@/game/SaveManager';
 import { SPEED } from '@/game/config/Balance';
 
@@ -46,6 +47,7 @@ export class Game {
   readonly world: WorldManager;
   readonly garage: GarageManager;
   readonly audio: AudioManager;
+  readonly scenery: SceneryManager;
 
   private readonly managers = new ManagerRegistry();
   /**
@@ -84,6 +86,9 @@ export class Game {
     this.traffic = this.managers.add(new TrafficManager(ctx, this.road, this.player));
     this.pickups = this.managers.add(new PickupManager(ctx, this.road, this.player, this.powerups));
     this.world = this.managers.add(new WorldManager(ctx, this.rig, this.player, this.powerups));
+    // After the world manager, so a biome change has already been announced by
+    // the time the scenery is asked to dress that stretch of road.
+    this.scenery = this.managers.add(new SceneryManager(ctx, this.road, this.rig));
     // Last in the order: it scores what the managers before it just did.
     this.scoring = this.managers.add(new ScoreManager(ctx));
     // Not a simulation; registered so it shares the same lifecycle and bus.

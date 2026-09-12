@@ -104,6 +104,11 @@ export interface DevHandle {
   setMuted(muted: boolean): void;
   resumeAudio(): void;
 
+  /** Live scenery instances per kind, and how many sit on the tarmac. */
+  scenery(): { biome: string; kinds: { id: string; instances: number }[]; onRoad: number };
+  /** Hide the scenery so its cost can be measured as a difference. */
+  setSceneryVisible(visible: boolean): void;
+
   /** Element ids the HUD coverage gate is measured against. */
   uiElements(): { hud: string[]; screens: string[] };
   /** Drive the interface: menu, garage, pause. */
@@ -232,6 +237,14 @@ export function installDevHandle(game: Game, version: string): DevHandle {
       game.audio.resume();
     },
 
+    scenery() {
+      return game.scenery.snapshot();
+    },
+
+    setSceneryVisible(visible) {
+      game.scenery.setVisible(visible);
+    },
+
     uiElements() {
       return { hud: [...HUD_ELEMENTS], screens: [...SCREEN_ELEMENTS] };
     },
@@ -336,6 +349,8 @@ export function installDevHandle(game: Game, version: string): DevHandle {
         fogDensity: (game.rig.scene.fog as { density?: number })?.density ?? 0,
         sunIntensity: game.rig.sun.intensity,
         headlights: game.player.headlightIntensity,
+        sceneryInstances: game.scenery.instanceCount,
+        sceneryKinds: game.scenery.kindCount,
         muted: game.audio.isMuted,
         audioContext: game.audio.contextState,
         quality: game.rig.quality.tier,

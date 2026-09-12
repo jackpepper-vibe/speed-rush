@@ -1674,6 +1674,153 @@ await page.evaluate(() => {
 });
 await shot(page, 'menu');
 
+/* -- scenery ------------------------------------------------------------------
+ * The fourth coverage gate. Every biome must put something beside the road, and
+ * nothing it puts there may stand on the tarmac.
+ *
+ * "Props exist" is not the test. A prop planted 400 units ahead is only still
+ * beside the road when you reach it if it was placed through the same curve the
+ * tarmac is built from — get that wrong and the scenery drifts into the lanes
+ * over the length of a bend, which a screenshot of the first frame shows as a
+ * perfectly tidy roadside. So placement is checked against the road's own
+ * geometry, and checked again after driving the stretch it was placed on. */
+
+phase = 'scenery';
+const scenery = await page.evaluate(() => {
+  const cr = window.carRacer;
+  cr.setCollisions(false);
+  cr.setPickupSpawning(false);
+  cr.startRun(5150);
+
+  const perBiome = {};
+  let worstOnRoad = 0;
+  let minInstances = Infinity;
+
+  // Long enough to cross every biome several times.
+  for (let i = 0; i < 150; i++) {
+    cr.drive(3, 0);
+    const s = cr.scenery();
+    const total = s.kinds.reduce((n, k) => n + k.instances, 0);
+    worstOnRoad = Math.max(worstOnRoad, s.onRoad);
+
+    // Tunnels are bare by definition; they are not a biome that owes props.
+    if (!cr.state().inTunnel) {
+      minInstances = Math.min(minInstances, total);
+      const seen = perBiome[s.biome] ?? { kinds: new Set(), total: 0, samples: 0 };
+      for (const k of s.kinds) seen.kinds.add(k.id);
+      seen.total = Math.max(seen.total, total);
+      seen.samples += 1;
+      perBiome[s.biome] = seen;
+    }
+  }
+
+  return {
+    biomes: Object.fromEntries(Object.entries(perBiome).map(([b, v]) => [
+      b, { kinds: [...v.kinds], total: v.total, samples: v.samples },
+    ])),
+    worstOnRoad,
+    minInstances: minInstances === Infinity ? 0 : minInstances,
+    drawCalls: cr.state().drawCalls,
+    triangles: cr.state().triangles,
+  };
+});
+
+const biomesSeen = Object.keys(scenery.biomes);
+const EXPECTED_BIOMES = ['coast', 'city', 'desert', 'forest'];
+
+/* The gate. */
+{
+  const bare = EXPECTED_BIOMES.filter((b) => {
+    const entry = scenery.biomes[b];
+    return entry && entry.kinds.length === 0;
+  });
+  const unvisited = EXPECTED_BIOMES.filter((b) => !scenery.biomes[b]);
+
+  check('scenery', 'no-bare-biomes', bare.length === 0,
+    `biomes visited with nothing beside the road: ${bare.join(', ') || 'none'} ` +
+    `(visited: ${biomesSeen.join(', ')})`);
+  check('scenery', 'every-biome-visited', unvisited.length === 0,
+    `biomes never reached in a 450s run, so their props are untested: ${unvisited.join(', ') || 'none'}`);
+}
+
+for (const biome of biomesSeen) {
+  const entry = scenery.biomes[biome];
+  check('scenery', `dressed/${biome}`, entry.kinds.length >= 2 && entry.total > 20,
+    `${biome}: ${entry.kinds.length} prop kinds [${entry.kinds.join(', ')}], ` +
+    `${entry.total} instances at peak across ${entry.samples} samples`);
+}
+
+check('scenery', 'nothing-stands-on-the-road', scenery.worstOnRoad === 0,
+  `worst count of prop footprints overlapping the tarmac across 150 samples: ${scenery.worstOnRoad}`);
+check('scenery', 'road-is-never-empty', scenery.minInstances > 20,
+  `fewest instances placed at any sample outside a tunnel: ${scenery.minInstances}`);
+
+/* Instancing is the point: hundreds of props must not become hundreds of draws.
+ *
+ * Measured as a difference rather than against an absolute budget. Most of the
+ * frame's draw calls belong to the traffic — thirty-odd pooled vehicles, each a
+ * group of a dozen meshes — so a total-call ceiling mostly reports on something
+ * this check is not about, and would pass or fail on traffic density. */
+{
+  const cost = await page.evaluate(() => {
+    const cr = window.carRacer;
+    cr.setCollisions(false);
+    cr.startRun(4242);
+    cr.drive(25, 0);
+
+    cr.setSceneryVisible(false);
+    cr.step(3);
+    const without = { calls: cr.state().drawCalls, tris: cr.state().triangles };
+
+    cr.setSceneryVisible(true);
+    cr.step(3);
+    const withProps = { calls: cr.state().drawCalls, tris: cr.state().triangles };
+
+    const s = cr.state();
+    return { without, withProps, instances: s.sceneryInstances, kinds: s.sceneryKinds };
+  });
+
+  const extraCalls = cost.withProps.calls - cost.without.calls;
+  const extraTris = cost.withProps.tris - cost.without.tris;
+
+  check('scenery', 'props-are-instanced', extraCalls <= cost.kinds + 1,
+    `${cost.instances} instances across ${cost.kinds} kinds cost ${extraCalls} extra draw calls ` +
+    `(${cost.without.calls} -> ${cost.withProps.calls}), want <= ${cost.kinds + 1}`);
+  check('scenery', 'props-add-real-geometry', extraTris > 4000,
+    `scenery adds ${extraTris} triangles (${cost.without.tris} -> ${cost.withProps.tris})`);
+}
+
+/* Placement has to survive being driven through, not merely look right when
+ * first written. This drives the exact stretch that was just dressed. */
+{
+  const sustained = await page.evaluate(() => {
+    const cr = window.carRacer;
+    cr.setCollisions(false);
+    cr.startRun(6161);
+    let worst = 0;
+    // Small steps, so every band rebuild is sampled rather than skipped over.
+    for (let i = 0; i < 240; i++) {
+      cr.drive(0.5, i % 4 === 0 ? 0.8 : -0.6);
+      worst = Math.max(worst, cr.scenery().onRoad);
+    }
+    return { worst, state: cr.state() };
+  });
+
+  check('scenery', 'placement-holds-through-a-bend', sustained.worst === 0,
+    `worst on-road prop count across 120s of driving through bends: ${sustained.worst}`);
+  check('scenery', 'scenery-survives-a-long-run',
+    sustained.state.sceneryInstances > 20 && sustained.state.contextLost === false,
+    `${sustained.state.sceneryInstances} instances live at the end, context lost: ${sustained.state.contextLost}`);
+}
+
+await page.evaluate(() => {
+  const cr = window.carRacer;
+  cr.setCollisions(false);
+  cr.startRun(909);
+  cr.drive(30, 0);
+});
+await shot(page, 'scenery');
+
 /* -- stability --------------------------------------------------------------- */
 
 phase = 'stability';
