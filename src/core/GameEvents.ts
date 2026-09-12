@@ -39,7 +39,9 @@ export type GameEvents = {
   'traffic:lane-change': { kind: TrafficKind; from: number; to: number };
   'traffic:brake': { kind: TrafficKind; lane: number };
   'traffic:despawn': { kind: TrafficKind; passed: boolean };
-  'traffic:horn': { kind: TrafficKind; position: Vector3 };
+  /** `closing` is the approach speed as a fraction of top speed — negative
+   *  when the vehicle is falling behind. Drives the doppler shift on the horn. */
+  'traffic:horn': { kind: TrafficKind; position: Vector3; closing: number };
 
   /* -- pickups & powerups ------------------------------------------------- */
   'pickup:collect': { kind: PickupId; value: number; position: Vector3 };

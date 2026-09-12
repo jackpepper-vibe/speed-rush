@@ -10,6 +10,7 @@ export interface SaveData {
   owned: string[];
   upgrades: Record<string, Partial<Record<UpgradableStat, number>>>;
   runs: number;
+  muted: boolean;
   leaderboard: { name: string; score: number; distance: number; at: number }[];
 }
 
@@ -27,6 +28,7 @@ function blank(): SaveData {
     owned: ['dart'],
     upgrades: {},
     runs: 0,
+    muted: false,
     leaderboard: [],
   };
 }
@@ -63,6 +65,7 @@ export class SaveManager {
         owned: Array.isArray(parsed.owned) ? parsed.owned.filter((c) => typeof c === 'string') : ['dart'],
         upgrades: typeof parsed.upgrades === 'object' && parsed.upgrades ? parsed.upgrades : {},
         runs: num(parsed.runs, 0),
+        muted: parsed.muted === true,
         leaderboard: Array.isArray(parsed.leaderboard) ? parsed.leaderboard.slice(0, 10) : [],
       };
     } catch {
@@ -134,6 +137,15 @@ export class SaveManager {
    */
   upgradesFor(carId: string): Partial<Record<UpgradableStat, number>> {
     return { ...this.data.upgrades[carId] };
+  }
+
+  get muted(): boolean {
+    return this.data.muted;
+  }
+
+  setMuted(muted: boolean): void {
+    this.data.muted = muted;
+    this.flush();
   }
 
   setName(name: string): void {

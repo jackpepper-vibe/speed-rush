@@ -14,6 +14,7 @@ import { PickupManager } from '@/game/managers/PickupManager';
 import { ScoreManager } from '@/game/managers/ScoreManager';
 import { WorldManager } from '@/game/managers/WorldManager';
 import { GarageManager } from '@/game/managers/GarageManager';
+import { AudioManager } from '@/game/managers/AudioManager';
 import { SaveManager } from '@/game/SaveManager';
 import { SPEED } from '@/game/config/Balance';
 
@@ -41,6 +42,7 @@ export class Game {
   readonly scoring: ScoreManager;
   readonly world: WorldManager;
   readonly garage: GarageManager;
+  readonly audio: AudioManager;
 
   private readonly managers = new ManagerRegistry();
   private readonly loop: GameLoop;
@@ -75,6 +77,8 @@ export class Game {
     this.scoring = this.managers.add(new ScoreManager(ctx));
     // Not a simulation; registered so it shares the same lifecycle and bus.
     this.garage = this.managers.add(new GarageManager(ctx, this.save));
+    // Last, so the cues it reacts to have all been raised for this tick.
+    this.audio = this.managers.add(new AudioManager(ctx, this.save, this.player));
 
     // A shield or a ghost decides whether a collision happens at all, so the
     // question is asked before the crash cue is raised rather than after. An

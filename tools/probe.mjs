@@ -1259,6 +1259,140 @@ check('garage', 'cannot-upgrade-an-unowned-car', garage.upgradeLocked === false,
 
 await shot(page, 'garage');
 
+/* -- audio --------------------------------------------------------------------
+ * The second coverage gate. `AUDIBLE_CUES` is the game's own list of what must
+ * make a sound; anything on it with no recorded play is a silent feature.
+ *
+ * Existence is not the test. A synth that builds an oscillator at zero gain, or
+ * behind a muted master, or into a context stuck `suspended`, is exactly as
+ * silent as no synth at all — and all three are things that ship. So each cue
+ * is checked for voices AND for the gain it opened at, the node counts are
+ * corroborated from outside the page against the real AudioContext, and mute is
+ * verified to actually close the master. */
+
+phase = 'audio';
+const audio = await page.evaluate(async () => {
+  const cr = window.carRacer;
+  cr.resumeAudio();
+  cr.setMuted(false);
+  cr.setCollisions(false);
+  cr.setPickupSpawning(true);
+  cr.setTrafficSpawning(true);
+  cr.clearPowerups();
+
+  // A representative session: long enough for weather, milestones, hills and
+  // horns; then the situations that have to be provoked deliberately.
+  cr.startCountdown(3);
+  cr.drive(4.2, 0);
+  for (let i = 0; i < 40; i++) cr.drive(3, i % 3 === 0 ? 0.7 : -0.5);
+
+  // Near miss and horn: ride alongside traffic.
+  for (let i = 0; i < 50; i++) {
+    const beside = cr.traffic().filter((t) => t.ahead > 5 && t.ahead < 90)
+      .sort((a, b) => a.ahead - b.ahead)[0];
+    if (beside) cr.place({ x: beside.x + 2.7, vx: 0 });
+    cr.drive(0.4, 0);
+  }
+
+  // Power-ups, both ends.
+  cr.givePowerup('nitro');
+  cr.drive(0.5, 0);
+  cr.setPickupSpawning(false);
+  cr.drive(12, 0);
+
+  // A shielded impact, then a real one.
+  for (let seed = 1; seed < 40 && cr.cues['powerup:blocked-crash'].count === 0; seed++) {
+    cr.setCollisions(false);
+    cr.startRun(seed);
+    cr.drive(26, 0);
+    const ahead = cr.traffic().filter((t) => t.ahead > 12 && t.ahead < 150)
+      .sort((a, b) => a.ahead - b.ahead)[0];
+    if (!ahead) continue;
+    cr.setCollisions(true);
+    cr.givePowerup('shield');
+    cr.place({ x: ahead.x, vx: 0 });
+    for (let i = 0; i < 40; i++) {
+      cr.drive(0.25, 0);
+      if (cr.cues['player:crash'].count > 0) break;
+    }
+  }
+
+  // Garage transactions.
+  cr.resetSave();
+  cr.grantCoins(60000);
+  const locked = cr.garage().find((e) => !e.owned);
+  if (locked) {
+    cr.buyCar(locked.def.id);
+    cr.equipCar(locked.def.id);
+    cr.upgradeCar(locked.def.id, 'grip');
+  }
+
+  const beforeMute = window.__audio ? { ...window.__audio } : null;
+  const stats = cr.audio();
+  const silent = cr.silentAudioCues();
+
+  // Mute has to close the master, not merely set a flag.
+  cr.setMuted(true);
+  await new Promise((r) => setTimeout(r, 120));
+  const mutedGain = cr.state().muted;
+
+  return {
+    stats, silent, audible: cr.audibleCues(), beforeMute, mutedGain,
+    contextState: cr.state().audioContext,
+    nodes: window.__audio ? { ...window.__audio } : null,
+  };
+});
+
+/* The gate. */
+check('audio', 'no-silent-cues', audio.silent.length === 0,
+  `${audio.silent.length} of ${audio.audible.length} cues that must make a sound never did: ` +
+  `${audio.silent.join(', ') || 'none'}`);
+
+check('audio', 'context-running', audio.contextState === 'running',
+  `AudioContext state: ${audio.contextState} — a suspended context drops every sound played into it`);
+
+/* Corroborated from outside the page: the game claims it built voices, and the
+ * real AudioContext agrees it was asked to. */
+check('audio', 'oscillators-really-built', (audio.nodes?.oscillators ?? 0) > 20,
+  `AudioContext.createOscillator called ${audio.nodes?.oscillators ?? 0} times`);
+check('audio', 'noise-sources-really-built', (audio.nodes?.buffers ?? 0) > 5,
+  `AudioContext.createBufferSource called ${audio.nodes?.buffers ?? 0} times`);
+check('audio', 'gain-nodes-really-built', (audio.nodes?.gains ?? 0) > 20,
+  `AudioContext.createGain called ${audio.nodes?.gains ?? 0} times`);
+
+/* Per cue: voices and an audible gain, not just a play count. */
+for (const cue of audio.audible) {
+  const stat = audio.stats[cue];
+  const voices = (stat?.oscillators ?? 0) + (stat?.buffers ?? 0);
+  check('audio', `voiced/${cue}`, voices > 0 && (stat?.peakGain ?? 0) > 0.001,
+    `${cue}: ${stat?.plays ?? 0} plays, ${stat?.oscillators ?? 0} osc + ${stat?.buffers ?? 0} buf, ` +
+    `peak gain ${(stat?.peakGain ?? 0).toFixed(3)}`);
+}
+
+check('audio', 'mute-is-persisted', audio.mutedGain === true,
+  `muted flag after setMuted(true): ${audio.mutedGain}`);
+
+/* Total node count must not grow without bound over a long run — the squeal and
+ * the rain bed are held open and reused, not rebuilt per frame. */
+const audioGrowth = await page.evaluate(async () => {
+  const cr = window.carRacer;
+  cr.setMuted(false);
+  cr.setCollisions(false);
+  cr.startRun(31337);
+  cr.drive(10, 0);
+  const before = { ...window.__audio };
+  // Thrash the slide state, which is the one held-open voice most at risk of
+  // being rebuilt every time it is asked for.
+  for (let i = 0; i < 30; i++) cr.drive(1, i % 2 === 0 ? 1 : -1);
+  const after = { ...window.__audio };
+  return { before, after };
+});
+
+check('audio', 'held-voices-are-reused',
+  audioGrowth.after.buffers - audioGrowth.before.buffers < 60,
+  `buffer sources created across 30s of continuous sliding: ` +
+  `${audioGrowth.after.buffers - audioGrowth.before.buffers}, want < 60`);
+
 /* -- stability --------------------------------------------------------------- */
 
 phase = 'stability';

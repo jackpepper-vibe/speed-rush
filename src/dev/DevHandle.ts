@@ -1,6 +1,7 @@
 import type { Game } from '@/game/Game';
 import type { GameEventName, GameEvents } from '@/core/GameEvents';
 import { ROAD, SCORE, SPEED } from '@/game/config/Balance';
+import { AUDIBLE_CUES } from '@/game/managers/AudioManager';
 
 /**
  * The surface the probe drives the game through.
@@ -92,6 +93,15 @@ export interface DevHandle {
 
   /** Begin the pre-run countdown rather than dropping straight into driving. */
   startCountdown(from?: number): void;
+
+  /** Per-cue record of voices created and the gain they opened at. */
+  audio(): Record<string, { plays: number; oscillators: number; buffers: number; peakGain: number }>;
+  /** Cues that are supposed to make a sound and never have. */
+  silentAudioCues(): string[];
+  /** The cues audio coverage is measured against. */
+  audibleCues(): string[];
+  setMuted(muted: boolean): void;
+  resumeAudio(): void;
 
   /** Garage: the roster, and the three transactions. */
   garage(): unknown[];
@@ -193,6 +203,26 @@ export function installDevHandle(game: Game, version: string): DevHandle {
       game.startCountdown(from);
     },
 
+    audio() {
+      return game.audio.audioStats();
+    },
+
+    silentAudioCues() {
+      return game.audio.silentCues();
+    },
+
+    audibleCues() {
+      return [...AUDIBLE_CUES];
+    },
+
+    setMuted(muted) {
+      game.audio.setMuted(muted);
+    },
+
+    resumeAudio() {
+      game.audio.resume();
+    },
+
     garage() {
       return game.garage.list();
     },
@@ -274,6 +304,8 @@ export function installDevHandle(game: Game, version: string): DevHandle {
         fogDensity: (game.rig.scene.fog as { density?: number })?.density ?? 0,
         sunIntensity: game.rig.sun.intensity,
         headlights: game.player.headlightIntensity,
+        muted: game.audio.isMuted,
+        audioContext: game.audio.contextState,
         quality: game.rig.quality.tier,
         contextLost: game.rig.contextLost,
         roadSeamGap: game.road.maxSeamGap(),

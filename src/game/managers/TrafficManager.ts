@@ -318,7 +318,11 @@ export class TrafficManager implements Manager {
       Math.abs(v.x - this.player.x) < ROAD.laneWidth
     ) {
       v.hornTimer = TRAFFIC.hornCooldown;
-      this.ctx.bus.emit('traffic:horn', { kind: v.kind, position: v.mesh.position.clone() });
+      this.ctx.bus.emit('traffic:horn', {
+        kind: v.kind,
+        position: v.mesh.position.clone(),
+        closing: (v.speed - this.player.speed) / SPEED.baseMax,
+      });
     }
   }
 
