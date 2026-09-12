@@ -1,6 +1,6 @@
 import type { Game } from '@/game/Game';
 import type { GameEventName, GameEvents } from '@/core/GameEvents';
-import { ROAD, SPEED } from '@/game/config/Balance';
+import { ROAD, SCORE, SPEED } from '@/game/config/Balance';
 
 /**
  * The surface the probe drives the game through.
@@ -79,6 +79,10 @@ export interface DevHandle {
 
   /** Stop new pickups being laid, without removing the ones already out. */
   setPickupSpawning(enabled: boolean): void;
+
+  /** Stop new traffic spawning, and clear an empty road for tests that need one. */
+  setTrafficSpawning(enabled: boolean): void;
+  clearTraffic(): void;
 
   /** Seconds remaining on each running effect. */
   powerups(): Record<string, number>;
@@ -165,6 +169,14 @@ export function installDevHandle(game: Game, version: string): DevHandle {
       game.pickups.spawningEnabled = enabled;
     },
 
+    setTrafficSpawning(enabled) {
+      game.traffic.spawningEnabled = enabled;
+    },
+
+    clearTraffic() {
+      game.traffic.clearAll();
+    },
+
     powerups() {
       const out: Record<string, number> = {};
       for (const id of ['shield', 'nitro', 'magnet', 'ghost', 'slowmo'] as const) {
@@ -193,6 +205,9 @@ export function installDevHandle(game: Game, version: string): DevHandle {
         carId: p.currentCarId,
         coins: game.save.coins,
         best: game.save.snapshot.best,
+        multiplier: game.scoring.multiplier,
+        comboChain: game.scoring.comboChain,
+        runCoins: game.scoring.runCoins,
         sceneChildren: game.rig.scene.children.length,
         cameraY: game.rig.camera.position.y,
         cameraZ: game.rig.camera.position.z,
@@ -215,6 +230,9 @@ export function installDevHandle(game: Game, version: string): DevHandle {
         laneWidth: ROAD.laneWidth,
         halfWidth: ROAD.halfWidth,
         laneX: Array.from({ length: ROAD.laneCount }, (_, i) => ROAD.laneX(i)),
+        comboWindow: SCORE.comboWindow,
+        comboMax: SCORE.comboMax,
+        milestoneKm: SCORE.milestoneKm,
         speedStart: SPEED.start,
         speedMax: SPEED.baseMax,
         speedAbsoluteMax: SPEED.absoluteMax,

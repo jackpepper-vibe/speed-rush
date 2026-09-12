@@ -11,6 +11,7 @@ import { InputManager } from '@/game/managers/InputManager';
 import { TrafficManager } from '@/game/managers/TrafficManager';
 import { PowerupManager } from '@/game/managers/PowerupManager';
 import { PickupManager } from '@/game/managers/PickupManager';
+import { ScoreManager } from '@/game/managers/ScoreManager';
 import { SaveManager } from '@/game/SaveManager';
 import { SPEED } from '@/game/config/Balance';
 
@@ -35,13 +36,12 @@ export class Game {
   readonly traffic: TrafficManager;
   readonly powerups: PowerupManager;
   readonly pickups: PickupManager;
+  readonly scoring: ScoreManager;
 
   private readonly managers = new ManagerRegistry();
   private readonly loop: GameLoop;
 
   private state: RunState = 'menu';
-  private score = 0;
-  private runCoins = 0;
   private seed: number;
 
   constructor(canvas: HTMLCanvasElement, seed?: number) {
@@ -66,6 +66,8 @@ export class Game {
     this.powerups = this.managers.add(new PowerupManager(ctx, this.player));
     this.traffic = this.managers.add(new TrafficManager(ctx, this.road, this.player));
     this.pickups = this.managers.add(new PickupManager(ctx, this.road, this.player, this.powerups));
+    // Last in the order: it scores what the managers before it just did.
+    this.scoring = this.managers.add(new ScoreManager(ctx));
 
     // A shield or a ghost decides whether a collision happens at all, so the
     // question is asked before the crash cue is raised rather than after. An
@@ -91,7 +93,7 @@ export class Game {
   }
 
   get currentScore(): number {
-    return this.score;
+    return this.scoring.score;
   }
 
   get distance(): number {
@@ -113,8 +115,6 @@ export class Game {
       this.rng.reset(this.seed);
     }
     this.managers.resetAll();
-    this.score = 0;
-    this.runCoins = 0;
     this.state = 'driving';
 
     const carId = this.save.snapshot.activeCar;
@@ -129,12 +129,13 @@ export class Game {
     if (this.state === 'gameover') return;
     this.state = 'gameover';
     const distance = this.road.travelled;
-    this.save.addCoins(this.runCoins);
-    this.save.recordRun(Math.round(this.score), Math.round(distance));
+    const coins = this.scoring.runCoins;
+    this.save.addCoins(coins);
+    this.save.recordRun(Math.round(this.scoring.score), Math.round(distance));
     this.bus.emit('run:end', {
-      score: Math.round(this.score),
+      score: Math.round(this.scoring.score),
       distance: Math.round(distance),
-      coins: this.runCoins,
+      coins,
       cause,
     });
     this.bus.emit('save:write', { coins: this.save.coins, best: this.save.snapshot.best });
@@ -152,8 +153,6 @@ export class Game {
     this.player.input = this.input.state;
     const distance = this.road.travelled;
     this.managers.update(dt, this.player.speed, distance);
-
-    this.score += this.player.speed * dt * 0.34;
     this.bus.emit('run:tick', { distance: this.road.travelled, speed: this.player.speed });
   };
 

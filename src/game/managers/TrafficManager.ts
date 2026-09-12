@@ -69,6 +69,9 @@ export class TrafficManager implements Manager {
    */
   crashGuard: (kind: TrafficKind) => boolean = () => false;
 
+  /** Test seam: stop new vehicles being spawned. Never off in play. */
+  spawningEnabled = true;
+
   constructor(
     private readonly ctx: GameContext,
     private readonly road: RoadManager,
@@ -112,7 +115,7 @@ export class TrafficManager implements Manager {
   }
 
   update(dt: number, _speed: number, distance: number): void {
-    this.spawn(dt, distance);
+    if (this.spawningEnabled) this.spawn(dt, distance);
 
     const playerDistance = this.road.travelled;
     for (const v of this.pool) {
@@ -405,11 +408,16 @@ export class TrafficManager implements Manager {
     this.ctx.bus.emit('traffic:despawn', { kind: v.kind, passed: true });
   }
 
-  reset(): void {
+  /** Remove every live vehicle without emitting despawn cues. Test seam. */
+  clearAll(): void {
     for (const v of this.pool) {
       v.active = false;
       v.mesh.visible = false;
     }
+  }
+
+  reset(): void {
+    this.clearAll();
     this.spawnTimer = 0;
   }
 

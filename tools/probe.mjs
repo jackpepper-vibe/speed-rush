@@ -104,6 +104,10 @@ const CHECKED_CUES = new Set([
   'powerup:activate',
   'powerup:expire',
   'powerup:blocked-crash',
+  'score:add',
+  'score:combo',
+  'score:combo-break',
+  'score:milestone',
   'save:write',
 ]);
 
@@ -112,10 +116,6 @@ const PENDING_CUES = new Set([
   'player:drift',
   'player:airborne',
   'player:land',
-  'score:add',
-  'score:combo',
-  'score:combo-break',
-  'score:milestone',
   'biome:change',
   'weather:change',
   'daynight:change',
@@ -834,6 +834,87 @@ check('powerup', 'shield-is-consumed-by-the-hit',
   `shield remaining after absorbing a hit: ${shielded?.timers.shield?.toFixed(2)}s — want 0`);
 
 await shot(page, 'pickups');
+
+/* -- scoring ------------------------------------------------------------------
+ * Four cues. The combo is the part worth testing hardest: it is the mechanic
+ * that rewards driving close to traffic rather than hiding in an empty lane,
+ * and a multiplier that silently fails to climb would leave the game playable
+ * but pointless. */
+
+phase = 'scoring';
+const scoring = await page.evaluate((comboWindow) => {
+  const cr = window.carRacer;
+  cr.setCollisions(false);
+  cr.startRun(3141);
+  cr.clearCues();
+  cr.drive(30, 0);
+
+  const distanceOnly = {
+    score: cr.state().score,
+    adds: cr.cues['score:add'].count,
+    milestones: JSON.parse(JSON.stringify(cr.cues['score:milestone'])),
+  };
+
+  // Now provoke a combo by parking alongside traffic repeatedly.
+  cr.clearCues();
+  const multipliers = [];
+  for (let i = 0; i < 70; i++) {
+    const beside = cr.traffic()
+      .filter((t) => t.ahead > 6 && t.ahead < 90)
+      .sort((a, b) => a.ahead - b.ahead)[0];
+    if (beside) cr.place({ x: beside.x + 2.7, vx: 0 });
+    cr.drive(0.4, 0);
+    multipliers.push(cr.state().multiplier);
+    if (cr.cues['score:combo'].count >= 3) break;
+  }
+  const combo = JSON.parse(JSON.stringify(cr.cues['score:combo']));
+  const peakMultiplier = Math.max(...multipliers);
+  const chainAtPeak = cr.state().comboChain;
+
+  // Then stop provoking it and let the window lapse.
+  // An empty road for longer than the window, so the chain must lapse.
+  //
+  // Simply steering away is not enough: anywhere on a five-lane road is within
+  // near-miss range of something, so the chain kept being refreshed and the
+  // test reported a combo that never decays. That was the measurement being
+  // wrong, not the game — a chain that survives while you keep threading
+  // traffic is the whole point of it.
+  cr.setTrafficSpawning(false);
+  cr.clearTraffic();
+  cr.place({ x: 0, vx: 0 });
+  cr.drive(comboWindow + 2, 0);
+  cr.setTrafficSpawning(true);
+  const broke = JSON.parse(JSON.stringify(cr.cues['score:combo-break']));
+
+  return {
+    distanceOnly, combo, broke, peakMultiplier, chainAtPeak,
+    chainAfter: cr.state().comboChain,
+    multiplierAfter: cr.state().multiplier,
+    addLast: JSON.parse(JSON.stringify(cr.cues['score:add'].last ?? null)),
+  };
+}, config.comboWindow);
+
+check('score', 'add-cue-fires', scoring.distanceOnly.adds > 0,
+  `score:add fired ${scoring.distanceOnly.adds} times in 30s`);
+check('score', 'add-payload-carries-reason',
+  scoring.addLast && typeof scoring.addLast.reason === 'string' && scoring.addLast.reason.length > 0,
+  `last score:add: ${JSON.stringify(scoring.addLast)}`);
+check('score', 'distance-scores', scoring.distanceOnly.score > 500,
+  `score after 30s of clean driving: ${scoring.distanceOnly.score.toFixed(0)}`);
+check('score', 'milestone-cue-fires', scoring.distanceOnly.milestones.count > 0,
+  `score:milestone fired ${scoring.distanceOnly.milestones.count} times over ~3km`);
+check('score', 'milestone-tiers-ascend',
+  !scoring.distanceOnly.milestones.last || scoring.distanceOnly.milestones.last.tier >= 1,
+  `last milestone: ${JSON.stringify(scoring.distanceOnly.milestones.last)}`);
+check('score', 'combo-cue-fires', scoring.combo.count > 0,
+  `score:combo fired ${scoring.combo.count} times while running alongside traffic`);
+check('score', 'combo-raises-the-multiplier', scoring.peakMultiplier > 1.0,
+  `peak multiplier reached: ${scoring.peakMultiplier.toFixed(2)}x on a chain of ${scoring.chainAtPeak}`);
+check('score', 'combo-break-cue-fires', scoring.broke.count > 0,
+  `score:combo-break fired ${scoring.broke.count} times after the window lapsed`);
+check('score', 'combo-break-resets-the-chain',
+  scoring.chainAfter === 0 && near(scoring.multiplierAfter, 1, 1e-9),
+  `chain ${scoring.chainAfter}, multiplier ${scoring.multiplierAfter} after the break`);
 
 /* -- stability --------------------------------------------------------------- */
 
