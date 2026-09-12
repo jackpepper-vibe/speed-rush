@@ -42,6 +42,17 @@ export class WorldManager implements Manager {
   private inTunnel = false;
 
   private weatherIntensity = 0;
+
+  /**
+   * Pinned conditions, for captures that have to be comparable.
+   *
+   * Biome, weather and time of day are all functions of distance, which is
+   * exactly what makes a run reproducible — and exactly what makes two captures
+   * taken for art direction incomparable, since reaching the pose at all moves
+   * you through the schedule. Pinning them is the difference between judging a
+   * change and judging the weather. Never set in play.
+   */
+  private pinned: { biome?: BiomeId; weather?: WeatherId; phase?: DayPhase } | null = null;
   private rainSystem: THREE.Points | null = null;
   private rainGeometry: THREE.BufferGeometry | null = null;
   private rainMaterial: THREE.PointsMaterial | null = null;
@@ -83,11 +94,33 @@ export class WorldManager implements Manager {
 
   /* ------------------------------------------------------------------ update */
 
+  /** Force conditions and hold them. Pass null to hand control back. */
+  pin(conditions: { biome?: BiomeId; weather?: WeatherId; phase?: DayPhase } | null): void {
+    this.pinned = conditions;
+    if (!conditions) return;
+
+    if (conditions.biome && conditions.biome !== this.biome) {
+      const from = this.biome;
+      this.biome = conditions.biome;
+      this.ctx.bus.emit('biome:change', { from, to: this.biome, distance: 0 });
+    }
+    if (conditions.weather) {
+      this.weather = conditions.weather;
+      this.weatherIntensity = conditions.weather === 'clear' ? 0 : 0.8;
+    }
+    if (conditions.phase) this.phase = conditions.phase;
+    this.inTunnel = false;
+    this.tunnelStart = Number.POSITIVE_INFINITY;
+    this.tunnelEnd = Number.POSITIVE_INFINITY;
+  }
+
   update(_dt: number, _speed: number, distance: number): void {
-    this.updateBiome(distance);
-    this.updateWeather(distance);
-    this.updateDayPhase(distance);
-    this.updateTunnel(distance);
+    if (!this.pinned) {
+      this.updateBiome(distance);
+      this.updateWeather(distance);
+      this.updateDayPhase(distance);
+      this.updateTunnel(distance);
+    }
     this.applyLook(distance);
   }
 
@@ -175,8 +208,13 @@ export class WorldManager implements Manager {
    * table between them.
    */
   private applyLook(distance: number): void {
+    // A pinned phase sits at its own midpoint rather than wherever the distance
+    // happened to land, so the light is the phase itself and not a crossfade
+    // halfway into the next one.
     const cycle = (distance % WORLD.dayCycleLength) / WORLD.dayCycleLength;
-    const scaled = cycle * PHASE_ORDER.length;
+    const scaled = this.pinned?.phase
+      ? PHASE_ORDER.indexOf(this.pinned.phase) + 0.5
+      : cycle * PHASE_ORDER.length;
     const slot = Math.min(Math.floor(scaled), PHASE_ORDER.length - 1);
     const frac = scaled - slot;
 

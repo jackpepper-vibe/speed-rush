@@ -266,10 +266,13 @@ export class SceneRig {
   /** Speed-reactive grade: vignette, chromatic fringe, saturation. */
   setGrade(speedFraction: number, nitro: number, wet: number): void {
     const u = this.grade.uniforms;
-    u.uVignette.value = 0.34 + speedFraction * 0.3 + nitro * 0.24;
-    u.uAberration.value = speedFraction * 0.0022 + nitro * 0.006;
-    u.uSaturation.value = 1.06 + nitro * 0.22 - wet * 0.16;
-    u.uSpeedLines.value = nitro;
+    u.uVignette.value = 0.3 + speedFraction * 0.2 + nitro * 0.14;
+    // An order of magnitude down. At the old strength every high-contrast edge
+    // in the frame — every palm, every barrier post — carried a visible rainbow
+    // fringe, which reads as a broken renderer rather than as speed.
+    u.uAberration.value = speedFraction * 0.0004 + nitro * 0.0012;
+    u.uSaturation.value = 1.08 + nitro * 0.12 - wet * 0.16;
+    u.uSpeedLines.value = nitro * 0.35;
     u.uWet.value = wet;
   }
 
@@ -294,8 +297,18 @@ export class SceneRig {
     lateralVel: number,
     dt: number,
   ): void {
-    const back = 12.4 + speedFraction * 3.6;
-    const height = 5.4 + speedFraction * 1.1;
+    /*
+     * Low and close.
+     *
+     * The first framing sat twelve to sixteen units back and five to six up,
+     * which at speed reduced the car to a smudge seen from above — every detail
+     * on it was invisible, and the frame was four-fifths road surface. A chase
+     * camera for a car game wants to be near bumper height and close enough
+     * that the body fills the bottom of the screen; the road reads as fast
+     * because it is rushing past the camera, not because there is more of it.
+     */
+    const back = 8.2 + speedFraction * 1.9;
+    const height = 2.45 + speedFraction * 0.55;
 
     this.camTarget.set(
       targetX * 0.74 + lateralVel * 0.09,
@@ -317,7 +330,9 @@ export class SceneRig {
       this.camShake = Math.max(0, this.camShake - dt * 2.6);
     }
 
-    this.camera.lookAt(targetX * 0.62, targetY + 1.5, targetZ - 17);
+    // Aimed just over the roof and well down the road: looking at the car
+    // itself puts the horizon off the top of the frame at this height.
+    this.camera.lookAt(targetX * 0.62, targetY + 1.15, targetZ - 26);
 
     // Keep the shadow frustum centred on the action.
     this.sun.position.z = targetZ - 40;

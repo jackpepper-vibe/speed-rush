@@ -55,12 +55,17 @@ export const GradeShader: THREE.ShaderMaterialParameters & { uniforms: Record<st
       colour.g = texture2D(tDiffuse, uv).g;
       colour.b = texture2D(tDiffuse, uv - offset).b;
 
-      // Radial speed streaks, only while boosting.
+      /* Radial speed streaks, only while boosting.
+       *
+       * Confined to the far corners and kept faint. Starting them near the
+       * middle of the frame drew bright spokes across the sky and over the
+       * horizon, which read as a rendering fault; the effect only works as
+       * something caught at the edge of vision. */
       if (uSpeedLines > 0.001) {
         float ang = atan(centred.y, centred.x);
-        float streak = hash(vec2(floor(ang * 42.0), 1.0));
-        float band = smoothstep(0.16, 0.5, r2) * step(0.82, streak);
-        colour += band * uSpeedLines * 0.34;
+        float streak = hash(vec2(floor(ang * 64.0), 1.0));
+        float band = smoothstep(0.34, 0.62, r2) * step(0.88, streak);
+        colour += band * uSpeedLines * 0.16;
       }
 
       // Rain on the lens: a few drifting smears near the top of the frame.

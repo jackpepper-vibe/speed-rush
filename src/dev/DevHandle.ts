@@ -108,6 +108,9 @@ export interface DevHandle {
   setMuted(muted: boolean): void;
   resumeAudio(): void;
 
+  /** Pin biome, weather and time of day so captures are comparable. */
+  pinWorld(conditions: { biome?: string; weather?: string; phase?: string } | null): void;
+
   /** Rendered garage previews, as car id to PNG data URL. */
   previews(): Record<string, string>;
 
@@ -264,6 +267,10 @@ export function installDevHandle(game: Game, version: string): DevHandle {
       // valid until the browser next composites, which happens between tasks.
       game.rig.render();
       return game.rig.renderer.domElement.toDataURL('image/png');
+    },
+
+    pinWorld(conditions) {
+      game.world.pin(conditions as never);
     },
 
     previews() {
