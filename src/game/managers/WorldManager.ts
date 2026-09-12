@@ -8,6 +8,7 @@ import {
 import type { SceneRig } from '@/game/render/SceneRig';
 import type { PlayerManager } from './PlayerManager';
 import type { PowerupManager } from './PowerupManager';
+import type { RoadManager } from './RoadManager';
 
 /**
  * Where you are, when it is, and what the weather is doing.
@@ -50,6 +51,7 @@ export class WorldManager implements Manager {
     private readonly rig: SceneRig,
     private readonly player: PlayerManager,
     private readonly powerups: PowerupManager,
+    private readonly road: RoadManager,
   ) {}
 
   init(): void {
@@ -208,6 +210,13 @@ export class WorldManager implements Manager {
     });
 
     this.rig.sky.setStars(palette.stars);
+
+    // The ground belongs to the biome, and darkens with the sky along with
+    // everything else — a desert floor at midnight is not sand-coloured.
+    this.road.setGroundColour(
+      mixHex(tint.ground, palette.fogColor, 0.28 + palette.stars * 0.4),
+      tint.groundRoughness,
+    );
 
     // Headlights come on for the dark and for bad weather, whichever is worse.
     const lights = Math.max(palette.headlights, weather.rain * intensity * 2.2, this.inTunnel ? 3 : 0);

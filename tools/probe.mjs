@@ -1716,6 +1716,8 @@ const scenery = await page.evaluate(() => {
   const perBiome = {};
   let worstOnRoad = 0;
   let minInstances = Infinity;
+  let maxLateral = 0;
+  let groundHalfWidth = 0;
 
   // Long enough to cross every biome several times over.
   for (let i = 0; i < 95; i++) {
@@ -1723,6 +1725,8 @@ const scenery = await page.evaluate(() => {
     const s = cr.scenery();
     const total = s.kinds.reduce((n, k) => n + k.instances, 0);
     worstOnRoad = Math.max(worstOnRoad, s.onRoad);
+    maxLateral = Math.max(maxLateral, s.maxLateral);
+    groundHalfWidth = s.groundHalfWidth;
 
     // Tunnels are bare by definition; they are not a biome that owes props.
     if (!cr.state().inTunnel) {
@@ -1739,7 +1743,7 @@ const scenery = await page.evaluate(() => {
     biomes: Object.fromEntries(Object.entries(perBiome).map(([b, v]) => [
       b, { kinds: [...v.kinds], total: v.total, samples: v.samples },
     ])),
-    worstOnRoad,
+    worstOnRoad, maxLateral, groundHalfWidth,
     minInstances: minInstances === Infinity ? 0 : minInstances,
     drawCalls: cr.state().drawCalls,
     triangles: cr.state().triangles,
@@ -1772,7 +1776,17 @@ for (const biome of biomesSeen) {
 }
 
 check('scenery', 'nothing-stands-on-the-road', scenery.worstOnRoad === 0,
-  `worst count of prop footprints overlapping the tarmac across 150 samples: ${scenery.worstOnRoad}`);
+  `worst count of prop footprints overlapping the tarmac across every sample: ${scenery.worstOnRoad}`);
+
+/* There has to be ground under the props.
+ *
+ * The gate proved they were off the tarmac and never asked what was beneath
+ * them — so a desert of cacti and boulders hung in open sky, which every
+ * numeric check in this file reported as a correctly dressed roadside. */
+check('scenery', 'props-stand-on-ground',
+  scenery.groundHalfWidth > scenery.maxLateral,
+  `furthest prop edge sits at ${scenery.maxLateral.toFixed(1)}u from the centreline, ` +
+  `ground reaches ${scenery.groundHalfWidth}u`);
 check('scenery', 'road-is-never-empty', scenery.minInstances > 20,
   `fewest instances placed at any sample outside a tunnel: ${scenery.minInstances}`);
 

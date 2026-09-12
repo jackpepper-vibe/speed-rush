@@ -85,7 +85,9 @@ export class Game {
     this.powerups = this.managers.add(new PowerupManager(ctx, this.player));
     this.traffic = this.managers.add(new TrafficManager(ctx, this.road, this.player));
     this.pickups = this.managers.add(new PickupManager(ctx, this.road, this.player, this.powerups));
-    this.world = this.managers.add(new WorldManager(ctx, this.rig, this.player, this.powerups));
+    this.world = this.managers.add(
+      new WorldManager(ctx, this.rig, this.player, this.powerups, this.road),
+    );
     // After the world manager, so a biome change has already been announced by
     // the time the scenery is asked to dress that stretch of road.
     this.scenery = this.managers.add(new SceneryManager(ctx, this.road, this.rig));

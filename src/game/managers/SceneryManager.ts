@@ -172,6 +172,9 @@ export class SceneryManager implements Manager {
         // Measured rather than trusted: if the arithmetic above ever lets a
         // prop onto the road, the probe should be able to see it.
         if (Math.abs(x) - kind.radius * scale < ROAD.halfWidth) this.onRoadCount += 1;
+        // Tracked so the gate can prove there is ground under the furthest of
+        // them, rather than open sky.
+        this.maxLateral = Math.max(this.maxLateral, Math.abs(x) + kind.radius * scale);
 
         this.position.set(px, py, pz);
         this.quaternion.setFromAxisAngle(UP, r3 * Math.PI * 2);
@@ -207,13 +210,25 @@ export class SceneryManager implements Manager {
   /* ---------------------------------------------------------------- reading */
 
   /** Live instance counts per prop kind, for the scenery coverage gate. */
-  snapshot(): { biome: BiomeId; kinds: { id: string; instances: number }[]; onRoad: number } {
+  snapshot(): {
+    biome: BiomeId;
+    kinds: { id: string; instances: number }[];
+    onRoad: number;
+    /** Furthest any prop stands from the centreline, including its footprint. */
+    maxLateral: number;
+    groundHalfWidth: number;
+  } {
     return {
       biome: this.biome,
       kinds: [...this.live.values()].map((e) => ({ id: e.kind.id, instances: e.used })),
       onRoad: this.onRoadCount,
+      maxLateral: this.maxLateral,
+      groundHalfWidth: this.road.groundHalfWidth,
     };
   }
+
+  /** Furthest lateral extent reached by any placed prop. */
+  private maxLateral = 0;
 
   /** Total live instances across every kind. */
   get instanceCount(): number {

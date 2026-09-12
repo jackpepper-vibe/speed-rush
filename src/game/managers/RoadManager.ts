@@ -20,11 +20,16 @@ import { makeRoadTexture, makeShoulderTexture } from '@/game/render/RoadTextures
 interface Segment {
   readonly group: THREE.Group;
   readonly strips: RoadStrip[];
+  /** The tarmac specifically, named rather than found by position in `strips`. */
+  road: RoadStrip;
   startDistance: number;
 }
 
 /** Vertex rows per segment. Six is enough that the bend reads as smooth. */
 const ROWS = 6;
+
+/** How far the ground reaches either side of the centreline. */
+const GROUND_HALF_WIDTH = 420;
 
 export class RoadManager implements Manager {
   readonly name = 'road';
@@ -36,6 +41,20 @@ export class RoadManager implements Manager {
 
   /** Distance travelled, in world units. Authoritative for the whole world. */
   private distance = 0;
+
+  /**
+   * The ground either side of the road.
+   *
+   * Without it the world ends at the rumble strip and everything beyond —
+   * trees, rocks, whole city blocks — hangs against the sky. The scenery gate
+   * could not see this: it proved props were off the tarmac and never asked
+   * whether anything was underneath them.
+   *
+   * One wide strip per segment, sharing the road's rows. Curve and elevation
+   * are functions of distance alone, so a strip four hundred units across is
+   * as correct as a narrow one and costs two triangles a row.
+   */
+  private groundMat!: THREE.MeshStandardMaterial;
 
   constructor(private readonly ctx: GameContext) {}
 
@@ -58,11 +77,19 @@ export class RoadManager implements Manager {
       metalness: 0.7,
       side: THREE.DoubleSide,
     });
-    this.materials.push(roadMat, shoulderMat, barrierMat);
+    this.groundMat = new THREE.MeshStandardMaterial({ color: 0x4a5240, roughness: 0.96 });
+    this.materials.push(roadMat, shoulderMat, barrierMat, this.groundMat);
 
     for (let i = 0; i < ROAD.segmentCount; i++) {
       const group = new THREE.Group();
       const strips: RoadStrip[] = [];
+
+      // Ground first, dropped below the deck so the tarmac wins the depth test.
+      const ground = new RoadStrip([-GROUND_HALF_WIDTH, GROUND_HALF_WIDTH], L, ROWS, -0.06);
+      const groundMesh = new THREE.Mesh(ground.geometry, this.groundMat);
+      groundMesh.receiveShadow = true;
+      group.add(groundMesh);
+      strips.push(ground);
 
       // Tarmac: columns at the lane boundaries so the texture stretches evenly.
       const laneCols: number[] = [];
@@ -95,7 +122,7 @@ export class RoadManager implements Manager {
       }
 
       this.root.add(group);
-      this.segments.push({ group, strips, startDistance: Number.NaN });
+      this.segments.push({ group, strips, road, startDistance: Number.NaN });
     }
 
     this.layout();
@@ -109,6 +136,17 @@ export class RoadManager implements Manager {
   /** Lateral offset the whole world is displaced by at the player's position. */
   get curveHere(): number {
     return curveAt(this.distance);
+  }
+
+  /** How far the ground reaches either side. Nothing may stand beyond it. */
+  get groundHalfWidth(): number {
+    return GROUND_HALF_WIDTH;
+  }
+
+  /** Tint the ground to the biome it runs through. */
+  setGroundColour(hex: number, roughness: number): void {
+    this.groundMat.color.setHex(hex);
+    this.groundMat.roughness = roughness;
   }
 
   update(dt: number, speed: number): void {
@@ -182,8 +220,8 @@ export class RoadManager implements Manager {
     for (const seg of this.segments) {
       const next = byStart.get(seg.startDistance + L);
       if (!next) continue;
-      const road = seg.strips[0];
-      const nextRoad = next.strips[0];
+      const road = seg.road;
+      const nextRoad = next.road;
 
       for (let c = 0; c < road.columnCount; c++) {
         road.getVertex(road.rowCount, c, a).add(seg.group.position);
