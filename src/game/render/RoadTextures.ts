@@ -41,8 +41,10 @@ export function makeRoadTexture(laneCount: number, repeatY: number): THREE.Textu
   }
   ctx.putImageData(img, 0, 0);
 
+  // A hint of darkening under the wheel tracks. Most of that effect now lives
+  // in the roughness map beside this one, where it belongs.
   const laneW = W / laneCount;
-  ctx.fillStyle = 'rgba(0,0,0,0.13)';
+  ctx.fillStyle = 'rgba(0,0,0,0.06)';
   for (let l = 0; l < laneCount; l++) {
     const cx = (l + 0.5) * laneW;
     ctx.fillRect(cx - laneW * 0.3, 0, laneW * 0.16, H);
@@ -71,6 +73,76 @@ export function makeRoadTexture(laneCount: number, repeatY: number): THREE.Textu
   return tex;
 }
 
+/**
+ * The roughness map that goes with the asphalt: where the road is polished.
+ *
+ * Read as a roughness channel, so dark is smooth. Two bands per lane are worn
+ * glassy by tyres, the crown between them stays coarse, patches of newer
+ * repair sit smoother than what surrounds them, and the painted markings are
+ * smoother again. None of this is visible as colour — it only shows when there
+ * is a light source to catch, which is exactly when a road should stop looking
+ * like a grey ribbon.
+ */
+export function makeRoadWearTexture(laneCount: number, repeatY: number): THREE.Texture {
+  const W = 256;
+  const H = 256;
+  const [c, ctx] = canvas(W, H);
+
+  // Base: coarse, with per-pixel grain so the whole surface is never uniform.
+  ctx.fillStyle = '#d2d2d2';
+  ctx.fillRect(0, 0, W, H);
+  const img = ctx.getImageData(0, 0, W, H);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const n = (Math.random() - 0.5) * 46;
+    d[i] += n; d[i + 1] += n; d[i + 2] += n;
+  }
+  ctx.putImageData(img, 0, 0);
+
+  // Repair patches: laid before the wheel tracks, because a patch gets driven
+  // on too and the tracks should run straight over the top of it.
+  for (let i = 0; i < 5; i++) {
+    const w = 26 + Math.random() * 70;
+    const h = 30 + Math.random() * 90;
+    ctx.fillStyle = `rgba(120,120,120,${0.3 + Math.random() * 0.35})`;
+    ctx.fillRect(Math.random() * (W - w), Math.random() * (H - h), w, h);
+  }
+
+  // Two polished bands per lane, soft-edged.
+  const laneW = W / laneCount;
+  for (let l = 0; l < laneCount; l++) {
+    const cx = (l + 0.5) * laneW;
+    for (const offset of [-laneW * 0.22, laneW * 0.22]) {
+      const g = ctx.createLinearGradient(cx + offset - laneW * 0.17, 0, cx + offset + laneW * 0.17, 0);
+      g.addColorStop(0, 'rgba(90,90,90,0)');
+      g.addColorStop(0.5, 'rgba(70,70,70,0.85)');
+      g.addColorStop(1, 'rgba(90,90,90,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(cx + offset - laneW * 0.17, 0, laneW * 0.34, H);
+    }
+  }
+
+  // Paint is smoother than the aggregate under it.
+  ctx.fillStyle = '#4c4c4c';
+  const dash = H / 6;
+  for (let l = 1; l < laneCount; l++) {
+    const x = l * laneW - 1.5;
+    for (let y = 0; y < H; y += dash) ctx.fillRect(x, y, 3, dash * 0.52);
+  }
+  ctx.fillRect(1, 0, 3, H);
+  ctx.fillRect(W - 4, 0, 3, H);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(1, repeatY);
+  tex.anisotropy = 8;
+  // A roughness map is data, not colour: converting it through sRGB would
+  // silently change every value in it.
+  tex.colorSpace = THREE.NoColorSpace;
+  return tex;
+}
+
 /** Rumble strip for the shoulders — alternating red/white blocks. */
 export function makeShoulderTexture(): THREE.Texture {
   const [c, ctx] = canvas(32, 128);
@@ -84,6 +156,54 @@ export function makeShoulderTexture(): THREE.Texture {
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(1, 8);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/**
+ * The ground either side of the road: dirt, grit and dry patches.
+ *
+ * Greyscale, and multiplied by whatever colour the biome sets, so one texture
+ * serves sand, scrub and city dirt without three variants. What it is really
+ * for is scale: a four-hundred-unit plane of flat colour has nothing on it for
+ * the eye to measure speed against, so the verge sat still while the road
+ * rushed past — the props standing on it were the only thing that moved.
+ */
+export function makeGroundTexture(): THREE.Texture {
+  const S = 256;
+  const [c, ctx] = canvas(S, S);
+
+  ctx.fillStyle = '#b0b0b0';
+  ctx.fillRect(0, 0, S, S);
+
+  // Broad tonal drift, so the plane is not uniform at any scale.
+  for (let i = 0; i < 26; i++) {
+    const r = 18 + Math.random() * 62;
+    const g = ctx.createRadialGradient(
+      Math.random() * S, Math.random() * S, 0,
+      Math.random() * S, Math.random() * S, r,
+    );
+    const shade = Math.random() < 0.5 ? 150 : 210;
+    g.addColorStop(0, `rgba(${shade},${shade},${shade},0.4)`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, S, S);
+  }
+
+  // Grit.
+  const img = ctx.getImageData(0, 0, S, S);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const n = (Math.random() - 0.5) * 40;
+    d[i] += n; d[i + 1] += n; d[i + 2] += n;
+  }
+  ctx.putImageData(img, 0, 0);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(46, 2);
+  tex.anisotropy = 8;
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }

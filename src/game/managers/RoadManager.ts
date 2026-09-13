@@ -2,8 +2,10 @@ import * as THREE from 'three';
 import type { GameContext, Manager } from '@/core/Manager';
 import { ROAD } from '@/game/config/Balance';
 import { curveAt, hillAt } from '@/game/world/RoadGeometry';
-import { RoadStrip } from '@/game/world/RoadStrip';
-import { makeRoadTexture, makeShoulderTexture } from '@/game/render/RoadTextures';
+import { RoadStrip, type SectionPoint } from '@/game/world/RoadStrip';
+import {
+  makeGroundTexture, makeRoadTexture, makeRoadWearTexture, makeShoulderTexture,
+} from '@/game/render/RoadTextures';
 
 /**
  * The driving surface: tarmac, shoulders and barriers.
@@ -17,11 +19,18 @@ import { makeRoadTexture, makeShoulderTexture } from '@/game/render/RoadTextures
  * to start juddering the lane markings, which it does within a few minutes if
  * the car is the thing that moves.
  */
+interface SegmentPosts {
+  readonly mesh: THREE.InstancedMesh;
+  /** Lateral offset of the rail these posts hold up. */
+  readonly lateral: number;
+}
+
 interface Segment {
   readonly group: THREE.Group;
   readonly strips: RoadStrip[];
   /** The tarmac specifically, named rather than found by position in `strips`. */
   road: RoadStrip;
+  readonly posts: SegmentPosts[];
   startDistance: number;
 }
 
@@ -31,6 +40,36 @@ const ROWS = 6;
 /** How far the ground reaches either side of the centreline. */
 const GROUND_HALF_WIDTH = 420;
 
+/** Height of the barrier post, and how many stand in one segment. */
+const BARRIER_TOP = 1.02;
+const POSTS_PER_SEGMENT = 8;
+
+/**
+ * The cross-section of a crash barrier, bottom lip to top lip.
+ *
+ * A real W-beam is one pressed sheet folded into two horizontal channels, which
+ * is why it reads as a barrier from half a mile away: the folds catch the sun
+ * as two bright lines with a shadow between them, and those lines converge to
+ * the vanishing point. The wall this replaces was a single flat quad, and under
+ * a low sun it was one unbroken band of grey the length of the horizon.
+ *
+ * `inward` is the direction the face points, so the same profile serves both
+ * sides of the road without a mirrored copy.
+ */
+function beamSection(lateral: number, inward: number): SectionPoint[] {
+  const at = (out: number, height: number): SectionPoint =>
+    ({ lateral: lateral + inward * out, height });
+  return [
+    at(0, 0.44),
+    at(0.09, 0.52),
+    at(0.10, 0.62),
+    at(0.03, 0.73),
+    at(0.10, 0.84),
+    at(0.09, 0.94),
+    at(0, BARRIER_TOP),
+  ];
+}
+
 export class RoadManager implements Manager {
   readonly name = 'road';
 
@@ -38,6 +77,10 @@ export class RoadManager implements Manager {
   private readonly root = new THREE.Group();
   private readonly textures: THREE.Texture[] = [];
   private readonly materials: THREE.Material[] = [];
+  private readonly geometries: THREE.BufferGeometry[] = [];
+  /** Scratch for post placement, so recycling a segment allocates nothing. */
+  private readonly postMatrix = new THREE.Matrix4();
+  private readonly postPosition = new THREE.Vector3();
 
   /** Distance travelled, in world units. Authoritative for the whole world. */
   private distance = 0;
@@ -69,23 +112,67 @@ export class RoadManager implements Manager {
     const shoulderTex = makeShoulderTexture();
     this.textures.push(roadTex, shoulderTex);
 
-    const roadMat = new THREE.MeshStandardMaterial({ map: roadTex, roughness: 0.86 });
+    /*
+     * Asphalt, with the polish in a roughness map rather than in the albedo.
+     *
+     * The first version painted the wheel tracks darker in the colour map and
+     * left it there, which reads as a stain: the strip a million tyres leave on
+     * a road is barely a different colour, it is the same colour that reflects.
+     * The darkening stays, much reduced, and the polish now lives in roughness —
+     * so the tracks catch the sun as the road curves under it and go matte again
+     * when it does not, which is most of what makes tarmac read as tarmac at
+     * speed rather than as a grey ribbon.
+     */
+    const roadWearTex = makeRoadWearTexture(ROAD.laneCount, 1);
+    this.textures.push(roadWearTex);
+    const roadMat = new THREE.MeshStandardMaterial({
+      map: roadTex,
+      roughnessMap: roadWearTex,
+      roughness: 1,
+      metalness: 0.04,
+      envMapIntensity: 0.7,
+    });
     const shoulderMat = new THREE.MeshStandardMaterial({ map: shoulderTex, roughness: 0.9 });
+    /*
+     * Galvanised steel, only half metallic.
+     *
+     * At 0.92 the rail on the sun's side blazed and the rail on the other side
+     * rendered as a solid black band the length of the horizon — a fully
+     * metallic surface has no diffuse term, and the only thing this one had to
+     * reflect was a sky dome with nothing below its horizon. Weathered
+     * galvanising is chalky anyway; half metal keeps the sheen on the folds and
+     * gives the shaded face something of its own to show.
+     */
     const barrierMat = new THREE.MeshStandardMaterial({
-      color: 0xb8bcc4,
-      roughness: 0.42,
-      metalness: 0.7,
+      color: 0xb9bec7,
+      roughness: 0.44,
+      metalness: 0.5,
+      envMapIntensity: 1.8,
       side: THREE.DoubleSide,
     });
-    this.groundMat = new THREE.MeshStandardMaterial({ color: 0x4a5240, roughness: 0.96 });
-    this.materials.push(roadMat, shoulderMat, barrierMat, this.groundMat);
+    const postMat = new THREE.MeshStandardMaterial({
+      color: 0x8b9199, roughness: 0.58, metalness: 0.45, envMapIntensity: 1.2,
+    });
+    const groundTex = makeGroundTexture();
+    this.textures.push(groundTex);
+    // The map is greyscale and the biome sets the colour, which multiplies it.
+    this.groundMat = new THREE.MeshStandardMaterial({
+      map: groundTex, color: 0x4a5240, roughness: 0.96,
+    });
+    this.materials.push(roadMat, shoulderMat, barrierMat, postMat, this.groundMat);
+
+    /* One post geometry, instanced per segment per side. */
+    const postGeo = new THREE.BoxGeometry(0.12, BARRIER_TOP, 0.2);
+    postGeo.translate(0, BARRIER_TOP / 2, 0);
+    this.geometries.push(postGeo);
 
     for (let i = 0; i < ROAD.segmentCount; i++) {
       const group = new THREE.Group();
       const strips: RoadStrip[] = [];
+      const segmentPosts: SegmentPosts[] = [];
 
       // Ground first, dropped below the deck so the tarmac wins the depth test.
-      const ground = new RoadStrip([-GROUND_HALF_WIDTH, GROUND_HALF_WIDTH], L, ROWS, -0.06);
+      const ground = RoadStrip.flat([-GROUND_HALF_WIDTH, GROUND_HALF_WIDTH], L, ROWS, -0.06);
       const groundMesh = new THREE.Mesh(ground.geometry, this.groundMat);
       groundMesh.receiveShadow = true;
       group.add(groundMesh);
@@ -94,14 +181,14 @@ export class RoadManager implements Manager {
       // Tarmac: columns at the lane boundaries so the texture stretches evenly.
       const laneCols: number[] = [];
       for (let c = 0; c <= ROAD.laneCount; c++) laneCols.push(-hw + c * ROAD.laneWidth);
-      const road = new RoadStrip(laneCols, L, ROWS);
+      const road = RoadStrip.flat(laneCols, L, ROWS);
       const roadMesh = new THREE.Mesh(road.geometry, roadMat);
       roadMesh.receiveShadow = true;
       group.add(roadMesh);
       strips.push(road);
 
       for (const side of [-1, 1] as const) {
-        const shoulder = new RoadStrip(
+        const shoulder = RoadStrip.flat(
           side < 0 ? [-hw - sw, -hw] : [hw, hw + sw],
           L,
           ROWS,
@@ -112,17 +199,26 @@ export class RoadManager implements Manager {
         group.add(shoulderMesh);
         strips.push(shoulder);
 
-        // Barrier: a vertical wall raised off the deck, bent along the same rows.
-        const barrier = new RoadStrip([side * (hw + sw)], L, ROWS, 0.45, 0.62);
+        /* Barrier: a corrugated W-beam on posts, extruded along the same rows
+         * as everything else so it bends with the road. The flat wall it
+         * replaces had a single face and no thickness, which under a low sun
+         * was one unbroken band of grey the length of the horizon. */
+        const barrier = new RoadStrip(beamSection(side * (hw + sw), -side), L, ROWS);
         const barrierMesh = new THREE.Mesh(barrier.geometry, barrierMat);
         barrierMesh.castShadow = true;
         barrierMesh.receiveShadow = true;
         group.add(barrierMesh);
         strips.push(barrier);
+
+        const posts = new THREE.InstancedMesh(postGeo, postMat, POSTS_PER_SEGMENT);
+        posts.castShadow = true;
+        posts.frustumCulled = false;
+        group.add(posts);
+        segmentPosts.push({ mesh: posts, lateral: side * (hw + sw) });
       }
 
       this.root.add(group);
-      this.segments.push({ group, strips, road, startDistance: Number.NaN });
+      this.segments.push({ group, strips, road, posts: segmentPosts, startDistance: Number.NaN });
     }
 
     this.layout();
@@ -136,6 +232,36 @@ export class RoadManager implements Manager {
   /** Lateral offset the whole world is displaced by at the player's position. */
   get curveHere(): number {
     return curveAt(this.distance);
+  }
+
+  /**
+   * Stand this segment's barrier posts up along its own stretch of road.
+   *
+   * Driven off the segment's start rather than the player's distance, and
+   * rewritten only when a segment is recycled — the same rule the strips
+   * follow. Posts placed relative to the player would slide along the rail as
+   * the car moved, which is the one failure mode that makes a barrier read as
+   * a texture rather than as a structure.
+   */
+  private placePosts(seg: Segment, start: number): void {
+    const L = ROAD.segmentLength;
+    const baseCurve = curveAt(start);
+    const baseHill = hillAt(start);
+
+    for (const { mesh, lateral } of seg.posts) {
+      for (let i = 0; i < POSTS_PER_SEGMENT; i++) {
+        const t = (i + 0.5) / POSTS_PER_SEGMENT;
+        const u = start + t * L;
+        this.postPosition.set(
+          lateral + curveAt(u) - baseCurve,
+          hillAt(u) - baseHill,
+          -t * L,
+        );
+        this.postMatrix.makeTranslation(this.postPosition.x, this.postPosition.y, this.postPosition.z);
+        mesh.setMatrixAt(i, this.postMatrix);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+    }
   }
 
   /** How far the ground reaches either side. Nothing may stand beyond it. */
@@ -176,6 +302,7 @@ export class RoadManager implements Manager {
       if (start !== seg.startDistance) {
         seg.startDistance = start;
         for (const strip of seg.strips) strip.setStart(start);
+        this.placePosts(seg, start);
       }
 
       // Everything player-relative lives here, so the vertices above stay put.
@@ -241,7 +368,11 @@ export class RoadManager implements Manager {
     this.ctx.scene.remove(this.root);
     for (const t of this.textures) t.dispose();
     for (const m of this.materials) m.dispose();
-    for (const seg of this.segments) for (const s of seg.strips) s.dispose();
+    for (const g of this.geometries) g.dispose();
+    for (const seg of this.segments) {
+      for (const s of seg.strips) s.dispose();
+      for (const p of seg.posts) p.mesh.dispose();
+    }
     this.segments.length = 0;
   }
 }

@@ -19,6 +19,21 @@ import { curveAt, hillAt } from './RoadGeometry';
  * road, not every frame. The player-relative part of the transform — which does
  * change every frame — is carried on the parent group instead.
  */
+/**
+ * One point on the cross-section a strip extrudes along the road.
+ *
+ * `lateral` is the offset from the centreline, `height` the offset above the
+ * deck. A road surface is a section whose points all sit at one height; a wall
+ * is one whose points share a lateral; a crash barrier is neither. Expressing
+ * all three as the same extrusion is what lets a corrugated rail follow the
+ * same curve and crest the same hills as the tarmac beside it for nothing —
+ * a separately placed rail would have to be kept in step by hand.
+ */
+export interface SectionPoint {
+  readonly lateral: number;
+  readonly height: number;
+}
+
 export class RoadStrip {
   readonly geometry: THREE.BufferGeometry;
   private readonly positions: Float32Array;
@@ -27,17 +42,11 @@ export class RoadStrip {
   private startDistance = Number.NaN;
 
   constructor(
-    private readonly columns: readonly number[],
+    private readonly section: readonly SectionPoint[],
     private readonly length: number,
     private readonly rows: number,
-    /** Constant height offset — lifts barrier walls off the deck. */
-    private readonly baseY = 0,
-    /** Extra height added to the far edge, for vertical walls. */
-    private readonly wallHeight = 0,
   ) {
-    const cols = columns.length;
-    const vertexCount = cols * (rows + 1) * (wallHeight > 0 ? 2 : 1);
-    this.positions = new Float32Array(vertexCount * 3);
+    this.positions = new Float32Array(section.length * (rows + 1) * 3);
 
     this.geometry = new THREE.BufferGeometry();
     this.geometry.setAttribute('position', new THREE.BufferAttribute(this.positions, 3));
@@ -45,49 +54,48 @@ export class RoadStrip {
     this.geometry.setIndex(this.buildIndices());
   }
 
+  /** A horizontal surface spanning a set of lateral columns. */
+  static flat(
+    columns: readonly number[], length: number, rows: number, height = 0,
+  ): RoadStrip {
+    return new RoadStrip(columns.map((lateral) => ({ lateral, height })), length, rows);
+  }
+
   private buildUVs(): Float32Array {
-    const cols = this.columns.length;
-    const span = this.columns[cols - 1] - this.columns[0];
-    const layers = this.wallHeight > 0 ? 2 : 1;
-    const uv = new Float32Array(cols * (this.rows + 1) * layers * 2);
+    const cols = this.section.length;
+    /* U runs across the section by arc length rather than by lateral offset,
+     * so a texture on a corrugated profile is not stretched across the parts
+     * of it that happen to be steep. On a flat strip this reduces exactly to
+     * the normalised lateral position, which is what puts the lane markings
+     * where the lanes are. */
+    const arc: number[] = [0];
+    for (let c = 1; c < cols; c++) {
+      arc.push(arc[c - 1] + Math.hypot(
+        this.section[c].lateral - this.section[c - 1].lateral,
+        this.section[c].height - this.section[c - 1].height,
+      ));
+    }
+    const total = arc[cols - 1] || 1;
+
+    const uv = new Float32Array(cols * (this.rows + 1) * 2);
     let i = 0;
-    for (let layer = 0; layer < layers; layer++) {
-      for (let r = 0; r <= this.rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          // U runs across the road so the lane markings land where the lanes
-          // are; V runs along it, tiled once per segment.
-          uv[i++] = this.wallHeight > 0 ? layer : (this.columns[c] - this.columns[0]) / span;
-          uv[i++] = r / this.rows;
-        }
+    for (let r = 0; r <= this.rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        uv[i++] = arc[c] / total;
+        // V runs along the road, tiled once per segment.
+        uv[i++] = r / this.rows;
       }
     }
     return uv;
   }
 
   private buildIndices(): number[] {
-    const cols = this.columns.length;
+    const cols = this.section.length;
     const idx: number[] = [];
-    const quad = (a: number, b: number, c: number, d: number): void => {
-      idx.push(a, b, d, b, c, d);
-    };
-
-    if (this.wallHeight > 0) {
-      // Vertical wall: connect the lower ring to the upper one.
-      const ring = cols * (this.rows + 1);
-      for (let r = 0; r < this.rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          const lo = r * cols + c;
-          const hi = ring + lo;
-          quad(lo, lo + cols, hi + cols, hi);
-        }
-      }
-      return idx;
-    }
-
     for (let r = 0; r < this.rows; r++) {
       for (let c = 0; c < cols - 1; c++) {
         const a = r * cols + c;
-        quad(a, a + 1, a + cols + 1, a + cols);
+        idx.push(a, a + 1, a + cols, a + 1, a + cols + 1, a + cols);
       }
     }
     return idx;
@@ -103,27 +111,23 @@ export class RoadStrip {
     if (start === this.startDistance) return;
     this.startDistance = start;
 
-    const cols = this.columns.length;
+    const cols = this.section.length;
     const baseCurve = curveAt(start);
     const baseHill = hillAt(start);
-    const layers = this.wallHeight > 0 ? 2 : 1;
 
     let i = 0;
-    for (let layer = 0; layer < layers; layer++) {
-      const lift = this.baseY + (layer === 1 ? this.wallHeight : 0);
-      for (let r = 0; r <= this.rows; r++) {
-        const t = r / this.rows;
-        const u = start + t * this.length;
-        // Local space: the strip's own origin sits on the centreline at
-        // `start`, so these stay small however far the run has gone.
-        const dx = curveAt(u) - baseCurve;
-        const dy = hillAt(u) - baseHill;
-        const z = -t * this.length;
-        for (let c = 0; c < cols; c++) {
-          this.positions[i++] = this.columns[c] + dx;
-          this.positions[i++] = dy + lift;
-          this.positions[i++] = z;
-        }
+    for (let r = 0; r <= this.rows; r++) {
+      const t = r / this.rows;
+      const u = start + t * this.length;
+      // Local space: the strip's own origin sits on the centreline at
+      // `start`, so these stay small however far the run has gone.
+      const dx = curveAt(u) - baseCurve;
+      const dy = hillAt(u) - baseHill;
+      const z = -t * this.length;
+      for (let c = 0; c < cols; c++) {
+        this.positions[i++] = this.section[c].lateral + dx;
+        this.positions[i++] = this.section[c].height + dy;
+        this.positions[i++] = z;
       }
     }
 
@@ -134,7 +138,7 @@ export class RoadStrip {
 
   /** Local-space position of one vertex, for seam measurement. */
   getVertex(row: number, col: number, out: THREE.Vector3): THREE.Vector3 {
-    const i = (row * this.columns.length + col) * 3;
+    const i = (row * this.section.length + col) * 3;
     return out.set(this.positions[i], this.positions[i + 1], this.positions[i + 2]);
   }
 
@@ -143,7 +147,7 @@ export class RoadStrip {
   }
 
   get columnCount(): number {
-    return this.columns.length;
+    return this.section.length;
   }
 
   dispose(): void {
