@@ -2,8 +2,28 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import type { TrafficKind } from '@/core/GameEvents';
 import type { CarDef } from '@/game/config/Cars';
-import { makeGlowTexture } from './RoadTextures';
+import { makeContactShadowTexture, makeGlowTexture } from './RoadTextures';
 import { BODY_STATIONS, loftBody } from './BodyLoft';
+import { qualityByTier } from './Quality';
+
+/**
+ * Loft resolution for the player's body, as a level of detail.
+ *
+ * Module state rather than a parameter threaded through five call sites,
+ * because it is genuinely global: there is one player car on screen and one
+ * answer to how much GPU this machine has. Set once at boot from the resolved
+ * tier, and defaulted to the top of the ladder so anything built before the rig
+ * exists — a garage preview, the model audit — gets the full model rather than
+ * silently measuring a cheap one.
+ */
+let heroLod = {
+  rings: qualityByTier('high').heroLoftRings,
+  length: qualityByTier('high').heroLoftLength,
+};
+
+export function setHeroLod(rings: number, length: number): void {
+  heroLod = { rings, length };
+}
 
 /**
  * Procedural car meshes.
@@ -125,10 +145,38 @@ function tapered(
 /* ------------------------------------------------------------- materials */
 
 const RUBBER = new THREE.MeshStandardMaterial({ color: 0x14141a, roughness: 0.94, metalness: 0 });
-const CHROME = new THREE.MeshStandardMaterial({ color: 0xc8cfd8, roughness: 0.18, metalness: 1 });
-const RIM = new THREE.MeshStandardMaterial({ color: 0xaab2be, roughness: 0.3, metalness: 0.95 });
+const CHROME = new THREE.MeshStandardMaterial({
+  color: 0xd6dce4, roughness: 0.08, metalness: 1, envMapIntensity: 2.6,
+});
+const RIM = new THREE.MeshStandardMaterial({
+  color: 0xb4bcc8, roughness: 0.16, metalness: 1, envMapIntensity: 2.2,
+});
 const PLASTIC = new THREE.MeshStandardMaterial({ color: 0x1a1c22, roughness: 0.72, metalness: 0.05 });
 const GRILLE = new THREE.MeshStandardMaterial({ color: 0x0c0d11, roughness: 0.55, metalness: 0.45 });
+
+/**
+ * Cavity black: arch liners, the underbody tray, the shadow inside a vent.
+ *
+ * The job here is occlusion, not a surface. Real ambient occlusion needs a
+ * second UV set and a baked map per body, which for a lofted mesh that changes
+ * shape with every profile is a pipeline rather than a material. Geometry that
+ * is simply very dark and very rough, tucked into the places light cannot
+ * reach, buys the same read — a car whose arches are holes instead of painted
+ * dents — for six triangles apiece.
+ *
+ * `envMapIntensity` is pinned near zero deliberately. Left at one, the sky
+ * reflects into the wheel arch and lights up the one part of the car that has
+ * to stay dark for the body above it to look heavy.
+ */
+const CAVITY = new THREE.MeshStandardMaterial({
+  color: 0x07080b, roughness: 1, metalness: 0, envMapIntensity: 0.08,
+});
+
+/** The same black, seen from inside — arch liners are open shells. */
+const CAVITY_INNER = new THREE.MeshStandardMaterial({
+  color: 0x07080b, roughness: 1, metalness: 0, envMapIntensity: 0.08,
+  side: THREE.BackSide,
+});
 
 /**
  * Car glass.
@@ -140,14 +188,14 @@ const GRILLE = new THREE.MeshStandardMaterial({ color: 0x0c0d11, roughness: 0.55
  * lose the WebGL context outright on a software rasteriser.
  */
 const GLASS = new THREE.MeshPhysicalMaterial({
-  color: 0x121e2a,
-  roughness: 0.06,
-  metalness: 0.2,
+  color: 0x0c161f,
+  roughness: 0.02,
+  metalness: 0.25,
   transparent: true,
-  opacity: 0.7,
+  opacity: 0.78,
   clearcoat: 1,
-  clearcoatRoughness: 0.04,
-  envMapIntensity: 1.6,
+  clearcoatRoughness: 0.02,
+  envMapIntensity: 3.2,
 });
 
 const LAMP = new THREE.MeshStandardMaterial({
@@ -168,11 +216,40 @@ function paint(color: number): THREE.MeshPhysicalMaterial {
   if (!m) {
     m = new THREE.MeshPhysicalMaterial({
       color,
-      roughness: 0.34,
-      metalness: 0.75,
+      /*
+       * Sharp, not matte.
+       *
+       * At roughness 0.34 with the environment turned down to 1.15 the paint
+       * had no highlight worth the name: the specular lobe was spread so wide
+       * that the sky it reflected averaged out to the body colour, and the car
+       * measured 1% bright pixels in a frame with a sun in it. A clearcoat is
+       * a mirror with a few microns of lacquer over it — the base can stay
+       * fairly rough, but the coat on top has to be tight enough to return the
+       * sky as a distinct band rather than as a wash.
+       */
+      roughness: 0.3,
+      /*
+       * Half metal, not nearly all of it.
+       *
+       * A fully metallic surface has no diffuse term at all — every photon it
+       * shows came from the environment. That is physically what car paint is,
+       * and it is also why the car went black the moment the ambient fill came
+       * down: the only environment here is a sky dome with nothing below the
+       * horizon, so a metal panel facing the camera had a bare gradient to
+       * reflect and no albedo of its own to fall back on. Splitting the
+       * difference keeps the flake in the highlight and gives the body a colour
+       * that survives being in shadow.
+       */
+      metalness: 0.5,
       clearcoat: 1,
-      clearcoatRoughness: 0.06,
-      envMapIntensity: 1.15,
+      clearcoatRoughness: 0.025,
+      envMapIntensity: 2.1,
+      // The dusty sheen along a grazing edge. Small, but it is what separates
+      // a shoulder line from a paint gradient when the sun is behind the car —
+      // which, in a chase view, it is roughly half the time.
+      sheen: 0.4,
+      sheenRoughness: 0.5,
+      sheenColor: new THREE.Color(0xffffff),
     });
     paintCache.set(color, m);
   }
@@ -183,6 +260,42 @@ let glowTex: THREE.Texture | null = null;
 function glowTexture(): THREE.Texture {
   if (!glowTex) glowTex = makeGlowTexture();
   return glowTex;
+}
+
+let contactTex: THREE.Texture | null = null;
+function contactTexture(): THREE.Texture {
+  if (!contactTex) contactTex = makeContactShadowTexture();
+  return contactTex;
+}
+
+/**
+ * Lay the ambient contact shadow under a vehicle.
+ *
+ * Rendered before the underglow and after the road, with depth writes off:
+ * this is a decal on the tarmac, and letting it write depth makes it occlude
+ * the very glow that is supposed to sit on top of it.
+ */
+function addContactShadow(group: THREE.Group, width: number, length: number, opacity: number): THREE.Mesh {
+  const mat = new THREE.MeshBasicMaterial({
+    map: contactTexture(),
+    color: 0x000000,
+    transparent: true,
+    opacity,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const mesh = new THREE.Mesh(
+    cached('shadowplane', () => new THREE.PlaneGeometry(1, 1)),
+    mat,
+  );
+  mesh.scale.set(width, length, 1);
+  mesh.rotation.x = -Math.PI / 2;
+  // Below the underglow and barely above the road: any higher and the gap
+  // between shadow and tyre is visible from the chase camera's low angle.
+  mesh.position.y = 0.018;
+  mesh.renderOrder = 1;
+  group.add(mesh);
+  return mesh;
 }
 
 /* -------------------------------------------------------------- profiles */
@@ -212,6 +325,24 @@ const PROFILE: Record<string, Profile> = {
 };
 
 /* ----------------------------------------------------------------- parts */
+
+/**
+ * The dark shell over the top of a wheel.
+ *
+ * Half a cylinder, seen from the inside. Without it the arch is a hole cut in
+ * a painted panel and the sky lights the tyre from above, so the wheel reads as
+ * stuck to the side of the car; with it there is somewhere for the arch to be
+ * dark, and the body above gains a shadow line to sit on.
+ */
+function archLiner(radius: number, halfWidth: number, seg: number): THREE.BufferGeometry {
+  return cached(`arch${radius}:${halfWidth}:${seg}`, () => {
+    const g = new THREE.CylinderGeometry(
+      radius, radius, halfWidth * 2, seg, 1, true, 0, Math.PI,
+    );
+    g.rotateZ(Math.PI / 2);
+    return g;
+  });
+}
 
 function addWheel(
   group: CarMesh, x: number, z: number, radius: number, detail: Detail,
@@ -252,6 +383,8 @@ export function buildCar(opts: {
   isPlayer?: boolean;
   headlights?: boolean;
   detail?: Detail;
+  /** Overrides the ambient hero LOD. Used by the audit to measure both rungs. */
+  loft?: { rings: number; length: number };
 }): CarMesh {
   const p = PROFILE[opts.profile] ?? PROFILE.sedan;
   const detail = opts.detail ?? (opts.isPlayer ? 'high' : 'low');
@@ -282,10 +415,11 @@ export function buildCar(opts: {
      * a seam is what the eye reads as "made of boxes" however well each
      * individual volume is rounded.
      */
+    const lod = opts.loft ?? heroLod;
     const geometry = loftBody(stations, {
       length: p.len,
-      ringSegments: 34,
-      lengthSegments: 56,
+      ringSegments: lod.rings,
+      lengthSegments: lod.length,
     });
     const shell = new THREE.Mesh(geometry, body);
     shell.scale.set(p.wid / 2, 1, 1);
@@ -298,7 +432,11 @@ export function buildCar(opts: {
     // hair so it sits on the surface rather than fighting it.
     const glassGeo = loftBody(
       stations.filter((s) => s.t > -0.45 && s.t < 0.6),
-      { length: p.len, ringSegments: 26, lengthSegments: 26 },
+      {
+        length: p.len,
+        ringSegments: Math.max(12, Math.round(lod.rings * 0.7)),
+        lengthSegments: Math.max(12, Math.round(lod.length * 0.45)),
+      },
     );
     const glass = new THREE.Mesh(glassGeo, GLASS);
     glass.scale.set((p.wid / 2) * 1.004, 1.004, 0.995);
@@ -401,6 +539,38 @@ export function buildCar(opts: {
   for (const [x, z] of [[-wheelX, -axle], [wheelX, -axle], [-wheelX, axle], [wheelX, axle]] as const) {
     addWheel(group, x, z, p.wheelR, detail);
   }
+
+  /*
+   * Occlusion: arch liners and an underbody tray.
+   *
+   * Everything here is cavity black and faces inward. It costs a few hundred
+   * triangles and does the job an AO map would, without needing a second UV
+   * set on a body whose topology changes with every profile.
+   */
+  {
+    const linerGeo = archLiner(p.wheelR * 1.16, p.wheelR * 0.44, detail === 'high' ? 14 : 8);
+    for (const [x, z] of [[-wheelX, -axle], [wheelX, -axle], [-wheelX, axle], [wheelX, axle]] as const) {
+      const l = new THREE.Mesh(linerGeo, CAVITY_INNER);
+      l.position.set(x, p.wheelR, z);
+      group.add(l);
+    }
+
+    // A floor pan, so the gap between sill and tarmac is a shadow rather than
+    // a view straight through to the road on the far side.
+    const tray = new THREE.Mesh(box(p.wid * 0.9, 0.06, p.len * 0.84), CAVITY);
+    tray.position.y = sill * 0.44;
+    group.add(tray);
+
+    // Skirts down the flanks, closing the sliver of daylight under the sills.
+    for (const sx of [-1, 1]) {
+      const skirt = new THREE.Mesh(box(0.05, sill * 0.7, p.len * 0.72), CAVITY);
+      skirt.position.set(sx * p.wid * 0.46, sill * 0.42, 0);
+      group.add(skirt);
+    }
+  }
+
+  /* The ambient patch on the tarmac. Under every car, at every tier. */
+  addContactShadow(group, p.wid * 2.5, p.len * 1.75, 0.55);
 
   /* Spoiler. */
   if (p.spoiler === 'wing') {
@@ -537,6 +707,14 @@ function buildRig(color: number, trim: number, isBus: boolean, detail: Detail): 
     }
   }
 
+  // A tray under the chassis and the same contact patch every car gets. A
+  // vehicle this large floating a hand's width off the road is the most
+  // visible version of the bug.
+  const tray = new THREE.Mesh(box(wid * 0.9, 0.08, len * 0.88), CAVITY);
+  tray.position.y = 0.62;
+  group.add(tray);
+  addContactShadow(group, wid * 2.1, len * 1.35, 0.6);
+
   return group;
 }
 
@@ -581,7 +759,7 @@ export const CAR_PROFILES = Object.keys(PROFILE);
 
 export interface ModelAudit {
   id: string;
-  kind: 'player' | 'traffic';
+  kind: 'player' | 'traffic' | 'hero-lod';
   triangles: number;
   meshes: number;
   /**
@@ -607,7 +785,7 @@ export interface ModelAudit {
 export function auditVehicles(playerBodies: readonly string[]): ModelAudit[] {
   const out: ModelAudit[] = [];
 
-  const measure = (id: string, kind: 'player' | 'traffic', group: THREE.Object3D): void => {
+  const measure = (id: string, kind: ModelAudit['kind'], group: THREE.Object3D): void => {
     let meshes = 0;
     let bare = 0;
     const types = new Set<string>();
@@ -632,10 +810,32 @@ export function auditVehicles(playerBodies: readonly string[]): ModelAudit[] {
     });
   };
 
+  /*
+   * Player bodies are always measured at the top of the ladder, whatever tier
+   * the machine running the audit resolved to.
+   *
+   * The probe runs pinned to `low`, and reading the ambient LOD there would
+   * report the cut-down hero and call it the shipping model — the triangle
+   * floor for the player would then be satisfied by a car no player on real
+   * hardware ever sees. The rung actually in use is measured separately, below.
+   */
+  const top = qualityByTier('high');
   for (const body of playerBodies) {
     measure(body, 'player', buildCar({
       profile: body, color: 0xcc3333, trim: 0x222222, glow: 0xff5522,
       isPlayer: true, headlights: true, detail: 'high',
+      loft: { rings: top.heroLoftRings, length: top.heroLoftLength },
+    }));
+  }
+
+  // The bottom rung of the same ladder, so "the low tier gets a cheaper hero"
+  // is a measurement rather than an intention.
+  const floor = qualityByTier('low');
+  for (const body of playerBodies) {
+    measure(`${body}@low`, 'hero-lod', buildCar({
+      profile: body, color: 0xcc3333, trim: 0x222222, glow: 0xff5522,
+      isPlayer: true, headlights: true, detail: 'high',
+      loft: { rings: floor.heroLoftRings, length: floor.heroLoftLength },
     }));
   }
 

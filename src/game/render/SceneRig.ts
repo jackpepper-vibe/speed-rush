@@ -36,6 +36,22 @@ export class SceneRig {
 
   readonly sun: THREE.DirectionalLight;
   readonly hemi: THREE.HemisphereLight;
+  /**
+   * A key light from behind the camera.
+   *
+   * Not decoration — a structural fix for the one thing a chase camera does
+   * that a free camera does not. The sun has to sit ahead of the car for the
+   * horizon to be worth looking at, which means the only face of the car ever
+   * pointed at the player is the one permanently turned away from the sun. With
+   * the sun alone the hero rendered as a black cut-out with brake lights in it,
+   * and every attempt to fix that by raising the ambient fill flattened the
+   * whole world instead.
+   *
+   * Kept dimmer and cooler than the sun, and it casts no shadow: two shadow
+   * casters means two shadow maps, and this one would only ever draw a second
+   * shadow of the car directly beneath the first.
+   */
+  readonly fill: THREE.DirectionalLight;
   readonly sky: SkyDome;
 
   private readonly bloom: UnrealBloomPass;
@@ -155,6 +171,11 @@ export class SceneRig {
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
 
+    this.fill = new THREE.DirectionalLight(0xdce8ff, 1.5);
+    this.fill.position.set(9, 7, 22);
+    this.scene.add(this.fill);
+    this.scene.add(this.fill.target);
+
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
 
@@ -201,6 +222,13 @@ export class SceneRig {
     this.hemi.groundColor.setHex(opts.hemiGround);
     this.hemi.intensity = opts.hemiIntensity;
 
+    // The camera key tracks the sun's strength rather than sitting at a fixed
+    // level: a fill that does not dim at dusk turns every night scene into a
+    // studio shot. Floored, though — at midnight the hero still has to be a car
+    // rather than a hole in the road.
+    this.fill.intensity = 0.55 + opts.sunIntensity * 0.42;
+    this.fill.color.setHex(opts.hemiSky);
+
     this.fog.color.setHex(opts.fogColor);
     this.fog.density = opts.fogDensity;
 
@@ -222,9 +250,17 @@ export class SceneRig {
    * every tick: the cooldown is what keeps a continuous day cycle from asking
    * for a cubemap a hundred and twenty times a second.
    */
-  /** Advance the world clock the environment refresh is rate-limited against. */
+  /**
+   * Advance the world clock the environment refresh is rate-limited against,
+   * and with it anything in the grade that animates.
+   *
+   * The rain-on-the-lens streaks were written against `uTime` and nothing ever
+   * moved it, so they hung motionless on the screen for the length of a storm —
+   * a pattern of dots rather than water running off a windscreen.
+   */
   advanceClock(dt: number): void {
     this.envClock += dt;
+    this.grade.uniforms.uTime.value += dt;
   }
 
   private refreshEnvironment(): void {
@@ -263,7 +299,7 @@ export class SceneRig {
     this.bloom.threshold = threshold;
   }
 
-  /** Speed-reactive grade: vignette, chromatic fringe, saturation. */
+  /** Speed-reactive grade: vignette, chromatic fringe, saturation, blur. */
   setGrade(speedFraction: number, nitro: number, wet: number): void {
     const u = this.grade.uniforms;
     u.uVignette.value = 0.3 + speedFraction * 0.2 + nitro * 0.14;
@@ -271,10 +307,29 @@ export class SceneRig {
     // in the frame — every palm, every barrier post — carried a visible rainbow
     // fringe, which reads as a broken renderer rather than as speed.
     u.uAberration.value = speedFraction * 0.0004 + nitro * 0.0012;
-    u.uSaturation.value = 1.08 + nitro * 0.12 - wet * 0.16;
+    u.uSaturation.value = 1.1 + nitro * 0.12 - wet * 0.16;
     u.uSpeedLines.value = nitro * 0.35;
     u.uWet.value = wet;
+
+    /*
+     * Contrast rises with speed, and the blur with it.
+     *
+     * Both are the same idea: at a crawl the frame should be readable, and at
+     * three hundred it should be a punch. Wet weather takes contrast back out
+     * — a rain-lit road is a low-contrast one, and leaving the curve hard
+     * through a storm made the grade fight the weather.
+     */
+    u.uContrast.value = 1.08 + speedFraction * 0.1 + nitro * 0.05 - wet * 0.1;
+    u.uCurve.value = 0.3 + nitro * 0.1;
+    u.uLift.value = 0.05 - nitro * 0.012;
+    // Held at zero below half speed: the taps are four full-frame reads, and
+    // there is nothing to smear at the pace the menu idles at.
+    const blur = Math.max(0, speedFraction - 0.45) / 0.55;
+    u.uRadialBlur.value = this.quality.motionBlur
+      ? blur * 0.009 + nitro * 0.015
+      : 0;
   }
+
 
   addShake(amount: number): void {
     this.camShake = Math.min(this.camShake + amount, 1.6);
@@ -338,6 +393,12 @@ export class SceneRig {
     this.sun.position.z = targetZ - 40;
     this.sun.target.position.set(targetX, 0, targetZ - 24);
     this.sun.target.updateMatrixWorld();
+
+    // The camera key rides with the car, offset to the side the sun is not on
+    // so the two do not stack into one flat front-light.
+    this.fill.position.set(targetX + 9, targetY + 7, targetZ + 22);
+    this.fill.target.position.set(targetX, targetY + 0.6, targetZ - 6);
+    this.fill.target.updateMatrixWorld();
     this.sky.mesh.position.set(targetX, 0, targetZ);
   }
 

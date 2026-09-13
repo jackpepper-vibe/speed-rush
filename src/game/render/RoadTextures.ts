@@ -24,7 +24,10 @@ export function makeRoadTexture(laneCount: number, repeatY: number): THREE.Textu
   const H = 512;
   const [c, ctx] = canvas(W, H);
 
-  ctx.fillStyle = '#22242a';
+  // Mid-grey, not near-black. Real asphalt in daylight sits around 20% grey;
+  // the first value here was dark enough that the road had no tone of its own
+  // and every lighting change showed up only in the sky.
+  ctx.fillStyle = '#3c3f47';
   ctx.fillRect(0, 0, W, H);
 
   // Aggregate speckle, and two darker wheel tracks per lane.
@@ -94,6 +97,47 @@ export function makeGlowTexture(): THREE.Texture {
   g.addColorStop(1, 'rgba(255,255,255,0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 128, 128);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/**
+ * The soft dark patch a car casts straight down onto the road.
+ *
+ * A shadow map alone does not do this job. Its blur is uniform, so the darkest
+ * part of a car's shadow is no darker directly under the sills than it is a
+ * metre out, and the car reads as sitting *on* the road rather than in contact
+ * with it. This is the ambient half of the same effect: an elliptical gradient,
+ * dense under the body and gone by the edge, drawn under every car regardless
+ * of tier — which is also what keeps the low tier, where shadows are off
+ * entirely, from floating its cars over the tarmac.
+ *
+ * Authored as alpha over black. Multiply blending would be more physical, but
+ * it also multiplies the road's specular back to nothing; painting black with
+ * a falloff keeps the wet sheen on the tarmac around the car.
+ */
+export function makeContactShadowTexture(): THREE.Texture {
+  const S = 128;
+  const [c, ctx] = canvas(S, S);
+  const img = ctx.createImageData(S, S);
+  const d = img.data;
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      // Squashed along the car's length so the core follows the body rather
+      // than pooling in a circle under the middle of it.
+      const nx = (x / (S - 1)) * 2 - 1;
+      const ny = (y / (S - 1)) * 2 - 1;
+      const r = Math.hypot(nx * 1.28, ny);
+      // Flat, dense core out to 40%, then a smoothstep to nothing.
+      const t = Math.min(1, Math.max(0, (r - 0.4) / 0.6));
+      const a = 1 - t * t * (3 - 2 * t);
+      const i = (y * S + x) * 4;
+      d[i] = 0; d[i + 1] = 0; d[i + 2] = 0;
+      d[i + 3] = Math.round(a * 255);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;

@@ -1872,7 +1872,11 @@ const models = await page.evaluate(() => window.carRacer.models());
 
 const PLAYER_FLOOR = 1200;
 const TRAFFIC_FLOOR = 350;
-const PLAYER_CEILING = 14000;
+// Raised with the hero LOD. The player's car is one model, always on screen and
+// a few metres from the camera; thirty thousand triangles on it is a rounding
+// error on any GPU built this decade, and the machines where it is not get the
+// bottom rung of the ladder instead of a coarser top tier.
+const PLAYER_CEILING = 70000;
 const TRAFFIC_CEILING = 6000;
 
 {

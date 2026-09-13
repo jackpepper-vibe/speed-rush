@@ -28,25 +28,37 @@ export interface Palette {
   headlights: number;
 }
 
+/*
+ * A note on the sun-to-fill ratio.
+ *
+ * The first pass ran a bright hemisphere light against a modest sun, which is
+ * the safe setting: nothing is ever unreadably dark. It is also why the cars
+ * looked matte. A hemisphere light has no direction worth speaking of, so
+ * everything it touches is lit from everywhere at once — no terminator, no
+ * shadow side, no highlight, and a metallic panel that might as well be paper.
+ * The fill is down about a third here and the sun up by a similar amount, which
+ * costs some detail in the shadows and buys a car with a lit side and a dark
+ * one.
+ */
 export const DAY_PALETTE: Record<DayPhase, Palette> = {
   dawn: {
-    sunColor: 0xffc48a, sunIntensity: 1.7,
+    sunColor: 0xffc48a, sunIntensity: 2.2,
     skyTop: 0x2c4f8c, skyBottom: 0xf0a878, horizon: 0xffd0a0,
-    hemiSky: 0x9ab4e0, hemiGround: 0x4a3f34, hemiIntensity: 0.95,
+    hemiSky: 0x9ab4e0, hemiGround: 0x4a3f34, hemiIntensity: 0.68,
     fogColor: 0xe0b48c, fogDensity: 0.0042, sunElevation: 0.12, exposure: 1.0,
     stars: 0.18, headlights: 1.4,
   },
   day: {
-    sunColor: 0xfff0d8, sunIntensity: 2.7,
+    sunColor: 0xfff2dc, sunIntensity: 3.6,
     skyTop: 0x2a6fc4, skyBottom: 0xbcd8f0, horizon: 0xfff2d0,
-    hemiSky: 0xbcd8ff, hemiGround: 0x4a4335, hemiIntensity: 1.2,
+    hemiSky: 0xbcd8ff, hemiGround: 0x45402f, hemiIntensity: 0.82,
     fogColor: 0x9fc4e8, fogDensity: 0.0028, sunElevation: 0.85, exposure: 1.05,
     stars: 0, headlights: 0,
   },
   dusk: {
-    sunColor: 0xff8a4c, sunIntensity: 1.5,
+    sunColor: 0xff8a4c, sunIntensity: 2.0,
     skyTop: 0x1e2a5c, skyBottom: 0xe06a48, horizon: 0xff9a5a,
-    hemiSky: 0x7a86c0, hemiGround: 0x3a2f28, hemiIntensity: 0.8,
+    hemiSky: 0x7a86c0, hemiGround: 0x3a2f28, hemiIntensity: 0.56,
     fogColor: 0xc06a50, fogDensity: 0.0046, sunElevation: 0.1, exposure: 1.0,
     stars: 0.32, headlights: 1.8,
   },

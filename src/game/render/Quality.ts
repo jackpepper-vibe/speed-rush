@@ -25,6 +25,24 @@ export interface QualitySettings {
   /** Multiplier on scenery instance counts and particle budgets. */
   readonly sceneryDensity: number;
   readonly drawDistanceScale: number;
+  /**
+   * Whether the grade may take its four radial blur taps.
+   *
+   * Off at the bottom of the ladder. Those taps are four extra reads of the
+   * whole frame per pixel, which is exactly the kind of bandwidth a software
+   * rasteriser answers by dropping the context.
+   */
+  readonly motionBlur: boolean;
+  /**
+   * Ring and length segments for the player's lofted body.
+   *
+   * The hero car is the one model on screen at all times and within a few
+   * metres of the camera, so it carries a detail budget the rest of the game
+   * does not. It still has to come down at the bottom of the ladder — the fix
+   * for a weak GPU is a cheaper hero, not a cheaper top tier.
+   */
+  readonly heroLoftRings: number;
+  readonly heroLoftLength: number;
 }
 
 const TIERS: Record<QualityTier, QualitySettings> = {
@@ -38,6 +56,9 @@ const TIERS: Record<QualityTier, QualitySettings> = {
     anisotropy: 1,
     sceneryDensity: 0.45,
     drawDistanceScale: 0.7,
+    motionBlur: false,
+    heroLoftRings: 18,
+    heroLoftLength: 28,
   },
   medium: {
     tier: 'medium',
@@ -49,6 +70,9 @@ const TIERS: Record<QualityTier, QualitySettings> = {
     anisotropy: 4,
     sceneryDensity: 0.75,
     drawDistanceScale: 0.88,
+    motionBlur: true,
+    heroLoftRings: 34,
+    heroLoftLength: 56,
   },
   high: {
     tier: 'high',
@@ -60,6 +84,9 @@ const TIERS: Record<QualityTier, QualitySettings> = {
     anisotropy: 8,
     sceneryDensity: 1,
     drawDistanceScale: 1,
+    motionBlur: true,
+    heroLoftRings: 56,
+    heroLoftLength: 104,
   },
 };
 
