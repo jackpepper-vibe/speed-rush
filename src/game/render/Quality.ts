@@ -85,8 +85,8 @@ const TIERS: Record<QualityTier, QualitySettings> = {
     sceneryDensity: 1,
     drawDistanceScale: 1,
     motionBlur: true,
-    heroLoftRings: 56,
-    heroLoftLength: 104,
+    heroLoftRings: 76,
+    heroLoftLength: 132,
   },
 };
 

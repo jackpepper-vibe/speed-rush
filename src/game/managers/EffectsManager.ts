@@ -29,7 +29,7 @@ const SPARK_CAPACITY = 600;
 const SMOKE_CAPACITY = 700;
 
 /** Emission rates while a continuous effect is running, in particles/second. */
-const DRIFT_SMOKE_RATE = 190;
+const DRIFT_SMOKE_RATE = 260;
 const DRIFT_SPARK_RATE = 45;
 
 export class EffectsManager implements Manager {
@@ -289,7 +289,7 @@ export class EffectsManager implements Manager {
         size: 0.16 + this.rng.next() * 0.16,
         sizeGrowth: 2.6,
         colour: this.tint,
-        opacity: 0.2 + this.driftIntensity * 0.16,
+        opacity: 0.26 + this.driftIntensity * 0.2,
       });
     }
 

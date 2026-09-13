@@ -6,6 +6,7 @@ import { HUD_ELEMENTS, SCREEN_ELEMENTS } from '@/ui/UIManager';
 import { auditVehicles } from '@/game/render/CarFactory';
 import { CARS } from '@/game/config/Cars';
 import { measureGlow } from '@/dev/GlowProbe';
+import { sampleFrame, type RegionRect, type RegionSample } from '@/dev/FrameProbe';
 import { renderCarPreviews } from '@/ui/CarPreview';
 
 /**
@@ -139,6 +140,30 @@ export interface DevHandle {
   setEffectVisible(kind: string, visible: boolean): void;
   /** Hold the drift emitters open without having to provoke a real slide. */
   forceDrift(intensity: number): void;
+  /** Whether this tier is allowed to take the grade's radial blur taps. */
+  motionBlurEnabled(): boolean;
+  /** Force the blur on or off regardless of tier; null restores the tier. */
+  setMotionBlur(enabled: boolean | null): void;
+  /**
+   * Render one frame and measure regions of it, synchronously.
+   *
+   * The point of it being synchronous is that two calls with something toggled
+   * between them differ only in that toggle. Going via `snapshot()` and an
+   * `Image` yields to the event loop, the animation frame runs, and the world
+   * moves several metres between what were supposed to be the same frame.
+   */
+  sampleFrame(rects: Record<string, RegionRect>): Record<string, RegionSample>;
+  /**
+   * Show or hide the player's contact shadow.
+   *
+   * The gate needs this for the same reason it needs the effect toggles: where
+   * the shadow lands in the frame depends on the ride height of the equipped
+   * car and on the field of view, which widens with speed. A fixed box either
+   * clips the bumper or falls past the tail onto open road, and both mistakes
+   * report a shadow that is working as one that is not. Hiding it and looking
+   * for what changed finds it wherever it is.
+   */
+  setContactShadowVisible(visible: boolean): void;
 
   /** Live scenery instances per kind, and how many sit on the tarmac. */
   scenery(): { biome: string; kinds: { id: string; instances: number }[]; onRoad: number };
@@ -312,6 +337,26 @@ export function installDevHandle(game: Game, version: string): DevHandle {
 
     forceDrift(intensity) {
       game.effects.forceDrift(intensity);
+    },
+
+    motionBlurEnabled() {
+      return game.rig.quality.motionBlur;
+    },
+
+    setMotionBlur(enabled) {
+      game.rig.setMotionBlurOverride(enabled);
+    },
+
+    setContactShadowVisible(visible) {
+      const shadow = game.player.mesh.userData.contactShadow;
+      if (shadow) shadow.visible = visible;
+    },
+
+    sampleFrame(rects) {
+      // Rendered here rather than by the caller: the drawing buffer is only
+      // valid until the browser next composites, which happens between tasks.
+      game.rig.render();
+      return sampleFrame(game.rig.renderer, rects);
     },
 
     scenery() {

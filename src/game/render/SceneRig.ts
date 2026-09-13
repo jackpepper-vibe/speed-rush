@@ -301,6 +301,7 @@ export class SceneRig {
 
   /** Speed-reactive grade: vignette, chromatic fringe, saturation, blur. */
   setGrade(speedFraction: number, nitro: number, wet: number): void {
+    this.lastGrade = [speedFraction, nitro, wet];
     const u = this.grade.uniforms;
     u.uVignette.value = 0.3 + speedFraction * 0.2 + nitro * 0.14;
     // An order of magnitude down. At the old strength every high-contrast edge
@@ -325,11 +326,33 @@ export class SceneRig {
     // Held at zero below half speed: the taps are four full-frame reads, and
     // there is nothing to smear at the pace the menu idles at.
     const blur = Math.max(0, speedFraction - 0.45) / 0.55;
-    u.uRadialBlur.value = this.quality.motionBlur
-      ? blur * 0.009 + nitro * 0.015
-      : 0;
+    const blurAllowed = this.motionBlurOverride ?? this.quality.motionBlur;
+    u.uRadialBlur.value = blurAllowed ? blur * 0.009 + nitro * 0.015 : 0;
   }
 
+
+  /**
+   * Force the radial blur on or off, overriding the tier.
+   *
+   * A test seam, and the only honest way to measure the blur: it removes edge
+   * energy rather than adding luminance, so it can only be seen as the
+   * difference between two frames that are otherwise identical — and the
+   * obvious comparison, at rest against under boost, is confounded by the
+   * speed streaks nitro also raises in exactly the corners being sampled.
+   * `null` hands the decision back to the quality tier.
+   */
+  setMotionBlurOverride(enabled: boolean | null): void {
+    this.motionBlurOverride = enabled;
+    // Re-applied at once rather than left for the next tick. A caller that
+    // switches this and renders without advancing the simulation — which is
+    // the only way to compare two otherwise identical frames — would otherwise
+    // measure the setting it had before.
+    this.setGrade(...this.lastGrade);
+  }
+
+  private motionBlurOverride: boolean | null = null;
+  /** The last inputs the grade was driven with, so it can be re-applied. */
+  private lastGrade: [number, number, number] = [0, 0, 0];
 
   addShake(amount: number): void {
     this.camShake = Math.min(this.camShake + amount, 1.6);

@@ -3,7 +3,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import type { TrafficKind } from '@/core/GameEvents';
 import type { CarDef } from '@/game/config/Cars';
 import { makeContactShadowTexture, makeGlowTexture } from './RoadTextures';
-import { BODY_STATIONS, loftBody } from './BodyLoft';
+import { BODY_STATIONS, loftBody, silhouetteSmoothness } from './BodyLoft';
 import { qualityByTier } from './Quality';
 
 /**
@@ -53,6 +53,8 @@ export interface CarMesh extends THREE.Group {
     brakeLights: THREE.MeshStandardMaterial;
     headlights: THREE.SpotLight[];
     glow?: THREE.Mesh;
+    /** The ambient patch on the tarmac, so the gate can measure it directly. */
+    contactShadow?: THREE.Mesh;
     /**
      * Where the exhaust leaves the car, in the car's own space.
      *
@@ -581,7 +583,7 @@ export function buildCar(opts: {
   }
 
   /* The ambient patch on the tarmac. Under every car, at every tier. */
-  addContactShadow(group, p.wid * 2.5, p.len * 1.75, 0.55);
+  group.userData.contactShadow = addContactShadow(group, p.wid * 2.1, p.len * 1.5, 0.82);
 
   /* Spoiler. */
   if (p.spoiler === 'wing') {
@@ -724,7 +726,7 @@ function buildRig(color: number, trim: number, isBus: boolean, detail: Detail): 
   const tray = new THREE.Mesh(box(wid * 0.9, 0.08, len * 0.88), CAVITY);
   tray.position.y = 0.62;
   group.add(tray);
-  addContactShadow(group, wid * 2.1, len * 1.35, 0.6);
+  addContactShadow(group, wid * 1.8, len * 1.2, 0.85);
 
   return group;
 }
@@ -784,6 +786,25 @@ export interface ModelAudit {
   bareAdditiveQuads: number;
   /** Distinct material types used, so a car is not all one plastic. */
   materialTypes: string[];
+  /**
+   * Fraction of adjacent-face angles on the largest panel under the smoothness
+   * limit — 1 is a surface with no creases in it at all.
+   *
+   * Measured on the biggest geometry in the group, which for a player car is
+   * always the lofted shell. Triangle count alone cannot tell a smooth body
+   * from a finely subdivided box, and it was a finely subdivided box that this
+   * whole line of work started from.
+   */
+  silhouette: number;
+  /**
+   * Meshes rendering with `flatShading`.
+   *
+   * One flag, set anywhere on a body panel, discards the interpolated normals
+   * the loft went to the trouble of averaging and renders every triangle as a
+   * facet. It is worth counting rather than trusting, because it is a single
+   * word in a material literal and it looks deliberate wherever it appears.
+   */
+  flatShadedMeshes: number;
 }
 
 /**
@@ -799,16 +820,25 @@ export function auditVehicles(playerBodies: readonly string[]): ModelAudit[] {
   const measure = (id: string, kind: ModelAudit['kind'], group: THREE.Object3D): void => {
     let meshes = 0;
     let bare = 0;
+    let flat = 0;
+    let biggest: THREE.BufferGeometry | null = null;
+    let biggestTriangles = 0;
     const types = new Set<string>();
 
     group.traverse((o) => {
       if (!(o instanceof THREE.Mesh)) return;
       meshes += 1;
+      const tris = triangleCount(o);
+      if (tris > biggestTriangles) {
+        biggestTriangles = tris;
+        biggest = o.geometry as THREE.BufferGeometry;
+      }
       const mats = Array.isArray(o.material) ? o.material : [o.material];
       for (const m of mats) {
         types.add(m.type);
         const hasMap = 'map' in m && (m as { map: unknown }).map !== null;
         if (m.blending === THREE.AdditiveBlending && !hasMap) bare += 1;
+        if ('flatShading' in m && (m as { flatShading: boolean }).flatShading) flat += 1;
       }
     });
 
@@ -818,6 +848,8 @@ export function auditVehicles(playerBodies: readonly string[]): ModelAudit[] {
       meshes,
       bareAdditiveQuads: bare,
       materialTypes: [...types].sort(),
+      silhouette: biggest ? silhouetteSmoothness(biggest) : 0,
+      flatShadedMeshes: flat,
     });
   };
 

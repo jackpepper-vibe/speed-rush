@@ -18,7 +18,7 @@
  * pre-commit hook unchanged.
  */
 import { createRequire } from 'node:module';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -196,8 +196,8 @@ const noise = [];
  * exhausting it and reporting a shader failure against whichever scenario
  * happened to be loaded.
  */
-async function freshPage() {
-  const page = await browser.newPage({ viewport: { width: 1000, height: 560 } });
+async function freshPage(url = opt.url, viewport = { width: 1000, height: 560 }) {
+  const page = await browser.newPage({ viewport });
   page.on('pageerror', (e) => noise.push({ phase, level: 'pageerror', text: String(e).slice(0, 300) }));
   page.on('console', (m) => {
     const level = m.type();
@@ -241,7 +241,7 @@ async function freshPage() {
     window.requestAnimationFrame = (cb) => native(() => { clock += STEP; cb(clock); });
   });
 
-  await page.goto(opt.url, { waitUntil: 'load' });
+  await page.goto(url, { waitUntil: 'load' });
   await page.waitForFunction('window.carRacer !== undefined', null, { timeout: 120000 });
 
   /*
@@ -2130,6 +2130,381 @@ check('console', 'no-unexpected-warnings', gameWarnings.length === 0,
 
 if (warnings.length !== gameWarnings.length) {
   environment.push(`${warnings.length - gameWarnings.length} renderer warnings ignored (software GL)`);
+}
+
+/* -- render quality --------------------------------------------------------
+ * The seventh coverage gate: how the game actually looks, measured.
+ *
+ * Everything here is a screen-space measurement of a rendered frame rather
+ * than an assertion that an object exists. That distinction is the whole
+ * point. A flame that is added to the scene, parented to a disposed mesh and
+ * never drawn passes "the flame exists" and fails the only question anyone
+ * cares about; hiding it, rendering, showing it, rendering again and
+ * subtracting cannot be fooled that way.
+ *
+ * This block runs on its own page pinned to the top tier. The rest of the
+ * probe runs pinned to `low`, because the software rasteriser cannot sustain
+ * the 2048² shadow pass and the bloom chain across a hundred scenarios — but
+ * the top tier is the tier the art is authored for, and measuring the look of
+ * the game on the rung with the shadows switched off would be measuring the
+ * wrong thing. The hero LOD is asserted separately, from the model audit, so
+ * the bottom rung is still covered.
+ */
+
+phase = 'render-quality';
+{
+  const hero = await freshPage(
+    opt.url.replace(/quality=\w+/, 'quality=high'),
+    { width: 960, height: 540 },
+  );
+
+  /**
+   * Drive to the pinned hero pose — the same one tools/compare.mjs uses.
+   *
+   * Fixed on purpose: two frames captured from different distances differ in
+   * ways that have nothing to do with the thing being measured.
+   */
+  const pose = await hero.evaluate(async () => {
+    const cr = window.carRacer;
+    cr.setCollisions(false);
+    cr.startRun(4242);
+    let guard = 0;
+    while (cr.state().distance < 3000 && guard++ < 400) cr.drive(1, 0);
+    cr.pinWorld({ biome: 'coast', weather: 'clear', phase: 'day' });
+    cr.drive(1, 0);
+    cr.place({ x: 0, vx: 0 });
+    cr.drive(1.5, 0);
+    return cr.state();
+  });
+
+  check('render', 'hero-pose-renders', pose.contextLost === false && pose.triangles > 5000,
+    `${pose.triangles} triangles at ${pose.speedKmh.toFixed(0)} km/h, context lost: ${pose.contextLost}`);
+  check('render', 'top-tier-under-test', pose.quality === 'high',
+    `render-quality checks are measuring the '${pose.quality}' tier`);
+
+  /*
+   * Every measurement below goes through `carRacer.sampleFrame`, which renders
+   * and reads the drawing buffer back in one synchronous call.
+   *
+   * That is not an optimisation. The first version of this gate decoded a data
+   * URL into an `Image` to measure it, and `Image.onload` is a macrotask — so
+   * awaiting it handed control back to the browser, the game's own animation
+   * frame ran, and the world advanced several metres between two readings that
+   * were supposed to differ only in whether an effect was visible. The gate
+   * passed or failed depending on how fast the machine decoded a PNG. Anything
+   * comparing two frames here must therefore take both inside a single
+   * `evaluate`, with nothing awaited in between.
+   */
+
+  /*
+   * Where each thing lives in the frame, as fractions of it.
+   *
+   * Fractions rather than pixels so the gate does not quietly become a test of
+   * the viewport size. These follow from the pinned pose: the car sits centred
+   * in the lower middle, its exhausts just below it, its shadow directly under
+   * it, and the road either side of it is the control the shadow is compared
+   * against.
+   */
+  const REGION = {
+    body: [0.44, 0.55, 0.56, 0.67],
+    flame: [0.45, 0.69, 0.55, 0.77],
+    behind: [0.28, 0.62, 0.72, 0.88],
+    wide: [0.20, 0.40, 0.80, 0.90],
+    // Below the bumper, not across it. The first version of this box sat high
+    // enough to be measuring the brake lights, and duly reported the space
+    // under the car as brighter than the road beside it.
+    underCar: [0.465, 0.69, 0.535, 0.75],
+    besideCarLeft: [0.33, 0.69, 0.42, 0.75],
+    besideCarRight: [0.58, 0.69, 0.67, 0.75],
+    cornerLeft: [0.0, 0.62, 0.16, 1.0],
+    cornerRight: [0.84, 0.62, 1.0, 1.0],
+  };
+
+  const measure = (rects) => hero.evaluate((r) => window.carRacer.sampleFrame(r), rects);
+
+  /* -- specular response --------------------------------------------------
+   * The car is the brightest thing in its own bounding box or it is matte.
+   * This is the number the whole lighting pass was chasing: the body measured
+   * about one percent bright pixels across the frame when it rendered as a
+   * dark cut-out. */
+  {
+    const before = await measure({ body: REGION.body });
+    check('render', 'specular-response',
+      before.body.brightFraction > 0.004 || before.body.mean > 42,
+      `hero body region: ${(before.body.brightFraction * 100).toFixed(2)}% pixels over 200 luma, ` +
+      `mean ${before.body.mean.toFixed(1)} — want either >0.4% bright or a mean over 42`);
+  }
+
+  /* -- contact shadow ------------------------------------------------------
+   * A band under the car darker than the road either side of it — found by
+   * hiding the shadow rather than by looking in a fixed place for it.
+   *
+   * Where it lands in the frame depends on the ride height of whichever car is
+   * equipped and on the field of view, which widens with speed. A fixed box
+   * either clips the bumper, and reports the brake lights as a bright shadow,
+   * or falls past the tail onto open road and reports nothing. Sweeping bands
+   * with the shadow off and on locates it wherever it actually is, and the
+   * comparison against the road either side is then made in the band that the
+   * shadow demonstrably occupies. */
+  {
+    const scan = await hero.evaluate(() => {
+      const cr = window.carRacer;
+      const BANDS = 12;
+      const y0 = 0.58;
+      const step = 0.02;
+      const rects = {};
+      for (let i = 0; i < BANDS; i++) {
+        const y = y0 + i * step;
+        rects[`under${i}`] = [0.455, y, 0.545, y + step];
+        rects[`left${i}`] = [0.32, y, 0.42, y + step];
+        rects[`right${i}`] = [0.58, y, 0.68, y + step];
+      }
+
+      // Both frames from one simulation state, nothing awaited between them.
+      cr.setContactShadowVisible(false);
+      const off = cr.sampleFrame(rects);
+      cr.setContactShadowVisible(true);
+      const on = cr.sampleFrame(rects);
+
+      return Array.from({ length: BANDS }, (_, i) => ({
+        y: Number((y0 + i * step).toFixed(2)),
+        under: { without: off[`under${i}`].mean, with: on[`under${i}`].mean },
+        beside: {
+          without: (off[`left${i}`].mean + off[`right${i}`].mean) / 2,
+          with: (on[`left${i}`].mean + on[`right${i}`].mean) / 2,
+        },
+      }));
+    });
+
+    /*
+     * Compared against the road beside the car by how much each *changes*,
+     * not by how bright each is.
+     *
+     * The direct comparison is confounded twice over. The box under the car
+     * contains some of the car — lit bodywork and brake lights — and the boxes
+     * either side sit further out, where the vignette is darkening the frame
+     * anyway. Both effects are worth several times the shadow, and together
+     * they had the gate reporting the space under the car as brighter than the
+     * road beside it whether the shadow was there or not.
+     *
+     * What the shadow does is darken one place and not another, and that is
+     * what is asserted: the band beneath the car loses luminance when it is
+     * switched on, the road either side does not.
+     */
+    const band = scan.reduce((a, b) =>
+      (a.under.without - a.under.with > b.under.without - b.under.with ? a : b));
+    const beneath = band.under.without - band.under.with;
+    const beside = band.beside.without - band.beside.with;
+
+    check('render', 'contact-shadow',
+      beneath > 1.5 && beneath > beside * 3 + 1,
+      `at y=${band.y} switching the shadow on darkens the band beneath the car by ` +
+      `${beneath.toFixed(2)} luma (want > 1.5) while the road either side moves by ` +
+      `${beside.toFixed(2)} — the darkening has to be under the car, not across the frame`);
+  }
+
+  /* -- effects -------------------------------------------------------------
+   * Each one hidden, rendered, shown, rendered, and the difference taken in
+   * the region it belongs to. An effect that is in the scene but never drawn
+   * measures zero here, which is the entire reason for doing it this way. */
+  const effectCases = [
+    { kind: 'flame', region: 'flame', floor: 1.5, drive: (cr) => cr.givePowerup('nitro') },
+    { kind: 'sparks', region: 'wide', floor: 0.6, drive: (cr) => cr.burstEffect('sparks') },
+    { kind: 'smoke', region: 'behind', floor: 0.6, drive: (cr) => cr.forceDrift(1) },
+  ];
+
+  for (const { kind, region, floor } of effectCases) {
+    const delta = await hero.evaluate(({ kind, rect }) => {
+      const cr = window.carRacer;
+      cr.clearPowerups();
+
+      // Bring the effect up to full strength before either reading.
+      if (kind === 'flame') { cr.givePowerup('nitro'); cr.drive(0.8, 0); }
+      else if (kind === 'sparks') { cr.burstEffect('sparks'); cr.drive(0.05, 0); }
+      else { cr.forceDrift(1); cr.drive(0.5, 0); }
+
+      const live = cr.effects();
+      // Both frames from the same simulation state, nothing awaited between.
+      cr.setEffectVisible(kind, false);
+      const off = cr.sampleFrame({ r: rect }).r;
+      cr.setEffectVisible(kind, true);
+      const on = cr.sampleFrame({ r: rect }).r;
+      return { off: off.mean, on: on.mean, live };
+    }, { kind, rect: REGION[region] });
+
+    const added = Math.abs(delta.on - delta.off);
+    check('render', `effect-present/${kind}`, added >= floor,
+      `${kind} changes its region by ${added.toFixed(2)} luma ` +
+      `(${delta.off.toFixed(1)} hidden -> ${delta.on.toFixed(1)} shown), want >= ${floor}; ` +
+      `pools: ${delta.live.sparks} sparks, ${delta.live.smoke} smoke, flame ${delta.live.flame.toFixed(2)}`);
+  }
+
+  /* -- speed blur ----------------------------------------------------------
+   * Not a luminance test: a blur adds nothing, it removes. The corners of the
+   * frame lose edge energy under boost while the middle — where the car is,
+   * and where the effect is deliberately weakest — keeps it. Measuring only
+   * the corners would pass on any change that dimmed the frame. */
+  {
+    const blur = await hero.evaluate((R) => {
+      const cr = window.carRacer;
+      /*
+       * Both readings are taken under boost, with only the blur switched.
+       *
+       * The obvious experiment — corners at rest against corners on boost —
+       * measures the wrong thing: nitro also raises the speed streaks, which
+       * are high-contrast spokes drawn in exactly the corners being sampled,
+       * and they add far more edge energy than the blur removes. Comparing
+       * boost against boost isolates the blur.
+       */
+      cr.clearPowerups();
+      cr.setEffectVisible('flame', false);
+      cr.setEffectVisible('sparks', false);
+      cr.setEffectVisible('smoke', false);
+      cr.givePowerup('nitro');
+      cr.drive(0.5, 0);
+
+      // No sim advance between these two: the override is applied to the
+      // grade immediately, so the only difference between the frames is the
+      // blur itself.
+      const rects = { l: R.cornerLeft, r: R.cornerRight, mid: R.body };
+      cr.setMotionBlur(false);
+      const sharp = cr.sampleFrame(rects);
+      cr.setMotionBlur(true);
+      const blurred = cr.sampleFrame(rects);
+
+      cr.setMotionBlur(null);
+      cr.setEffectVisible('flame', true);
+      cr.setEffectVisible('sparks', true);
+      cr.setEffectVisible('smoke', true);
+      return { rest: sharp, boost: blurred, blurEnabled: cr.motionBlurEnabled() };
+    }, REGION);
+
+    const restCorners = (blur.rest.l.edges + blur.rest.r.edges) / 2;
+    const boostCorners = (blur.boost.l.edges + blur.boost.r.edges) / 2;
+    const softened = 1 - boostCorners / (restCorners || 1);
+
+    check('render', 'effect-present/speed-blur',
+      blur.blurEnabled && softened > 0.04,
+      `corner edge energy under boost: ${restCorners.toFixed(2)} with the blur off -> ` +
+      `${boostCorners.toFixed(2)} with it on (${(softened * 100).toFixed(1)}% softer, want > 4%), ` +
+      `blur available on this tier: ${blur.blurEnabled}`);
+    check('render', 'speed-blur-spares-the-centre',
+      blur.boost.mid.edges > blur.rest.mid.edges * 0.75,
+      `the middle of the frame keeps ${(blur.boost.mid.edges / (blur.rest.mid.edges || 1) * 100).toFixed(0)}% ` +
+      `of its edge energy with the blur on, want > 75% — the car must stay readable`);
+  }
+
+  /* -- the reference -------------------------------------------------------
+   * Skipped, never passed, when the target image is absent. A comparative
+   * score with nothing to compare against is not a pass, and treating it as
+   * one is how a missing file comes to certify a match. */
+  {
+    const referencePath = resolve(ROOT, 'reference/target.jpg');
+    if (!existsSync(referencePath)) {
+      environment.push(
+        'render/reference-distance SKIPPED — reference/target.jpg is absent, so the ' +
+        'histogram and roadside-density comparisons have nothing to measure against',
+      );
+    } else {
+      const dataUrl = `data:image/jpeg;base64,${readFileSync(referencePath).toString('base64')}`;
+      const scored = await hero.evaluate(async (reference) => {
+        const W = 480;
+        const H = 270;
+        const load = (src) => new Promise((res, rej) => {
+          const i = new Image();
+          i.onload = () => res(i);
+          i.onerror = () => rej(new Error('decode failed'));
+          i.src = src;
+        });
+        const profile = async (src) => {
+          const img = await load(src);
+          const c = document.createElement('canvas');
+          c.width = W; c.height = H;
+          const ctx = c.getContext('2d');
+          ctx.drawImage(img, 0, 0, W, H);
+          const d = ctx.getImageData(0, 0, W, H).data;
+          const lum = new Float32Array(W * H);
+          for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+            lum[p] = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+          }
+          const bins = new Array(32).fill(0);
+          for (const v of lum) bins[Math.min(31, Math.max(0, Math.floor(v / 8)))] += 1;
+          // The roadside: the outer thirds of the upper half, where scenery is.
+          let edge = 0;
+          let n = 0;
+          for (let y = 1; y < H * 0.6; y++) {
+            for (let x = 1; x < W - 1; x++) {
+              if (x > W / 3 && x < (W * 2) / 3) continue;
+              const i = y * W + x;
+              const gx = -lum[i - W - 1] - 2 * lum[i - 1] - lum[i + W - 1]
+                + lum[i - W + 1] + 2 * lum[i + 1] + lum[i + W + 1];
+              const gy = -lum[i - W - 1] - 2 * lum[i - W] - lum[i - W + 1]
+                + lum[i + W - 1] + 2 * lum[i + W] + lum[i + W + 1];
+              edge += Math.hypot(gx, gy);
+              n += 1;
+            }
+          }
+          return { histogram: bins.map((b) => b / lum.length), verge: n ? edge / n : 0 };
+        };
+
+        const mine = await profile(window.carRacer.snapshot());
+        const theirs = await profile(reference);
+        return {
+          histogram: mine.histogram.reduce((t, v, i) => t + Math.abs(v - theirs.histogram[i]), 0),
+          vergeRatio: mine.verge / (theirs.verge || 1),
+        };
+      }, dataUrl);
+
+      check('render', 'reference-distance/histogram', scored.histogram <= 0.55,
+        `L1 distance between luminance histograms is ${scored.histogram.toFixed(3)}, ` +
+        `want <= 0.55 (0 identical, 2 disjoint)`);
+      check('render', 'reference-distance/roadside-density',
+        scored.vergeRatio >= 0.6 && scored.vergeRatio <= 1.7,
+        `roadside edge density is ${scored.vergeRatio.toFixed(2)}x the reference, want 0.6 to 1.7`);
+    }
+  }
+
+  await shot(hero, 'render-quality');
+  await hero.close();
+}
+
+/* -- the hero model --------------------------------------------------------
+ * The other half of the seventh gate, and the half a screenshot cannot make.
+ * Triangle count alone cannot tell a smooth body from a finely subdivided
+ * box, and a smoothness score alone cannot tell a smooth body from a sphere. */
+{
+  const heroes = models.filter((m) => m.kind === 'player');
+  const lods = models.filter((m) => m.kind === 'hero-lod');
+
+  const HERO_TRIANGLE_FLOOR = 25000;
+  const coarse = heroes.filter((m) => m.triangles < HERO_TRIANGLE_FLOOR);
+  check('render', 'hero-triangles', coarse.length === 0,
+    coarse.length
+      ? `below the hero floor: ${coarse.map((m) => `${m.id} ${m.triangles}`).join(', ')}`
+      : `every player body clears ${HERO_TRIANGLE_FLOOR} triangles at the top tier ` +
+        `(lightest ${Math.min(...heroes.map((m) => m.triangles))})`);
+
+  const creased = heroes.filter((m) => m.silhouette < 0.95);
+  check('render', 'hero-silhouette-smoothness', creased.length === 0,
+    creased.length
+      ? `creased bodies: ${creased.map((m) => `${m.id} ${(m.silhouette * 100).toFixed(1)}%`).join(', ')}`
+      : `worst body has ${(Math.min(...heroes.map((m) => m.silhouette)) * 100).toFixed(1)}% of its ` +
+        `adjacent-face angles under 20 degrees, want >= 95%`);
+
+  const faceted = models.filter((m) => m.flatShadedMeshes > 0);
+  check('render', 'no-flat-shaded-panels', faceted.length === 0,
+    faceted.length
+      ? `${faceted.map((m) => `${m.id}:${m.flatShadedMeshes}`).join(', ')} — flat shading discards ` +
+        `the averaged normals the loft exists to produce`
+      : `no panel on any of ${models.length} vehicles renders with flatShading`);
+
+  /* The ladder has to actually step. A hero LOD that is the same model twice
+   * is not a level of detail, it is a comment. */
+  const heaviestLod = Math.max(...lods.map((m) => m.triangles));
+  const lightestHero = Math.min(...heroes.map((m) => m.triangles));
+  check('render', 'hero-lod-steps-down', heaviestLod < lightestHero * 0.35,
+    `bottom rung peaks at ${heaviestLod} triangles against ${lightestHero} at the top, ` +
+    `want under 35%`);
 }
 
 /* ------------------------------------------------------------------- report */
