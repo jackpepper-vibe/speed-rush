@@ -45,6 +45,15 @@ export class RoadStrip {
     private readonly section: readonly SectionPoint[],
     private readonly length: number,
     private readonly rows: number,
+    /**
+     * Extra elevation per vertex, as a function of where it is in the world.
+     *
+     * Given as a function of absolute lateral and absolute distance rather than
+     * as baked heights, because a strip is recycled to a different stretch of
+     * road every few seconds — baked heights would travel with the strip and
+     * the hills would slide along with the car.
+     */
+    private readonly relief?: (lateral: number, distance: number) => number,
   ) {
     this.positions = new Float32Array(section.length * (rows + 1) * 3);
 
@@ -56,9 +65,15 @@ export class RoadStrip {
 
   /** A horizontal surface spanning a set of lateral columns. */
   static flat(
-    columns: readonly number[], length: number, rows: number, height = 0,
+    columns: readonly number[],
+    length: number,
+    rows: number,
+    height = 0,
+    relief?: (lateral: number, distance: number) => number,
   ): RoadStrip {
-    return new RoadStrip(columns.map((lateral) => ({ lateral, height })), length, rows);
+    return new RoadStrip(
+      columns.map((lateral) => ({ lateral, height })), length, rows, relief,
+    );
   }
 
   private buildUVs(): Float32Array {
@@ -125,8 +140,12 @@ export class RoadStrip {
       const dy = hillAt(u) - baseHill;
       const z = -t * this.length;
       for (let c = 0; c < cols; c++) {
-        this.positions[i++] = this.section[c].lateral + dx;
-        this.positions[i++] = this.section[c].height + dy;
+        const lateral = this.section[c].lateral;
+        // Relief is sampled at the vertex's own lateral and the absolute
+        // distance of this row, never at the strip's local coordinates.
+        const lift = this.relief ? this.relief(lateral, u) : 0;
+        this.positions[i++] = lateral + dx;
+        this.positions[i++] = this.section[c].height + dy + lift;
         this.positions[i++] = z;
       }
     }

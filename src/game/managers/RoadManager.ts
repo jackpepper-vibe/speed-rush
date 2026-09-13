@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { GameContext, Manager } from '@/core/Manager';
 import { ROAD } from '@/game/config/Balance';
-import { curveAt, hillAt } from '@/game/world/RoadGeometry';
+import { curveAt, groundReliefAt, hillAt } from '@/game/world/RoadGeometry';
 import { RoadStrip, type SectionPoint } from '@/game/world/RoadStrip';
 import {
   makeGroundTexture, makeRoadTexture, makeRoadWearTexture, makeShoulderTexture,
@@ -39,6 +39,22 @@ const ROWS = 6;
 
 /** How far the ground reaches either side of the centreline. */
 const GROUND_HALF_WIDTH = 420;
+
+/**
+ * Lateral columns of the ground mesh.
+ *
+ * Sparse where the ground is flat and dense where it is not. The first version
+ * was two columns spanning eight hundred and forty units, which is a single
+ * quad and therefore necessarily a plane — and a plane seen from a low camera
+ * meets the sky along a perfectly straight line all the way across the frame.
+ * No amount of texture fixes that; the horizon has to have a shape.
+ */
+const GROUND_COLUMNS: readonly number[] = (() => {
+  const inner = [0, 60, 96];
+  const outer = [130, 170, 215, 265, 320, GROUND_HALF_WIDTH];
+  const half = [...inner, ...outer];
+  return [...half.slice(1).reverse().map((x) => -x), ...half];
+})();
 
 /** Height of the barrier post, and how many stand in one segment. */
 const BARRIER_TOP = 1.02;
@@ -172,7 +188,7 @@ export class RoadManager implements Manager {
       const segmentPosts: SegmentPosts[] = [];
 
       // Ground first, dropped below the deck so the tarmac wins the depth test.
-      const ground = RoadStrip.flat([-GROUND_HALF_WIDTH, GROUND_HALF_WIDTH], L, ROWS, -0.06);
+      const ground = RoadStrip.flat(GROUND_COLUMNS, L, ROWS, -0.06, groundReliefAt);
       const groundMesh = new THREE.Mesh(ground.geometry, this.groundMat);
       groundMesh.receiveShadow = true;
       group.add(groundMesh);

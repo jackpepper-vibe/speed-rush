@@ -39,6 +39,42 @@ export function hillAt(distance: number): number {
   );
 }
 
+/**
+ * How far the ground rises or falls away from the road, out in the verge.
+ *
+ * A pure function of absolute distance and lateral offset, for the same reason
+ * everything else in this file is: neighbouring segments sample it at the same
+ * `u` where they meet, so the terrain is continuous across a seam by
+ * construction rather than by being stitched.
+ *
+ * Flat within `RELIEF_INNER` of the centreline, and that is not a shortcut. The
+ * scenery gate proves every prop stands on ground rather than in mid-air, and
+ * it does so by placing props at the road's own elevation — so ground that
+ * undulated underneath them would put a palm's roots in the air and the gate
+ * would be right to say so. Relief starts beyond where anything is planted and
+ * ramps in, so the near verge stays honest and the far distance stops being a
+ * ruler-straight line drawn across the frame.
+ */
+const RELIEF_INNER = 96;
+const RELIEF_RAMP = 110;
+
+export function groundReliefAt(lateral: number, distance: number): number {
+  const out = Math.abs(lateral) - RELIEF_INNER;
+  if (out <= 0) return 0;
+
+  // Eased in, so the flat verge does not meet the hills at a crease.
+  const t = Math.min(1, out / RELIEF_RAMP);
+  const ramp = t * t * (3 - 2 * t);
+  // Amplitude grows with distance from the road: low rises near the verge,
+  // real hills on the skyline.
+  const amplitude = ramp * (3.5 + out * 0.075);
+
+  return amplitude * (
+    Math.sin(distance * 0.0123 + lateral * 0.0091) * 0.58 +
+    Math.sin(distance * 0.0045 - lateral * 0.0034) * 0.42
+  );
+}
+
 export function hillSlopeAt(distance: number): number {
   const h = 0.5;
   return (hillAt(distance + h) - hillAt(distance - h)) / (2 * h);
