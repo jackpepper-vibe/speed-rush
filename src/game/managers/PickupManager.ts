@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import type { GameContext, Manager } from '@/core/Manager';
 import type { PickupId, PowerupId } from '@/core/GameEvents';
 import { PICKUPS, ROAD } from '@/game/config/Balance';
@@ -41,6 +42,55 @@ const POWERUP_COLOR: Record<PowerupId, number> = {
   slowmo: 0x6cf0a8,
 };
 
+/**
+ * A struck coin: domed faces, a rounded rim, standing on edge.
+ *
+ * Lathed rather than extruded. A cylinder gives two flat faces meeting the edge
+ * at a right angle, and a right angle under a directional light is one hard
+ * line and two flat fields — which is why the first version read as a sticker.
+ * The profile here rises to a dome, steps down to a raised rim and rolls over
+ * the edge, so the same coin shows a highlight sweeping across it as it turns.
+ */
+function makeCoinGeometry(): THREE.BufferGeometry {
+  const profile = [
+    new THREE.Vector2(0.0, 0.058),
+    new THREE.Vector2(0.14, 0.062),
+    new THREE.Vector2(0.24, 0.056),
+    new THREE.Vector2(0.29, 0.036),
+    new THREE.Vector2(0.30, 0.052),
+    new THREE.Vector2(0.335, 0.048),
+    new THREE.Vector2(0.355, 0.026),
+    new THREE.Vector2(0.36, 0.0),
+    new THREE.Vector2(0.355, -0.026),
+    new THREE.Vector2(0.335, -0.048),
+    new THREE.Vector2(0.30, -0.052),
+    new THREE.Vector2(0.29, -0.036),
+    new THREE.Vector2(0.24, -0.056),
+    new THREE.Vector2(0.14, -0.062),
+    new THREE.Vector2(0.0, -0.058),
+  ];
+  const g = new THREE.LatheGeometry(profile, 26);
+  // Lathed about Y, then stood upright so the face points down the road and a
+  // spin about Y flashes it edge-on once a turn.
+  g.rotateX(Math.PI / 2);
+  g.computeVertexNormals();
+  return g;
+}
+
+/** A cut gem: a broad table over a deep pavilion, rather than a plain solid. */
+function makeGemGeometry(): THREE.BufferGeometry {
+  const profile = [
+    new THREE.Vector2(0.0, 0.30),
+    new THREE.Vector2(0.20, 0.26),
+    new THREE.Vector2(0.34, 0.10),
+    new THREE.Vector2(0.30, -0.04),
+    new THREE.Vector2(0.16, -0.34),
+    new THREE.Vector2(0.0, -0.44),
+  ];
+  // Eight segments: few enough that every facet is a facet.
+  return new THREE.LatheGeometry(profile, 8);
+}
+
 export class PickupManager implements Manager {
   readonly name = 'pickups';
 
@@ -72,17 +122,39 @@ export class PickupManager implements Manager {
     this.ctx.scene.add(this.root);
     this.glowTex = makeGlowTexture();
 
-    const coinGeo = new THREE.CylinderGeometry(0.52, 0.52, 0.1, 18);
-    coinGeo.rotateX(Math.PI / 2);
-    const gemGeo = new THREE.OctahedronGeometry(0.6);
-    const crateGeo = new THREE.BoxGeometry(1.15, 1.15, 1.15);
+    const coinGeo = makeCoinGeometry();
+    const gemGeo = makeGemGeometry();
+    const crateGeo = new RoundedBoxGeometry(1.05, 1.05, 1.05, 3, 0.16);
     this.geometries.push(coinGeo, gemGeo, crateGeo);
 
+    /*
+     * Struck gold, not a glowing sticker.
+     *
+     * The first coin was a flat cylinder with the emissive turned up, which at
+     * any distance is a disc of uniform orange — there is no shading on it to
+     * read, so it never looks like an object, and spinning it changes nothing
+     * because both faces are identical and equally lit. The geometry now has a
+     * domed face and a milled rim to catch the light, and the emissive is down
+     * to a hint so that light is what you are actually seeing.
+     */
     const coinMat = new THREE.MeshStandardMaterial({
-      color: 0xffc21e, emissive: 0xc07800, emissiveIntensity: 0.7, metalness: 0.9, roughness: 0.22,
+      color: 0xffc21e,
+      emissive: 0xa06000,
+      emissiveIntensity: 0.18,
+      metalness: 1,
+      roughness: 0.24,
+      envMapIntensity: 2.4,
     });
     const gemMat = new THREE.MeshStandardMaterial({
-      color: 0x40f0ff, emissive: 0x1090b0, emissiveIntensity: 1.1, metalness: 0.4, roughness: 0.1,
+      color: 0x40f0ff,
+      emissive: 0x1090b0,
+      emissiveIntensity: 0.8,
+      metalness: 0.3,
+      roughness: 0.08,
+      envMapIntensity: 2.6,
+      // Faceted on purpose: a gem is the one shape that should show its facets
+      // rather than have them smoothed into a blob.
+      flatShading: true,
     });
     this.materials.push(coinMat, gemMat);
 
@@ -104,9 +176,12 @@ export class PickupManager implements Manager {
       const mat = new THREE.MeshStandardMaterial({
         color: POWERUP_COLOR[id],
         emissive: POWERUP_COLOR[id],
-        emissiveIntensity: 1.4,
-        roughness: 0.3,
-        metalness: 0.2,
+        // Down from 1.4. At full emissive a crate is a solid block of its own
+        // colour with no form at all — the bevel might as well not be there.
+        emissiveIntensity: 0.55,
+        roughness: 0.28,
+        metalness: 0.4,
+        envMapIntensity: 1.8,
       });
       this.crateMat.set(id, mat);
       this.materials.push(mat);
@@ -236,6 +311,7 @@ export class PickupManager implements Manager {
     p.mesh.position.set(this.scratch.x + p.x, this.scratch.y + hover, this.scratch.z);
     p.mesh.rotation.y = p.spin;
     if (p.kind !== 'coin') p.mesh.rotation.x = p.spin * 0.6;
+    else p.mesh.rotation.z = 0.22;
   }
 
   private testCollect(p: Pickup): void {
