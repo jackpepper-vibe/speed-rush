@@ -93,6 +93,18 @@ export const BIOME_TINT: Record<BiomeId, BiomeTint> = {
   tunnel: { fogScale: 2.4, tint: 0x2a2d34, tintStrength: 0.6, ground: 0x2a2d34, groundRoughness: 0.8 },
 };
 
+/** Crossfade between two biome tints, for the approach to a boundary. */
+export function blendTint(a: BiomeTint, b: BiomeTint, t: number): BiomeTint {
+  const lerp = (x: number, y: number): number => x + (y - x) * t;
+  return {
+    fogScale: lerp(a.fogScale, b.fogScale),
+    tint: mixHex(a.tint, b.tint, t),
+    tintStrength: lerp(a.tintStrength, b.tintStrength),
+    ground: mixHex(a.ground, b.ground, t),
+    groundRoughness: lerp(a.groundRoughness, b.groundRoughness),
+  };
+}
+
 /** Weather modifies the palette and the road surface together. */
 export interface WeatherEffect {
   fogScale: number;
@@ -112,7 +124,9 @@ export const WEATHER: Record<WeatherId, WeatherEffect> = {
   clear: { fogScale: 1, exposureScale: 1, sunScale: 1, grip: 1, wet: 0, rain: 0, cloudCover: 0 },
   rain: { fogScale: 1.7, exposureScale: 0.86, sunScale: 0.5, grip: 0.72, wet: 0.55, rain: 0.6, cloudCover: 0.45 },
   storm: { fogScale: 2.3, exposureScale: 0.74, sunScale: 0.28, grip: 0.58, wet: 0.85, rain: 1, cloudCover: 0.58 },
-  fog: { fogScale: 4.2, exposureScale: 0.92, sunScale: 0.45, grip: 0.88, wet: 0.12, rain: 0, cloudCover: 0.3 },
+  // No `wet`: fog is suspended water, not water running down the screen. The
+  // lens streaks belong to rain and to storms.
+  fog: { fogScale: 4.2, exposureScale: 0.92, sunScale: 0.45, grip: 0.88, wet: 0, rain: 0, cloudCover: 0.3 },
 };
 
 /** Linear blend between two palettes, for the crossfade between phases. */

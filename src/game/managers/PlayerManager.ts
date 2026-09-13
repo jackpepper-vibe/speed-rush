@@ -153,10 +153,13 @@ export class PlayerManager implements Manager {
 
   private integrateSpeed(dt: number, distance: number): void {
     const km = distance / 1000;
-    const ceiling = Math.min(
+    let ceiling = Math.min(
       (SPEED.baseMax + km * SPEED.maxGainPerKm) * this.stats.topSpeed * this.boostFactor,
       SPEED.absoluteMax,
     );
+    // Off the tarmac, the ceiling comes down rather than the speed merely
+    // bleeding. See HANDLING.shoulderSpeedCap.
+    if (isOnShoulder(this.x)) ceiling *= HANDLING.shoulderSpeedCap;
     this.speedCeiling = ceiling;
 
     if (this.input.brake) {

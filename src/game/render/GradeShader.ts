@@ -109,11 +109,39 @@ export const GradeShader: THREE.ShaderMaterialParameters & { uniforms: Record<st
         colour += band * uSpeedLines * 0.16;
       }
 
-      // Rain on the lens: a few drifting smears near the top of the frame.
+      /* Rain on the lens.
+       *
+       * The first version quantised the screen into six rows and lit whole
+       * cells, which draws a white bar a sixth of the screen tall and scrolls
+       * it — reported, accurately, as white lines coming down the screen. It
+       * was invisible only because the grade's clock was never advanced; the moment the
+       * clock started running, so did the bars.
+       *
+       * What a drop on a windscreen actually is: short, sparse, falling at its
+       * own speed, and mostly a distortion rather than a light. Only about a
+       * seventh of the columns carry one at any time, each with its own phase
+       * and speed, and the streak refracts what is behind it instead of adding
+       * white on top of it.
+       */
       if (uWet > 0.001) {
-        float streak = hash(vec2(floor(uv.x * 90.0), floor(uv.y * 6.0 - uTime * 1.4)));
-        colour += step(0.965, streak) * uWet * 0.16;
-        colour = mix(colour, colour * vec3(0.86, 0.92, 1.06), uWet * 0.5);
+        float column = floor(uv.x * 150.0);
+        float speed = 0.55 + hash(vec2(column, 3.0)) * 1.1;
+        float phase = hash(vec2(column, 11.0));
+        // Only some columns are wet at once.
+        float carries = step(0.86, hash(vec2(column, 19.0)));
+
+        float fall = fract(uv.y * 0.8 + uTime * speed * 0.5 + phase);
+        // A short head with a tail drawn out behind it.
+        float head = smoothstep(0.0, 0.012, fall) * (1.0 - smoothstep(0.012, 0.085, fall));
+        float drop = head * carries * uWet;
+
+        // Refraction: the drop shows what is a little above it, magnified.
+        vec3 behind = texture2D(tDiffuse, uv - vec2(0.0, 0.012 * drop)).rgb;
+        colour = mix(colour, behind, min(1.0, drop * 1.4));
+        colour += drop * 0.05;
+
+        // And the general wash of a wet screen, which is most of the effect.
+        colour = mix(colour, colour * vec3(0.88, 0.93, 1.05), uWet * 0.5);
       }
 
       /* Tone curve.

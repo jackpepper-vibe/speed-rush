@@ -156,7 +156,19 @@ function tapered(
 
 /* ------------------------------------------------------------- materials */
 
-const RUBBER = new THREE.MeshStandardMaterial({ color: 0x14141a, roughness: 0.94, metalness: 0 });
+/*
+ * Tyre rubber, with a little more sheen than is strictly accurate.
+ *
+ * At roughness 0.94 a tyre returns essentially nothing, and since the only
+ * angle this game shows a car from is directly behind — where all you see of a
+ * rear wheel is sidewall — the wheels rendered as flat black slabs with no
+ * shape in them at all. Real rubber is not matte either; it has a soft, wide
+ * highlight along the shoulder, and that highlight is the only thing at this
+ * angle that says the wheel is round.
+ */
+const RUBBER = new THREE.MeshStandardMaterial({
+  color: 0x1b1c23, roughness: 0.66, metalness: 0, envMapIntensity: 0.75,
+});
 const CHROME = new THREE.MeshStandardMaterial({
   color: 0xd6dce4, roughness: 0.08, metalness: 1, envMapIntensity: 2.6,
 });
@@ -363,7 +375,9 @@ function addWheel(
   hub.position.set(x, radius, z);
 
   const seg = detail === 'high' ? 20 : 11;
-  const tyre = new THREE.Mesh(tyreGeo(radius, radius * 0.34, seg), RUBBER);
+  // Wide. A narrow tyre under a car this shape reads as a caster, and the
+  // extra width is what puts the shoulder where the camera can see it.
+  const tyre = new THREE.Mesh(tyreGeo(radius, radius * 0.46, seg), RUBBER);
   tyre.castShadow = true;
   hub.add(tyre);
 
@@ -483,7 +497,8 @@ export function buildCar(opts: {
   }
 
   /* Sills, bumpers, grille. */
-  const sillBar = new THREE.Mesh(bevel(p.wid * 1.005, 0.16, p.len * 0.82, 0.05, 1), trimMat);
+  // Between the arches, not through them.
+  const sillBar = new THREE.Mesh(bevel(p.wid * 1.005, 0.16, p.len * 0.52, 0.05, 1), trimMat);
   sillBar.position.y = sill * 0.62;
   group.add(sillBar);
 
@@ -546,9 +561,14 @@ export function buildCar(opts: {
     group.userData.exhausts.push(pipe);
   }
 
-  /* Wheels, set into the arches. */
+  /* Wheels, set into the arches.
+   *
+   * Sat further inboard at first, which on a body this wide buried them: from
+   * directly behind — which is the only angle this game ever shows a car from —
+   * the tyre disappeared behind the flank and the car ran on nothing. A wheel
+   * wants to be close to flush with the bodywork above it. */
   const axle = p.len * 0.315;
-  const wheelX = p.wid / 2 - p.wheelR * 0.34;
+  const wheelX = p.wid / 2 - p.wheelR * 0.16;
   for (const [x, z] of [[-wheelX, -axle], [wheelX, -axle], [-wheelX, axle], [wheelX, axle]] as const) {
     addWheel(group, x, z, p.wheelR, detail);
   }
@@ -561,7 +581,7 @@ export function buildCar(opts: {
    * set on a body whose topology changes with every profile.
    */
   {
-    const linerGeo = archLiner(p.wheelR * 1.16, p.wheelR * 0.44, detail === 'high' ? 14 : 8);
+    const linerGeo = archLiner(p.wheelR * 1.2, p.wheelR * 0.56, detail === 'high' ? 14 : 8);
     for (const [x, z] of [[-wheelX, -axle], [wheelX, -axle], [-wheelX, axle], [wheelX, axle]] as const) {
       const l = new THREE.Mesh(linerGeo, CAVITY_INNER);
       l.position.set(x, p.wheelR, z);
@@ -570,14 +590,22 @@ export function buildCar(opts: {
 
     // A floor pan, so the gap between sill and tarmac is a shadow rather than
     // a view straight through to the road on the far side.
-    const tray = new THREE.Mesh(box(p.wid * 0.9, 0.06, p.len * 0.84), CAVITY);
+    // Narrower than the track, so it closes the underbody without reaching
+    // out over the wheels.
+    const tray = new THREE.Mesh(box((wheelX - p.wheelR * 0.5) * 2, 0.06, p.len * 0.84), CAVITY);
     tray.position.y = sill * 0.44;
     group.add(tray);
 
-    // Skirts down the flanks, closing the sliver of daylight under the sills.
+    /* Skirts down the flanks, closing the sliver of daylight under the sills.
+     *
+     * Between the axles only, and inboard of them. Run the full length at the
+     * width of the body and they stop being skirts and become covers: a black
+     * slab standing exactly where the rear tyre should be visible, which is
+     * what turned the bottom of the car into one unreadable dark band. */
+    const skirtLength = axle * 2 - p.wheelR * 2.4;
     for (const sx of [-1, 1]) {
-      const skirt = new THREE.Mesh(box(0.05, sill * 0.7, p.len * 0.72), CAVITY);
-      skirt.position.set(sx * p.wid * 0.46, sill * 0.42, 0);
+      const skirt = new THREE.Mesh(box(0.05, sill * 0.7, skirtLength), CAVITY);
+      skirt.position.set(sx * (wheelX - p.wheelR * 0.5), sill * 0.42, 0);
       group.add(skirt);
     }
   }

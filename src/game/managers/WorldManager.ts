@@ -3,7 +3,8 @@ import type { GameContext, Manager } from '@/core/Manager';
 import type { BiomeId, DayPhase, WeatherId } from '@/core/GameEvents';
 import { WORLD } from '@/game/config/Balance';
 import {
-  BIOME_TINT, DAY_PALETTE, PHASE_ORDER, WEATHER, blendPalette, mixHex, type Palette,
+  BIOME_TINT, DAY_PALETTE, PHASE_ORDER, WEATHER, blendPalette, blendTint, mixHex,
+  type BiomeTint, type Palette,
 } from '@/game/world/Palettes';
 import type { SceneRig } from '@/game/render/SceneRig';
 import type { PlayerManager } from './PlayerManager';
@@ -24,6 +25,48 @@ import type { RoadManager } from './RoadManager';
  * on the windscreen.
  */
 const BIOMES: readonly BiomeId[] = ['coast', 'city', 'desert', 'forest'];
+
+/**
+ * How far either side of a biome boundary the air is already changing.
+ *
+ * Matched roughly to how far ahead the props become visible, so the colour of
+ * the light and the things standing in it arrive together.
+ */
+const BIOME_BLEND = 320;
+
+/**
+ * Which biome the road is in at a given stretch, as a pure function.
+ *
+ * This used to be a draw from the seeded stream taken at the moment the car
+ * crossed a boundary, which made the route unknowable in advance: nothing
+ * could ask what was coming up, because finding out meant advancing the stream
+ * and changing the answer. So the scenery could only ever dress the whole
+ * visible world as wherever the car was standing — and the first thing you saw
+ * of a desert was the instant every palm on the horizon turned into a cactus.
+ *
+ * A hash of the seed and the index gives the same journey for the same seed
+ * while being answerable for any stretch of road, which is what lets the world
+ * ahead of you already be the world you are driving into.
+ */
+export function biomeAtIndex(seed: number, index: number): BiomeId {
+  const pick = (i: number): BiomeId => {
+    // xorshift-ish mix of the two, so adjacent indices do not correlate.
+    let h = (seed ^ (i * 0x9e3779b9)) >>> 0;
+    h = Math.imul(h ^ (h >>> 16), 0x85ebca6b) >>> 0;
+    h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0;
+    h = (h ^ (h >>> 16)) >>> 0;
+    return BIOMES[h % BIOMES.length];
+  };
+
+  const here = pick(index);
+  // Never twice running: the change is the point. Resolved by looking at the
+  // previous index rather than by remembering what was returned last, so the
+  // function stays pure.
+  if (index > 0 && here === pick(index - 1)) {
+    return BIOMES[(BIOMES.indexOf(here) + 1) % BIOMES.length];
+  }
+  return here;
+}
 const WEATHERS: readonly WeatherId[] = ['clear', 'rain', 'storm', 'fog'];
 
 export class WorldManager implements Manager {
@@ -34,6 +77,14 @@ export class WorldManager implements Manager {
   private phase: DayPhase = 'day';
 
   private biomeIndex = -1;
+  /**
+   * Seed the route is derived from.
+   *
+   * Captured from the run-start cue rather than drawn from the shared stream,
+   * so asking what biome is four hundred units ahead consumes nothing and
+   * cannot change the answer to the same question asked again.
+   */
+  private routeSeed = 0;
   private weatherIndex = -1;
 
   /** Tunnel state, in absolute distance. */
@@ -67,6 +118,11 @@ export class WorldManager implements Manager {
 
   init(): void {
     this.buildRain();
+    // The route is a function of the seed, so it has to be told the seed.
+    this.ctx.bus.on('run:start', ({ seed }) => {
+      this.routeSeed = seed >>> 0;
+      this.biomeIndex = -1;
+    });
   }
 
   /* -------------------------------------------------------------- accessors */
@@ -124,22 +180,56 @@ export class WorldManager implements Manager {
     this.applyLook(distance);
   }
 
+  /**
+   * The biome at any stretch of road, pinned conditions included.
+   *
+   * Public because the scenery needs to dress the road ahead of the car as the
+   * road ahead rather than as where the car is standing.
+   */
+  biomeAtDistance(distance: number): BiomeId {
+    if (this.pinned?.biome) return this.pinned.biome;
+    return biomeAtIndex(this.routeSeed, Math.floor(distance / WORLD.biomeLength));
+  }
+
   private updateBiome(distance: number): void {
     const index = Math.floor(distance / WORLD.biomeLength);
     if (index === this.biomeIndex) return;
 
     const previous = this.biome;
     this.biomeIndex = index;
-    // Derived from the seeded stream, so the route is the same journey for a
-    // given seed rather than a fresh roll each run.
-    const next = BIOMES[(index + this.ctx.rng.int(0, BIOMES.length - 1)) % BIOMES.length];
-    // Never repeat a biome back to back — the change is the point.
-    this.biome = next === previous ? BIOMES[(BIOMES.indexOf(next) + 1) % BIOMES.length] : next;
+    this.biome = biomeAtIndex(this.routeSeed, index);
 
     if (this.biome !== previous) {
       this.ctx.bus.emit('biome:change', { from: previous, to: this.biome, distance });
       this.scheduleTunnel(distance);
     }
+  }
+
+  /** Biome tint at this distance, eased across the approach to a boundary. */
+  private blendedTint(distance: number): BiomeTint {
+    const here = BIOME_TINT[this.biomeAtDistance(distance)];
+    if (this.pinned?.biome) return here;
+
+    const into = distance - Math.floor(distance / WORLD.biomeLength) * WORLD.biomeLength;
+    const remaining = WORLD.biomeLength - into;
+
+    // Half the blend happens either side of the line, so the crossing itself
+    // is the midpoint of a change already well under way.
+    let neighbour = distance;
+    let raw: number;
+    if (into < BIOME_BLEND) {
+      neighbour = distance - BIOME_BLEND - 1;
+      raw = 0.5 - (into / BIOME_BLEND) * 0.5;
+    } else if (remaining < BIOME_BLEND) {
+      neighbour = distance + BIOME_BLEND + 1;
+      raw = 0.5 - (remaining / BIOME_BLEND) * 0.5;
+    } else {
+      return here;
+    }
+
+    const other = BIOME_TINT[this.biomeAtDistance(neighbour)];
+    const t = raw * raw * (3 - 2 * raw);
+    return blendTint(here, other, t);
   }
 
   private updateWeather(distance: number): void {
@@ -224,8 +314,19 @@ export class WorldManager implements Manager {
     const t = frac * frac * (3 - 2 * frac);
     const palette: Palette = blendPalette(from, to, t);
 
-    const biomeKey: BiomeId = this.inTunnel ? 'tunnel' : this.biome;
-    const tint = BIOME_TINT[biomeKey];
+    /*
+     * The biome's tint, crossfaded across the boundary.
+     *
+     * Fog colour, horizon tint and the colour of the ground all belong to the
+     * biome, and switching them on the frame the car crosses a line changes
+     * the entire screen at once — which is the half of the biome pop that the
+     * scenery fix cannot touch, because it is not made of props. The scenery
+     * ahead already belongs to where you are going; the air should too.
+     *
+     * A boundary is a place, not an event, so the blend is a function of how
+     * far into the biome the car is rather than a timer started by a cue.
+     */
+    const tint = this.inTunnel ? BIOME_TINT.tunnel : this.blendedTint(distance);
     const weather = WEATHER[this.weather];
     const intensity = this.weatherIntensity;
 

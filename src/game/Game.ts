@@ -96,7 +96,7 @@ export class Game {
     );
     // After the world manager, so a biome change has already been announced by
     // the time the scenery is asked to dress that stretch of road.
-    this.scenery = this.managers.add(new SceneryManager(ctx, this.road, this.rig));
+    this.scenery = this.managers.add(new SceneryManager(ctx, this.road, this.rig, this.world));
     // After the player, whose exhaust anchors the flame hangs off, and after
     // the rig, which it asks to shake on a crash.
     this.effects = this.managers.add(new EffectsManager(ctx, this.player, this.rig));

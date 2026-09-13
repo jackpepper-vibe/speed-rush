@@ -84,6 +84,18 @@ export const HANDLING = {
   gripStorm: 0.58,
   /** Lateral push applied while driving on the shoulder. */
   shoulderDrag: 4.0,
+  /**
+   * Speed ceiling while any part of the car is off the tarmac, as a fraction
+   * of the ceiling on the road.
+   *
+   * A drag term alone could not close this. Drag fights acceleration and
+   * settles at an equilibrium a little below the ceiling, so the rumble strip
+   * was a sixth lane with no traffic in it and almost no cost — park on it and
+   * the run drives itself. A ceiling cannot be fought: the shoulder is now
+   * strictly slower than the road, which is what makes it an escape rather
+   * than a route.
+   */
+  shoulderSpeedCap: 0.52,
 } as const;
 
 /** Traffic density and behaviour. */

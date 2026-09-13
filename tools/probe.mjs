@@ -1803,6 +1803,16 @@ check('scenery', 'road-is-never-empty', scenery.minInstances > 20,
     cr.startRun(4242);
     cr.drive(25, 0);
 
+    /* Out of any tunnel first.
+     *
+     * Inside one there is no scenery by design — the props are hidden, so
+     * toggling them changes nothing and the measured cost is frame noise. This
+     * used to pass on luck: the seed happened to put the car in open air at
+     * twenty-five seconds. Driving clear of the tunnel makes the precondition
+     * the check depends on an explicit one. */
+    let guard = 0;
+    while (cr.state().inTunnel && guard++ < 40) cr.drive(1, 0);
+
     cr.setSceneryVisible(false);
     cr.step(3);
     const without = { calls: cr.state().drawCalls, tris: cr.state().triangles };
@@ -1812,8 +1822,15 @@ check('scenery', 'road-is-never-empty', scenery.minInstances > 20,
     const withProps = { calls: cr.state().drawCalls, tris: cr.state().triangles };
 
     const s = cr.state();
-    return { without, withProps, instances: s.sceneryInstances, kinds: s.sceneryKinds };
+    return {
+      without, withProps, instances: s.sceneryInstances, kinds: s.sceneryKinds,
+      inTunnel: s.inTunnel,
+    };
   });
+
+  check('scenery', 'cost-measured-in-open-air', cost.inTunnel === false,
+    `the scenery cost measurement ran ${cost.inTunnel ? 'inside' : 'outside'} a tunnel — ` +
+    `inside one the props are hidden and the measurement is meaningless`);
 
   const extraCalls = cost.withProps.calls - cost.without.calls;
   const extraTris = cost.withProps.tris - cost.without.tris;
