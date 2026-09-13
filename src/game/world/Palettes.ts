@@ -24,6 +24,8 @@ export interface Palette {
   sunElevation: number;
   exposure: number;
   stars: number;
+  /** Cloud cover, 0 clear to 1 overcast, before weather adds to it. */
+  clouds: number;
   /** Headlight intensity the player's car should run at. */
   headlights: number;
 }
@@ -45,29 +47,29 @@ export const DAY_PALETTE: Record<DayPhase, Palette> = {
     sunColor: 0xffc48a, sunIntensity: 2.2,
     skyTop: 0x2c4f8c, skyBottom: 0xf0a878, horizon: 0xffd0a0,
     hemiSky: 0x9ab4e0, hemiGround: 0x4a3f34, hemiIntensity: 0.68,
-    fogColor: 0xe0b48c, fogDensity: 0.0042, sunElevation: 0.12, exposure: 1.0,
-    stars: 0.18, headlights: 1.4,
+    fogColor: 0xe0b48c, fogDensity: 0.0030, sunElevation: 0.12, exposure: 1.0,
+    stars: 0.18, clouds: 0.34, headlights: 1.4,
   },
   day: {
     sunColor: 0xfff2dc, sunIntensity: 3.6,
-    skyTop: 0x2a6fc4, skyBottom: 0xbcd8f0, horizon: 0xfff2d0,
+    skyTop: 0x1e5fbe, skyBottom: 0xa8ccec, horizon: 0xfff2d0,
     hemiSky: 0xbcd8ff, hemiGround: 0x45402f, hemiIntensity: 0.82,
-    fogColor: 0x9fc4e8, fogDensity: 0.0028, sunElevation: 0.85, exposure: 1.05,
-    stars: 0, headlights: 0,
+    fogColor: 0x9fc4e8, fogDensity: 0.0017, sunElevation: 0.85, exposure: 1.05,
+    stars: 0, clouds: 0.28, headlights: 0,
   },
   dusk: {
     sunColor: 0xff8a4c, sunIntensity: 2.0,
     skyTop: 0x1e2a5c, skyBottom: 0xe06a48, horizon: 0xff9a5a,
     hemiSky: 0x7a86c0, hemiGround: 0x3a2f28, hemiIntensity: 0.56,
-    fogColor: 0xc06a50, fogDensity: 0.0046, sunElevation: 0.1, exposure: 1.0,
-    stars: 0.32, headlights: 1.8,
+    fogColor: 0xc06a50, fogDensity: 0.0032, sunElevation: 0.1, exposure: 1.0,
+    stars: 0.32, clouds: 0.38, headlights: 1.8,
   },
   night: {
     sunColor: 0x8aa0d8, sunIntensity: 0.35,
     skyTop: 0x05060f, skyBottom: 0x121a34, horizon: 0x1c2748,
     hemiSky: 0x28324f, hemiGround: 0x0c0e14, hemiIntensity: 0.42,
-    fogColor: 0x0c1020, fogDensity: 0.0052, sunElevation: -0.2, exposure: 1.18,
-    stars: 1, headlights: 3.6,
+    fogColor: 0x0c1020, fogDensity: 0.0038, sunElevation: -0.2, exposure: 1.18,
+    stars: 1, clouds: 0.24, headlights: 3.6,
   },
 };
 
@@ -102,13 +104,15 @@ export interface WeatherEffect {
   wet: number;
   /** Rain particle density, 0..1. */
   rain: number;
+  /** Added to the hour's own cloud cover. */
+  cloudCover: number;
 }
 
 export const WEATHER: Record<WeatherId, WeatherEffect> = {
-  clear: { fogScale: 1, exposureScale: 1, sunScale: 1, grip: 1, wet: 0, rain: 0 },
-  rain: { fogScale: 1.7, exposureScale: 0.86, sunScale: 0.5, grip: 0.72, wet: 0.55, rain: 0.6 },
-  storm: { fogScale: 2.3, exposureScale: 0.74, sunScale: 0.28, grip: 0.58, wet: 0.85, rain: 1 },
-  fog: { fogScale: 4.2, exposureScale: 0.92, sunScale: 0.45, grip: 0.88, wet: 0.12, rain: 0 },
+  clear: { fogScale: 1, exposureScale: 1, sunScale: 1, grip: 1, wet: 0, rain: 0, cloudCover: 0 },
+  rain: { fogScale: 1.7, exposureScale: 0.86, sunScale: 0.5, grip: 0.72, wet: 0.55, rain: 0.6, cloudCover: 0.45 },
+  storm: { fogScale: 2.3, exposureScale: 0.74, sunScale: 0.28, grip: 0.58, wet: 0.85, rain: 1, cloudCover: 0.58 },
+  fog: { fogScale: 4.2, exposureScale: 0.92, sunScale: 0.45, grip: 0.88, wet: 0.12, rain: 0, cloudCover: 0.3 },
 };
 
 /** Linear blend between two palettes, for the crossfade between phases. */
@@ -134,6 +138,7 @@ export function blendPalette(a: Palette, b: Palette, t: number): Palette {
     sunElevation: lerp(a.sunElevation, b.sunElevation),
     exposure: lerp(a.exposure, b.exposure),
     stars: lerp(a.stars, b.stars),
+    clouds: lerp(a.clouds, b.clouds),
     headlights: lerp(a.headlights, b.headlights),
   };
 }

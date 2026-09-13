@@ -184,7 +184,7 @@ export function makeGroundTexture(): THREE.Texture {
       Math.random() * S, Math.random() * S, r,
     );
     const shade = Math.random() < 0.5 ? 150 : 210;
-    g.addColorStop(0, `rgba(${shade},${shade},${shade},0.4)`);
+    g.addColorStop(0, `rgba(${shade},${shade},${shade},0.22)`);
     g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, S, S);
@@ -202,7 +202,7 @@ export function makeGroundTexture(): THREE.Texture {
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(46, 2);
+  tex.repeat.set(38, 5);
   tex.anisotropy = 8;
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;

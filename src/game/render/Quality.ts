@@ -43,6 +43,18 @@ export interface QualitySettings {
    */
   readonly heroLoftRings: number;
   readonly heroLoftLength: number;
+  /**
+   * How much work the sky is allowed to do per pixel: 0 gradient only,
+   * 1 single-octave cloud, 2 three octaves with a domain warp.
+   *
+   * The sky covers a third to a half of the frame and is drawn before anything
+   * occludes it, so it is the one shader here whose cost is paid in full on
+   * every pixel it touches. Three octaves warped by two more came to about
+   * thirty-six hash evaluations per sky pixel, which on a software rasteriser
+   * took the probe from ten minutes to over thirty — and a machine that makes
+   * the probe crawl is a machine that drops the context in play.
+   */
+  readonly skyDetail: 0 | 1 | 2;
 }
 
 const TIERS: Record<QualityTier, QualitySettings> = {
@@ -59,6 +71,7 @@ const TIERS: Record<QualityTier, QualitySettings> = {
     motionBlur: false,
     heroLoftRings: 18,
     heroLoftLength: 28,
+    skyDetail: 0,
   },
   medium: {
     tier: 'medium',
@@ -73,6 +86,7 @@ const TIERS: Record<QualityTier, QualitySettings> = {
     motionBlur: true,
     heroLoftRings: 34,
     heroLoftLength: 56,
+    skyDetail: 1,
   },
   high: {
     tier: 'high',
@@ -87,6 +101,7 @@ const TIERS: Record<QualityTier, QualitySettings> = {
     motionBlur: true,
     heroLoftRings: 76,
     heroLoftLength: 132,
+    skyDetail: 2,
   },
 };
 

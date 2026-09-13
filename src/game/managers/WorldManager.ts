@@ -243,6 +243,10 @@ export class WorldManager implements Manager {
       hemiIntensity: palette.hemiIntensity,
       fogColor: mixHex(palette.fogColor, tint.tint, tint.tintStrength),
       fogDensity,
+      // Weather thickens the cover on top of the hour's own. A storm is
+      // overcast by definition, and a clear sky at noon still has some cloud
+      // in it — an empty one reads as a rendering budget rather than a day.
+      clouds: Math.min(1, palette.clouds + (weather.cloudCover ?? 0) * intensity),
       sunElevation: palette.sunElevation,
       exposure: palette.exposure * (1 - (1 - weather.exposureScale) * intensity),
     });

@@ -139,7 +139,7 @@ export class SceneRig {
     this.fog = new THREE.FogExp2(0x9fc4e8, 0.0034);
     this.scene.fog = this.fog;
 
-    this.sky = new SkyDome();
+    this.sky = new SkyDome(this.quality.skyDetail);
     this.scene.add(this.sky.mesh);
 
     // A second dome sharing the same material, so the environment is always
@@ -212,6 +212,7 @@ export class SceneRig {
     fogDensity: number;
     sunElevation: number;
     exposure: number;
+    clouds: number;
   }): void {
     this.sun.color.setHex(opts.sunColor);
     this.sun.intensity = opts.sunIntensity;
@@ -233,6 +234,7 @@ export class SceneRig {
     this.fog.density = opts.fogDensity;
 
     this.sky.setPalette(opts.skyTop, opts.skyBottom, opts.horizon);
+    this.sky.setClouds(opts.clouds);
     this.renderer.toneMappingExposure = opts.exposure;
 
     // A scalar standing in for "what the sky looks like". The environment is
@@ -261,6 +263,7 @@ export class SceneRig {
   advanceClock(dt: number): void {
     this.envClock += dt;
     this.grade.uniforms.uTime.value += dt;
+    this.sky.advance(dt);
   }
 
   private refreshEnvironment(): void {
