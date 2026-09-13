@@ -129,6 +129,17 @@ export interface DevHandle {
   /** Rendered intensity profile across the player's underglow. */
   glowProfile(): { row: number[]; peak: number; maxStep: number; edgeLevel: number } | null;
 
+  /* -- effects ------------------------------------------------------------
+   * Live particle counts and the flame level, plus the seams the gate needs:
+   * fire one effect on demand at full strength, and hide one so its
+   * contribution to the frame can be measured as a difference rather than
+   * asserted from the fact that an object exists. */
+  effects(): { sparks: number; smoke: number; flame: number };
+  burstEffect(kind: string): void;
+  setEffectVisible(kind: string, visible: boolean): void;
+  /** Hold the drift emitters open without having to provoke a real slide. */
+  forceDrift(intensity: number): void;
+
   /** Live scenery instances per kind, and how many sit on the tarmac. */
   scenery(): { biome: string; kinds: { id: string; instances: number }[]; onRoad: number };
   /** Hide the scenery so its cost can be measured as a difference. */
@@ -285,6 +296,22 @@ export function installDevHandle(game: Game, version: string): DevHandle {
       const glow = game.player.mesh.userData.glow;
       if (!glow) return null;
       return measureGlow(game.rig.renderer, glow);
+    },
+
+    effects() {
+      return game.effects.snapshot();
+    },
+
+    burstEffect(kind) {
+      game.effects.burst(kind as never);
+    },
+
+    setEffectVisible(kind, visible) {
+      game.effects.setVisible(kind as never, visible);
+    },
+
+    forceDrift(intensity) {
+      game.effects.forceDrift(intensity);
     },
 
     scenery() {

@@ -53,6 +53,16 @@ export interface CarMesh extends THREE.Group {
     brakeLights: THREE.MeshStandardMaterial;
     headlights: THREE.SpotLight[];
     glow?: THREE.Mesh;
+    /**
+     * Where the exhaust leaves the car, in the car's own space.
+     *
+     * Recorded by the factory rather than recomputed by whatever wants to
+     * attach a flame to it. The pipes move with the profile — a hyper sits
+     * lower and wider than a hatch — and an effects system that guesses their
+     * position is one that quietly drifts out of alignment the moment a
+     * profile is retuned.
+     */
+    exhausts: THREE.Object3D[];
   };
 }
 
@@ -391,7 +401,7 @@ export function buildCar(opts: {
   const seg = detail === 'high' ? 3 : 1;
 
   const group = new THREE.Group() as CarMesh;
-  group.userData = { wheels: [], brakeLights: null as never, headlights: [] };
+  group.userData = { wheels: [], brakeLights: null as never, headlights: [], exhausts: [] };
 
   const body = paint(opts.color);
   const trimMat = new THREE.MeshStandardMaterial({ color: opts.trim, roughness: 0.5, metalness: 0.5 });
@@ -531,6 +541,7 @@ export function buildCar(opts: {
     pipe.rotation.z = Math.PI / 2;
     pipe.position.set(sx * p.wid * 0.28, sill * 0.5, p.len / 2 + 0.04);
     group.add(pipe);
+    group.userData.exhausts.push(pipe);
   }
 
   /* Wheels, set into the arches. */
@@ -636,7 +647,7 @@ export function buildPlayerCar(def: CarDef): CarMesh {
 /** Long vehicles: a cab plus a body, rather than a stretched car. */
 function buildRig(color: number, trim: number, isBus: boolean, detail: Detail): CarMesh {
   const group = new THREE.Group() as CarMesh;
-  group.userData = { wheels: [], brakeLights: null as never, headlights: [] };
+  group.userData = { wheels: [], brakeLights: null as never, headlights: [], exhausts: [] };
 
   const body = paint(color);
   const trimMat = new THREE.MeshStandardMaterial({ color: trim, roughness: 0.62, metalness: 0.35 });

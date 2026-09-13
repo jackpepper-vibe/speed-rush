@@ -103,6 +103,36 @@ export function makeGlowTexture(): THREE.Texture {
 }
 
 /**
+ * A soft, lumpy puff for smoke and dust.
+ *
+ * Deliberately not the glow sprite. That one is a clean radial gradient, which
+ * is right for a spark or a lamp and wrong for smoke — a hundred identical
+ * circles fading out together read as a fog machine. Breaking the falloff up
+ * with a few offset blobs gives each puff an edge that is not a perfect circle,
+ * and that is most of what makes a cloud of them look like one cloud rather
+ * than like a hundred sprites.
+ */
+export function makeSmokeTexture(): THREE.Texture {
+  const S = 128;
+  const [c, ctx] = canvas(S, S);
+  const blob = (cx: number, cy: number, r: number, a: number): void => {
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    g.addColorStop(0, `rgba(255,255,255,${a})`);
+    g.addColorStop(0.55, `rgba(255,255,255,${a * 0.45})`);
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, S, S);
+  };
+  blob(64, 64, 60, 0.55);
+  blob(48, 54, 34, 0.35);
+  blob(80, 72, 30, 0.32);
+  blob(70, 46, 24, 0.28);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/**
  * The soft dark patch a car casts straight down onto the road.
  *
  * A shadow map alone does not do this job. Its blur is uniform, so the darkest

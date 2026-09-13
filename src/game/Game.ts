@@ -17,6 +17,7 @@ import { WorldManager } from '@/game/managers/WorldManager';
 import { GarageManager } from '@/game/managers/GarageManager';
 import { AudioManager } from '@/game/managers/AudioManager';
 import { SceneryManager } from '@/game/managers/SceneryManager';
+import { EffectsManager } from '@/game/managers/EffectsManager';
 import { SaveManager } from '@/game/SaveManager';
 import { SPEED } from '@/game/config/Balance';
 
@@ -49,6 +50,7 @@ export class Game {
   readonly garage: GarageManager;
   readonly audio: AudioManager;
   readonly scenery: SceneryManager;
+  readonly effects: EffectsManager;
 
   private readonly managers = new ManagerRegistry();
   /**
@@ -95,6 +97,9 @@ export class Game {
     // After the world manager, so a biome change has already been announced by
     // the time the scenery is asked to dress that stretch of road.
     this.scenery = this.managers.add(new SceneryManager(ctx, this.road, this.rig));
+    // After the player, whose exhaust anchors the flame hangs off, and after
+    // the rig, which it asks to shake on a crash.
+    this.effects = this.managers.add(new EffectsManager(ctx, this.player, this.rig));
     // Last in the order: it scores what the managers before it just did.
     this.scoring = this.managers.add(new ScoreManager(ctx));
     // Not a simulation; registered so it shares the same lifecycle and bus.
@@ -211,6 +216,8 @@ export class Game {
     const carId = this.save.snapshot.activeCar;
     if (carId !== this.player.currentCarId) {
       this.player.setCar(carId, this.save.upgradesFor(carId));
+      // The exhaust anchors belong to the mesh that was just disposed.
+      this.effects.rebind();
     }
 
     this.bus.emit('run:start', { seed: this.seed, carId });
