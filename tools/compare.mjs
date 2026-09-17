@@ -122,6 +122,16 @@ await page.waitForFunction('window.carRacer.state().contextLost === false', null
  */
 const pose = await page.evaluate(async ({ seed, distance }) => {
   const cr = window.carRacer;
+  /* Nothing may move the world but this function.
+   *
+   * The render loop ticks the simulation off the wall clock, and it does not
+   * stop while the harness is between calls — every round trip below, and the
+   * two setViewportSize calls after them, were tick time nobody asked for. It
+   * made the scores discrete rather than noisy: repeated runs of one commit
+   * landing on a handful of fixed values, a tick apart. `drive` and `step`
+   * consult no clock, so with the loop stopped the pose is a function of the
+   * seed and the call sequence alone. */
+  cr.setAutoAdvance(false);
   cr.setCollisions(false);
   cr.setPickupSpawning(true);
   cr.setTrafficSpawning(true);

@@ -62,6 +62,14 @@ export interface DevHandle {
   step(n: number): void;
   /** Advance `seconds` of simulation holding a fixed input. */
   drive(seconds: number, steer?: number, brake?: boolean): void;
+  /**
+   * Stop the requestAnimationFrame loop advancing the world on its own.
+   *
+   * A harness that drives explicitly must turn this off first, or the ticks it
+   * asks for are not the only ticks it gets — see `Game.setAutoAdvance`.
+   */
+  setAutoAdvance(enabled: boolean): void;
+
   /** Begin a run with an optional fixed seed. */
   startRun(seed?: number): void;
   endRun(): void;
@@ -234,6 +242,10 @@ export function installDevHandle(game: Game, version: string): DevHandle {
 
     drive(seconds, steer = 0, brake = false) {
       game.drive(seconds, steer, brake);
+    },
+
+    setAutoAdvance(enabled) {
+      game.setAutoAdvance(enabled);
     },
 
     startRun(seed) {

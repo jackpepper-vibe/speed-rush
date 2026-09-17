@@ -288,6 +288,31 @@ export class Game {
 
   /* ------------------------------------------------------------------ probe */
 
+  /**
+   * Stop the world advancing on its own, leaving `step` and `drive` as the only
+   * things that move it.
+   *
+   * `step` and `drive` are deterministic by construction — they consult no
+   * clock. The render loop beside them is not, and it does not stop while a
+   * harness is between calls: every `page.evaluate` round trip, every
+   * `setViewportSize`, is wall-clock time in which the requestAnimationFrame
+   * loop keeps ticking the simulation. A capture therefore lands a whole
+   * number of unplanned ticks past the pose that was asked for, and the count
+   * depends on how busy the machine was.
+   *
+   * That is why the comparison scores came out discrete rather than noisy —
+   * runs landing on a few fixed values, one tick apart, not scattered around a
+   * mean. Turning this off makes a measurement run reproducible by
+   * construction instead of reproducible when the timing happens to agree.
+   *
+   * Not a play-time control: nothing in the game calls this, and the loop is
+   * started by `run` as before.
+   */
+  setAutoAdvance(enabled: boolean): void {
+    if (enabled) this.loop.start();
+    else this.loop.stop();
+  }
+
   /** Run exactly `n` simulation ticks with no clock involved. */
   step(n: number): void {
     this.loop.advance(n);

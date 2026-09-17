@@ -56,6 +56,14 @@ High tier, cruise row, unless stated.
 | 11 | `f041d54` | **0.629** | 0.93 | 0.82 | 0.42 | 244/245 |
 | 12 | `16236c5` | 0.631 | 0.94 | 0.82 | 0.41 | 244/245 |
 | 13 | `c111267` | 0.642 | 0.87 | 0.78 | — | 244/245 |
+| 14 | `PENDING` | 0.734 | 0.75 | — | — | 244/245 |
+
+**Iteration 14 is a re-baseline, not a regression.** It changed no art. It
+stopped the render loop advancing the world behind the harness's back, which
+moved the pose every score above it was measured at. 0.642 and 0.734 are the
+same art at two different stretches of road; only the second one is the stretch
+the harness actually asked for. **Do not compare any number below this line with
+any number above it.** Deltas within each era remain valid.
 
 **Iteration 11's number is a mean of three runs.** The same code state measured
 0.615, 0.650 and 0.622 — a spread of 0.035, where earlier iterations had been
@@ -70,11 +78,20 @@ two or three modes is luck, not a proof, and three is too few to tell the
 difference. **Every number in this table is a single sample unless it says
 otherwise, and carries about ±0.013.** Read no delta below 0.02 as real.
 
-What remains is **discrete, not Gaussian** — runs alternate between a few fixed
-values rather than scattering. That is the signature of a frame-timing race, not
-of noise: the harness calls `setViewportSize` and the resize lands a frame
-either side of a render, so the capture is taken one simulation step apart. See
-queue item 2.
+**Iteration 14 closed it, and the cause was not the resize.** `GameLoop`'s
+requestAnimationFrame loop ticks the simulation off the wall clock, and it never
+stopped while the harness was between calls — every `page.evaluate` round trip
+was tick time nobody asked for, so a capture landed a whole number of unplanned
+ticks past the pose that was requested. That is why the scores were discrete
+rather than Gaussian: a tick is a quantum. `compare.mjs` now calls
+`setAutoAdvance(false)` before it drives, and four consecutive runs return
+identical scores.
+
+The lesson is worth keeping: **discrete repeated values are a race, Gaussian
+scatter is noise, and the two want different fixes.** Iteration 12 chased this
+as noise and seeded the textures, which was a real fix for a real 0.035 of
+spread but left the race untouched — and then read three lucky samples as proof
+the job was done.
 
 Iteration 10 also measured two states that were **not** kept, because the band
 dump is the only thing that explains the one that was:
@@ -252,6 +269,30 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     `distance` where the scatter beside it anchors on `base`, which double-counts
     what `reposition` already applies.
 
+14. `Game.setAutoAdvance`, and `compare.mjs` calling it before it drives. No
+    art change; this is the measurement finally becoming a measurement.
+
+    `step` and `drive` consult no clock and are deterministic by construction.
+    The requestAnimationFrame loop beside them is neither, and nothing had ever
+    stopped it: while the harness sat in a `page.evaluate` round trip or a
+    `setViewportSize`, the loop went on ticking the world off the wall clock.
+    Every capture therefore landed some whole number of unplanned ticks past
+    the pose the script asked for, and the number depended on how busy the
+    machine was. Four consecutive runs now return identical scores where the
+    same commit previously returned 0.632, 0.624, 0.632, 0.637.
+
+    **It re-bases every score above it.** Histogram reads 0.734 and verge 0.75
+    at the corrected pose against 0.642 and 0.87 at the drifted one — the same
+    art, a different stretch of road, and only the second is the stretch that
+    was requested. Nothing regressed; the ruler moved.
+
+    What this cost: iteration 12 read three identical samples as proof of
+    determinism and they were luck. Three samples cannot distinguish a fixed
+    value from a two-moded distribution, and the shape of the residual was
+    saying so the whole time — **discrete repeated values are a race, Gaussian
+    scatter is noise.** Iteration 12's texture seeding was a real fix for a real
+    0.035; it just was not this.
+
 ### The measurement was noisier than it was — fixed at iteration 12
 
 `makeRoadTexture` and `makeRoadWearTexture` both speckled with bare
@@ -327,13 +368,13 @@ threshold.
    only justification is a hypothesis that measured false is dead weight, and
    it is twenty lines to restore if a later iteration needs it.
 
-2. **Close the residual measurement race.** Texture seeding at iteration 12 took
-   the spread 0.035 -> 0.013 but not to zero, and what is left is discrete:
-   repeated runs of one commit land on a few fixed values, which is a race and
-   not noise. Most likely `compare.mjs`'s `setViewportSize` landing a frame
-   either side of a render, so the capture differs by one simulation step.
-   Until it is closed, **quote a mean of three and treat 0.02 as the resolution
-   limit.** This still gates every art delta behind it.
+2. ~~**Close the residual measurement race.**~~ **Done at iteration 14.**
+   `compare.mjs` is now exactly reproducible. **`probe.mjs` is not yet** — it
+   drives its own poses through the same handle and has never called
+   `setAutoAdvance(false)`, so its 244/245 gate carries the same drift. Left
+   deliberately for its own iteration: changing the gate's pose in the same
+   change that re-baselined the comparison would move two references at once.
+   That is the next measurement item, and it is cheap.
 3. **Cadence props scatter rather than placing sequentially**, so the verge
    railings read as separated runs where the reference's railing is continuous
    to the vanishing point. A `SceneryManager` placement change, not a geometry
