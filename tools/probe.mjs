@@ -1,6 +1,7 @@
 /* Automated audit of the running game.
  *
  *   node tools/probe.mjs [--url http://localhost:5180/] [--shots] [--keep-server]
+ *                        [--reference reference/target2.jpg]
  *
  * Boots Speed Rush headlessly, drives it through a scripted set of situations,
  * and asserts on what the game reports about itself. Writes a findings report to
@@ -18,10 +19,11 @@
  * pre-commit hook unchanged.
  */
 import { createRequire } from 'node:module';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
-import { resolve, dirname } from 'node:path';
+import { resolve, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { referencePath, referenceExists, toDataUrl } from './reference.mjs';
 
 const require = createRequire('C:/Claude/Tools/shot/');
 const { chromium } = require('playwright');
@@ -41,6 +43,7 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === '--out') opt.out = argv[++i];
   else if (a === '--shots') opt.shots = true;
   else if (a === '--keep-server') opt.keepServer = true;
+  else if (a === '--reference') i++; // consumed by reference.mjs
   else { console.error('unknown option:', a); process.exit(2); }
 }
 
@@ -2416,16 +2419,15 @@ phase = 'render-quality';
    * score with nothing to compare against is not a pass, and treating it as
    * one is how a missing file comes to certify a match. */
   {
-    const referencePath = resolve(ROOT, 'reference/target1.png');
-    if (!existsSync(referencePath)) {
+    const target = referencePath(argv);
+    const shown = relative(ROOT, target);
+    if (!referenceExists(target)) {
       environment.push(
-        'render/reference-distance SKIPPED — reference/target1.png is absent, so the ' +
-        'histogram and roadside-density comparisons have nothing to measure against',
+        `render/reference-distance SKIPPED — ${shown} is absent, so the histogram and ` +
+        'roadside-density comparisons have nothing to measure against',
       );
     } else {
-      const ext = referencePath.slice(referencePath.lastIndexOf('.') + 1).toLowerCase();
-      const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-      const dataUrl = `data:${mime};base64,${readFileSync(referencePath).toString('base64')}`;
+      const dataUrl = toDataUrl(target);
       const scored = await hero.evaluate(async (reference) => {
         const W = 480;
         const H = 270;

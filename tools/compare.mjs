@@ -1,10 +1,11 @@
 /* Score the game's look against an art-direction reference.
  *
  *   node tools/compare.mjs [--quality high] [--seed 4242] [--tag 001]
+ *                          [--reference reference/target2.jpg]
  *
  * Drives the game to a fixed hero pose — chase camera, player centred, road to
  * the horizon, traffic ahead, daylight — captures it at 1600x900, and prints a
- * numeric scorecard. When `reference/target1.png` is present it also writes a
+ * numeric scorecard. When the reference image is present it also writes a
  * side-by-side and scores the capture against it.
  *
  * The pose is fixed on purpose. Two captures taken from different distances
@@ -18,25 +19,19 @@
  * are measured on the same canvases by the same code.
  */
 import { createRequire } from 'node:module';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
-import { resolve, dirname } from 'node:path';
+import { resolve, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { referencePath, referenceExists, toDataUrl } from './reference.mjs';
 
 const require = createRequire('C:/Claude/Tools/shot/');
 const { chromium } = require('playwright');
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const REFERENCE = resolve(ROOT, 'reference/target1.png');
-
-/** Data-URL a local image, typed from its extension rather than assumed. */
-function toDataUrl(path) {
-  const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase();
-  const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-  return `data:${mime};base64,${readFileSync(path).toString('base64')}`;
-}
 
 const argv = process.argv.slice(2);
+const REFERENCE = referencePath(argv);
 const opt = {
   quality: 'high',
   seed: 4242,
@@ -53,6 +48,7 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === '--seed') opt.seed = Number(argv[++i]);
   else if (a === '--tag') opt.tag = argv[++i];
   else if (a === '--distance') opt.distance = Number(argv[++i]);
+  else if (a === '--reference') i++; // consumed by reference.mjs
   else { console.error('unknown option:', a); process.exit(2); }
 }
 
@@ -153,7 +149,7 @@ const capture = await page.evaluate(() => window.carRacer.snapshot());
 
 /* ------------------------------------------------------------------ scoring */
 
-const referenceDataUrl = existsSync(REFERENCE) ? toDataUrl(REFERENCE) : null;
+const referenceDataUrl = referenceExists(REFERENCE) ? toDataUrl(REFERENCE) : null;
 
 /**
  * Measure both images the same way.
@@ -327,7 +323,7 @@ console.log(`  edge density hero      ${n(m.edgesHero)}   (the car itself)`);
 if (scores.distance) {
   const d = scores.distance;
   const r = scores.reference;
-  console.log('\nagainst reference');
+  console.log(`\nagainst reference      ${relative(ROOT, REFERENCE)}`);
   console.log(`  reference mean/std     ${n(r.mean)} / ${n(r.std)}`);
   console.log(`  histogram distance     ${n(d.histogram, 3)}   (0 identical, 2 disjoint)`);
   console.log(`  verge edge ratio       ${n(d.vergeRatio)}   (1.0 = matched)`);
@@ -336,7 +332,7 @@ if (scores.distance) {
   console.log(`  bright-pixel ratio     ${n(d.brightRatio)}`);
 } else {
   console.log('\nagainst reference');
-  console.log('  no reference — put the target image at reference/target1.png');
+  console.log(`  no reference — nothing at ${relative(ROOT, REFERENCE)}`);
   console.log('  (comparative scores are withheld, not passed)');
 }
 
