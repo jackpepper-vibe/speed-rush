@@ -52,7 +52,7 @@ High tier, cruise row, unless stated.
 | 7 | `cbf3714` | **0.706** | 0.80 | 0.77 | 0.94 | **243/245** |
 | 8 | `89590bf` | 0.723 | 0.88 | 0.78 | 0.94 | 244/245 |
 | 9 | `330c014` | 0.696 | 0.93 | 0.76 | — | 244/245 |
-| 10 | `8b9b8d9` | **0.684** | 0.99 | 0.76 | 0.47 | 244/245 |
+| 10 | `d6e56ef` | **0.684** | 0.99 | 0.76 | 0.47 | 244/245 |
 
 Iteration 10 also measured two states that were **not** kept, because the band
 dump is the only thing that explains the one that was:
