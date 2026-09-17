@@ -28,6 +28,18 @@ export interface PropKind {
   readonly offset: [number, number];
   /** Sunk into the ground by this much, so nothing floats on a slope. */
   readonly sink: number;
+  /**
+   * Street furniture on a regular cadence, exempt from the scenery density
+   * dial.
+   *
+   * Thinning scrub is what a density setting is for — half as many bushes is
+   * the same road with less detail on it. Thinning lamp standards is not: a
+   * boulevard with every second lamp missing is a different road, and the
+   * regular rhythm down the verge is the thing being drawn rather than an
+   * accumulation of detail. These kinds are cheap enough to keep whole at
+   * every tier, and are counted in units of tens.
+   */
+  readonly cadence?: boolean;
 }
 
 interface Part {
@@ -481,7 +493,11 @@ export function propsForBiome(biome: BiomeId): PropKind[] {
         // Held close to the barrier with a shallow spread: a lamp standard that
         // wanders into the scrub reads as litter, and the whole point of the
         // kind is the near band between barrier and scenery being empty.
-        { id: 'lamp', geometry: lampGeo(), material: METAL, count: 26, radius: 1.4, scale: [0.94, 1.06], offset: [2.2, 5], sink: 0 },
+        // 48 across the visible span is roughly 24 a side, a lamp every twenty
+        // units — close enough that the row recedes as a continuous rhythm to
+        // the horizon rather than as a handful of separate posts. One draw
+        // call and around two thousand triangles, against 125k on the low tier.
+        { id: 'lamp', geometry: lampGeo(), material: METAL, count: 48, radius: 1.4, scale: [0.94, 1.06], offset: [2.2, 5], sink: 0, cadence: true },
         { id: 'scrub', geometry: scrubGeo(), material: FOLIAGE, count: 220, radius: 0.5, scale: [0.7, 1.6], offset: [1.2, 26], sink: 0.05 },
         { id: 'bush', geometry: bushGeo(), material: FOLIAGE, count: 90, radius: 0.9, scale: [0.6, 1.3], offset: [2, 30], sink: 0.12 },
         { id: 'rock', geometry: rockGeo(), material: ROCK, count: 48, radius: 1.5, scale: [0.5, 1.6], offset: [3, 44], sink: 0.35 },

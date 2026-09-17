@@ -138,7 +138,10 @@ export class SceneryManager implements Manager {
           continue;
         }
 
-        const count = Math.max(1, Math.round(kind.count * density));
+        // Cadence kinds keep their full count at every tier: see PropKind. The
+        // density dial thins detail, and a lamp standard every other lamp is a
+        // different road rather than a coarser one.
+        const count = Math.max(1, Math.round(kind.count * (kind.cadence ? 1 : density)));
         const mesh = new THREE.InstancedMesh(kind.geometry, kind.material, count);
         mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         mesh.castShadow = this.rig.quality.shadows;
