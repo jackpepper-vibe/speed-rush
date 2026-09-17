@@ -393,6 +393,51 @@ function pylonGeo(): THREE.BufferGeometry {
   return geo;
 }
 
+/**
+ * A street lamp: a tapered column, a curved arm, and a head over the road.
+ *
+ * The arm is what makes this read as a boulevard rather than as a fence post.
+ * A bare vertical pole beside a road is ambiguous at any distance; the moment
+ * it reaches out over the tarmac the scale of the whole scene is settled, which
+ * is why the reference's lamp standards do so much work in its verge.
+ *
+ * The curve is four short segments rather than a torus. A torus section here
+ * costs a ring of vertices for a shape four boxes already describe at the size
+ * it appears on screen, and this kind is instanced along every coast band.
+ */
+function lampGeo(): THREE.BufferGeometry {
+  const HEIGHT = 9.4;
+  const column = new THREE.CylinderGeometry(0.13, 0.22, HEIGHT, 6);
+  const base = new THREE.CylinderGeometry(0.3, 0.38, 0.7, 6);
+  const segment = new THREE.BoxGeometry(0.85, 0.16, 0.16);
+  const head = new THREE.BoxGeometry(1.5, 0.3, 0.62);
+
+  const parts: Part[] = [
+    { geo: base, matrix: at(0, 0.35, 0), colour: 0x6f7681 },
+    { geo: column, matrix: at(0, HEIGHT * 0.5 + 0.5, 0), colour: 0x9aa2ae },
+  ];
+
+  // The arm sweeps from the top of the column out over the road, each segment
+  // pitched a little further over than the last.
+  const ARC = 4;
+  for (let i = 0; i < ARC; i++) {
+    const t = (i + 0.5) / ARC;
+    const pitch = (1 - t) * 0.9;
+    parts.push({
+      geo: segment,
+      matrix: new THREE.Matrix4()
+        .makeTranslation(0.45 + t * 2.5, HEIGHT + 0.5 + Math.sin(pitch) * 0.85 - t * 0.3, 0)
+        .multiply(new THREE.Matrix4().makeRotationZ(-pitch * 0.55)),
+      colour: 0x9aa2ae,
+    });
+  }
+  parts.push({ geo: head, matrix: at(3.15, HEIGHT + 0.72, 0), colour: 0xc8ccd4 });
+
+  const geo = merge(parts);
+  column.dispose(); base.dispose(); segment.dispose(); head.dispose();
+  return geo;
+}
+
 function duneGeo(): THREE.BufferGeometry {
   const g = new THREE.SphereGeometry(5, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2);
   const merged = merge([{ geo: g, matrix: at(0, 0, 0, 1.6, 0.42, 1.2), colour: 0xc9a879 }]);
@@ -433,6 +478,10 @@ export function propsForBiome(biome: BiomeId): PropKind[] {
     case 'coast':
       return [
         { id: 'palm', geometry: palmGeo(), material: FOLIAGE, count: 84, radius: 1.2, scale: [0.75, 1.35], offset: [3, 34], sink: 0.2 },
+        // Held close to the barrier with a shallow spread: a lamp standard that
+        // wanders into the scrub reads as litter, and the whole point of the
+        // kind is the near band between barrier and scenery being empty.
+        { id: 'lamp', geometry: lampGeo(), material: METAL, count: 26, radius: 1.4, scale: [0.94, 1.06], offset: [2.2, 5], sink: 0 },
         { id: 'scrub', geometry: scrubGeo(), material: FOLIAGE, count: 220, radius: 0.5, scale: [0.7, 1.6], offset: [1.2, 26], sink: 0.05 },
         { id: 'bush', geometry: bushGeo(), material: FOLIAGE, count: 90, radius: 0.9, scale: [0.6, 1.3], offset: [2, 30], sink: 0.12 },
         { id: 'rock', geometry: rockGeo(), material: ROCK, count: 48, radius: 1.5, scale: [0.5, 1.6], offset: [3, 44], sink: 0.35 },
