@@ -48,6 +48,8 @@ High tier, cruise row, unless stated.
 | 3 | `aa4ffd5` | 1.139 | 0.60 | 1.30 | 0.90 | **243/245** |
 | 4 | `181c7df` | 1.109 | 0.70 | 1.31 | 0.89 | 243/245 |
 | 5 | `a5ea7e5` | 1.103 | 0.81 | — | — | 244/245 |
+| 6 | `41b89ef` | 1.093 | 0.86 | 1.30 | 0.93 | 244/245 |
+| 7 | pending | **0.706** | 0.80 | 0.77 | 0.94 | pending |
 
 Low tier at iteration 5: verge 0.59 cruise, 0.54 boost. The probe reads this
 metric roughly 0.16 above what `compare.mjs --quality low` reads for it at the
@@ -80,6 +82,33 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
    from `quality.sceneryDensity`, lamp count 26 -> 48. Recovered the probe to
    244/245. Ladder cost at low tier: draw calls 621 -> 621, triangles
    125386 -> 127762.
+
+6. `41b89ef` — this state file. No art change.
+7. Asphalt albedo `#3c3f47` -> `#6e7382`. The road is the largest single area
+   in frame and it was rendering into lum 48-95 while the reference keeps 29.7%
+   of its pixels in two bins at 144-159. Landed by measurement: texture
+   luminance 130 overshot into 168-183, the response is about 1.5 rendered
+   units per unit of texture luminance, and 115 lands the road in the
+   reference's peak. Histogram **1.093 -> 0.706**, the largest single move of
+   the loop. Cost: contrast ratio went 1.30 to 0.77, so the frame is now
+   slightly flatter than the reference where it used to be harder.
+
+## The residual is now the sky, and most of it is framing
+
+With the road landed, the remaining L1 of 0.706 breaks down as:
+
+| band | reference | ours | gap |
+|------|-----------|------|-----|
+| 200-223 | 3.1% | 29.3% | **+26pp** |
+| 144-151 | 18.8% | 9.9% | -9pp |
+| 240-255 | 7.5% | 1.1% | -6.4pp |
+
+The 200-223 excess is our sky, and it is two things stacked. Part is framing:
+our capture is 1.78:1 with sky across the top 45%, the reference is 1.55:1 with
+a low camera and road filling most of the frame. That part no art change can
+reach. Part is character: the reference's sky is a deeper blue at the zenith
+with bright blown highlights on sea and cloud at 240-255, where ours is a flat
+pale band. That part **is** art, and it is the next lever.
 
 ## Known limitation, not yet decided
 
