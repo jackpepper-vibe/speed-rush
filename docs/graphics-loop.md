@@ -54,7 +54,7 @@ High tier, cruise row, unless stated.
 | 9 | `330c014` | 0.696 | 0.93 | 0.76 | — | 244/245 |
 | 10 | `d6e56ef` | **0.684** | 0.99 | 0.76 | 0.47 | 244/245 |
 | 11 | `f041d54` | **0.629** | 0.93 | 0.82 | 0.42 | 244/245 |
-| 12 | `PENDING` | 0.632 | 0.94 | 0.82 | 0.41 | 244/245 |
+| 12 | `16236c5` | 0.632 | 0.94 | 0.82 | 0.41 | 244/245 |
 
 **Iteration 11's number is a mean of three runs.** The same code state measured
 0.615, 0.650 and 0.622 — a spread of 0.035, where earlier iterations had been
