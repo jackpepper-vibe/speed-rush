@@ -40,7 +40,15 @@ export function makeRoadTexture(laneCount: number, repeatY: number): THREE.Textu
   // is a different wrong answer at the same distance. The response is close to
   // 1.5 rendered units per unit of texture luminance, so 115 puts the road in
   // 144-159 where the reference keeps 29.7% of its pixels.
-  ctx.fillStyle = '#6e7382';
+  //
+  // Re-landed when the sun came down to 30 degrees for the sake of the roadside
+  // shadows. That is the coupling this value has and it is worth stating: an
+  // albedo is only ever landed against an illumination, and lowering the sun
+  // took a grazing road surface with it — the carriageway fell out of the
+  // reference's peak into 104-135 and the histogram gave back most of what
+  // iteration 7 had won. Raised to hold the same rendered band under the new
+  // light, by the same method.
+  ctx.fillStyle = '#7a8090';
   ctx.fillRect(0, 0, W, H);
 
   // Aggregate speckle, and two darker wheel tracks per lane.

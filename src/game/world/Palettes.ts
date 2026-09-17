@@ -59,7 +59,14 @@ export const DAY_PALETTE: Record<DayPhase, Palette> = {
     // The reference holds a deeper blue much further down towards its horizon.
     skyTop: 0x1e5fbe, skyBottom: 0x7fb0e0, horizon: 0xfff2d0,
     hemiSky: 0xbcd8ff, hemiGround: 0x45402f, hemiIntensity: 0.82,
-    fogColor: 0x9fc4e8, fogDensity: 0.0017, sunElevation: 0.85, exposure: 1.05,
+    // Elevation is geometry, not colour. At 0.85 the sun stood 54 degrees up
+    // and every roadside shadow fell in a puddle under the thing that cast it —
+    // the props were lit, and nothing they stood on knew they were there. The
+    // reference throws palm shadows clear across a four-lane carriageway, which
+    // takes a sun around 30 degrees. Nothing warm about it: the day palette
+    // keeps its noon colour and its noon exposure, and only the light's angle
+    // moves.
+    fogColor: 0x9fc4e8, fogDensity: 0.0017, sunElevation: 0.30, exposure: 1.05,
     stars: 0, clouds: 0.28, headlights: 0,
   },
   dusk: {

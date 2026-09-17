@@ -53,6 +53,12 @@ High tier, cruise row, unless stated.
 | 8 | `89590bf` | 0.723 | 0.88 | 0.78 | 0.94 | 244/245 |
 | 9 | `330c014` | 0.696 | 0.93 | 0.76 | — | 244/245 |
 | 10 | `d6e56ef` | **0.684** | 0.99 | 0.76 | 0.47 | 244/245 |
+| 11 | `PENDING` | **0.629** | 0.93 | 0.82 | 0.42 | 244/245 |
+
+**Iteration 11's number is a mean of three runs, and that is new.** The same
+code state measured 0.615, 0.650 and 0.622 — a spread of 0.035, where earlier
+iterations were treated as repeatable to about 0.005. See "The measurement is
+noisier than it was" below before reading any delta smaller than 0.04 as real.
 
 Iteration 10 also measured two states that were **not** kept, because the band
 dump is the only thing that explains the one that was:
@@ -155,6 +161,46 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     cloud's rendered value from the env-map value it contributes**, which is a
     SceneRig change, not a palette one. Queued as its own item.
 
+11. Day `sunElevation` `0.85` -> `0.30`, and asphalt albedo `#6e7382` ->
+    `#7a8090` to re-land under it. Two edits, one lever — the second exists
+    only to hold what the first disturbed, the same shape as iteration 8.
+
+    The sun stood 54 degrees up, so every roadside shadow fell in a puddle
+    under the thing that cast it: the props were lit and nothing they stood on
+    knew they were there. The reference throws palm shadows clear across a
+    four-lane carriageway, which needs a sun near 30. Only the angle moved —
+    the day palette keeps its noon colour, its noon intensity and its noon
+    exposure, so this is geometry, not a warm grade sneaking in.
+
+    Lowering it alone measured **0.865**, much worse, and the band dump said
+    exactly why: a grazing sun took the carriageway with it, and the largest
+    single area in frame fell out of the reference's peak at 144-159 (22.7% ->
+    9.4%) down into 104-135. **Every summary statistic improved while the L1
+    got worse** — mean 167 -> 156 against the reference's 150, std 36.7 -> 44.3
+    against its 49.3, contrast 0.76 -> 0.90. The albedo is the thing that made
+    the difference, and the lesson generalises: *an albedo is only ever landed
+    against an illumination*. Iteration 7's `#6e7382` was correct for a
+    54-degree sun and for nothing else.
+
+    Re-landed by iteration 7's own method: `#808697` gave 0.643, `#7a8090` gave
+    0.615, `#747a8a` gave 0.752. The well is narrow — six units of texture
+    luminance below the landing costs 0.14 — but the first two are inside the
+    noise band and should not be read as ranked.
+
+### The measurement is noisier than it was
+
+`makeRoadTexture` and `makeRoadWearTexture` both speckle with bare
+`Math.random()`, reseeded on every page load and not tied to `--seed`. That was
+tolerable under a 54-degree sun, where the roughness map barely showed. Under a
+grazing one it is most of what the carriageway does with the light, so the
+run-to-run spread on the histogram went from roughly 0.005 to **0.035**.
+
+Nothing about the art is wrong here — the frame is stable, the *measurement*
+is not. Until those two textures draw from the seeded `Random`, a single
+comparison run cannot resolve a change smaller than about 0.04, and iterations
+should quote a mean of three. Queued as item 2, ahead of any art, because every
+number below it depends on it.
+
 ## The residual is now the sky, and most of it is framing
 
 With the road landed, the remaining L1 of 0.706 breaks down as:
@@ -185,33 +231,64 @@ threshold.
 
 ## Queue
 
-1. **Decouple the cloud's rendered value from its env-map contribution.**
-   Iteration 10 established that the dome cannot simply be brightened: it is the
-   env-map source, so a brighter cloud is a brighter everything, and the frame
-   loses more at 144-151 than the cloud gains at 216-231. It also established
-   that tone mapping caps us near 247 whatever the dome does, so the reference's
-   3.7% at 248-255 needs the highlight to be added *after* the tone map or to be
-   exempted from it. Either the env map is generated from a separate, unlifted
-   pass, or the cloud highlight moves into the post chain as a bloom-fed term.
-   A post-chain term is per-pixel and gets a rung. Measure 144-151 and 240-255
-   together: a gain in one paid for out of the other is not a gain.
-2. **Cadence props scatter rather than placing sequentially**, so the verge
+1. ~~**Decouple the cloud's rendered value from its env-map contribution.**~~
+   **Done and reverted at iteration 11. Do not retry it as stated.** The
+   decoupling was built — `SkyDome` holding two materials that agree on every
+   uniform but a highlight gain, `envMesh` for the PMREM pass, `mesh` for the
+   camera — and it worked as designed. It did not help, because the env map was
+   never the binding constraint:
+
+   | gain | histogram | mean |
+   |------|-----------|------|
+   | 1.0 (no lift) | 0.684 | 167 |
+   | 1.35 | 0.715 | — |
+   | 2.6 | 1.096 | 199 |
+
+   Monotone, so there is no window to search. **`UnrealBloomPass` re-couples
+   what the env split decoupled**: at threshold 0.82 it takes every cloud pixel
+   and spreads it over the whole frame, road included, which is why the mean
+   still climbed to 199 with the environment dome pinned at 1. The gain did
+   finally put pixels in 248-255 (0.1% -> 1.6%), so the top bin is reachable —
+   it just costs more elsewhere than it buys.
+
+   The deeper reason is that we are chasing the wrong end of the histogram.
+   Our frame is already **brighter** than the reference — mean 167 against 150
+   — so any highlight we add moves the mean further away. The reference affords
+   its 7.5% of blown pixels because it also holds 9.0% below luminance 88 where
+   we hold 3.2%, and that dark mass is buildings, a marina, a shadowed
+   foreground: geometry we do not have. **Highlights are not purchasable
+   separately from darks.** Iteration 11 spent its change on the dark end
+   instead and the histogram moved 0.684 -> 0.629.
+
+   The code was reverted rather than kept at gain 1.0: an abstraction whose
+   only justification is a hypothesis that measured false is dead weight, and
+   it is twenty lines to restore if a later iteration needs it.
+
+2. **Seed the road texture noise.** Measurement integrity, and it now blocks
+   everything behind it — see "The measurement is noisier than it was". Not an
+   art change and it will not move a score; it makes the scores mean something.
+3. **Cadence props scatter rather than placing sequentially**, so the verge
    railings read as separated runs where the reference's railing is continuous
    to the vanishing point. A `SceneryManager` placement change, not a geometry
    one.
-3. **Contrast is 0.76**, having crossed from 1.30 — the frame is now flatter
-   than the reference where it used to be harder. Watch it. Do not chase it
-   with the grade, which is a shipping feature.
-4. **Verge ground.** Uniform sand where the target has textured green.
+4. **Contrast is 0.82**, having crossed from 1.30 at iteration 7 and recovered
+   from 0.76 at iteration 10. The lower sun is what recovered it — raking light
+   is what puts a light and a dark side on the same object. Still flatter than
+   the reference. Do not chase it with the grade, which is a shipping feature.
+5. **Verge ground.** Uniform sand where the target has textured green.
    `GROUND_HALF_WIDTH` is 420 and `makeGroundTexture` repeats 38x5, so measure
    the texel density before assuming it is stretched flat.
-5. **Traffic silhouettes.** Boxes at mid-distance beside a lofted hero. target2
+6. **Traffic silhouettes.** Boxes at mid-distance beside a lofted hero. target2
    does **not** adjudicate this — its traffic is small and distant. Play
    evidence only. A middle detail tier for near traffic is the likely answer.
-6. **Directional shadows** from roadside props, at the tiers that can afford
-   them. The target throws long soft palm shadows across the road.
-7. **Tyre smoke** as volume rather than a sprite sheet.
-8. **Hero tail crease** and **nitro bloom haze**. No support from target2 — its
+7. **Roadside props still do not shadow the road**, even after iteration 11
+   brought the sun down to 30 degrees. The barriers now rake across the
+   carriageway, but the palms stand at roughly x=35 with the road edge near
+   x=20, so a 1.7x-height shadow lands on the verge and stops. Either the palms
+   move in or the sun's azimuth swings to throw along the road rather than
+   across it. `quality.shadows` already gates the tier.
+8. **Tyre smoke** as volume rather than a sprite sheet.
+9. **Hero tail crease** and **nitro bloom haze**. No support from target2 — its
    hero is a matte classic coupe under no boost. Play observations only.
 
 ## Our coast has no coast
