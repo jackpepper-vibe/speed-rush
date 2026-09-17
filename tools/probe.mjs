@@ -267,6 +267,23 @@ async function freshPage(url = opt.url, viewport = { width: 1000, height: 560 })
   if (!settled) {
     environment.push('WebGL context never recovered from the headless boot loss within 30s');
   }
+
+  /*
+   * From here the world moves only when a check moves it.
+   *
+   * The clock override above fixes the *size* of every timestep; it does not
+   * fix how many of them happen. Native requestAnimationFrame still fires on
+   * real vsync, so the number of frames landing between two `page.evaluate`
+   * round trips is a function of how busy the machine is, and each one ticks
+   * the simulation. Poses therefore drifted a whole number of ticks past what
+   * a check asked for — which is what made `compare.mjs`'s scores discrete
+   * rather than noisy until iteration 14, and this harness shares the cause.
+   *
+   * Done after the settle rather than before it: the headless boot loses and
+   * restores the WebGL context, and the restore needs frames to happen in.
+   */
+  await page.evaluate(() => window.carRacer.setAutoAdvance(false));
+
   return page;
 }
 

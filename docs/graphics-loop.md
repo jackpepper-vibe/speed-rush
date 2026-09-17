@@ -57,6 +57,7 @@ High tier, cruise row, unless stated.
 | 12 | `16236c5` | 0.631 | 0.94 | 0.82 | 0.41 | 244/245 |
 | 13 | `c111267` | 0.642 | 0.87 | 0.78 | — | 244/245 |
 | 14 | `3e7d6c6` | 0.734 | 0.75 | — | — | 244/245 |
+| 15 | `PENDING` | 0.734 | 0.75 | — | — | 244/245 |
 
 **Iteration 14 is a re-baseline, not a regression.** It changed no art. It
 stopped the render loop advancing the world behind the harness's back, which
@@ -293,6 +294,23 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     scatter is noise.** Iteration 12's texture seeding was a real fix for a real
     0.035; it just was not this.
 
+15. `probe.mjs` calls `setAutoAdvance(false)` too, once, after the boot-context
+    settle. The gate had the same drift the comparison did, hidden behind a
+    partial fix: the probe already overrode `requestAnimationFrame` and
+    `performance.now` so that every timestep was exactly 1/60, which made the
+    step *size* deterministic and left the step *count* alone. Native rAF still
+    fires on real vsync, so the number of frames landing between two evaluate
+    round trips is a function of machine load, and each one ticked the world.
+
+    Placed after the settle rather than before: headless Chromium loses and
+    restores the WebGL context during boot, and the restore needs frames to
+    happen in. Stopping the loop first would have traded a measurement bug for
+    a dead renderer.
+
+    Gate held at 244/245. The histogram it reports moved 0.646 -> 0.662, which
+    is the same re-basing iteration 14 applied to the comparison — the poses it
+    scores are now the poses its checks ask for.
+
 ### The measurement was noisier than it was — fixed at iteration 12
 
 `makeRoadTexture` and `makeRoadWearTexture` both speckled with bare
@@ -368,13 +386,10 @@ threshold.
    only justification is a hypothesis that measured false is dead weight, and
    it is twenty lines to restore if a later iteration needs it.
 
-2. ~~**Close the residual measurement race.**~~ **Done at iteration 14.**
-   `compare.mjs` is now exactly reproducible. **`probe.mjs` is not yet** — it
-   drives its own poses through the same handle and has never called
-   `setAutoAdvance(false)`, so its 244/245 gate carries the same drift. Left
-   deliberately for its own iteration: changing the gate's pose in the same
-   change that re-baselined the comparison would move two references at once.
-   That is the next measurement item, and it is cheap.
+2. ~~**Close the residual measurement race.**~~ **Done at iterations 14 and 15.**
+   `compare.mjs` and `probe.mjs` both call `setAutoAdvance(false)` now, and both
+   are reproducible. The measurement is no longer the thing limiting what this
+   loop can resolve; the art is. **From here, back to art.**
 3. **Cadence props scatter rather than placing sequentially**, so the verge
    railings read as separated runs where the reference's railing is continuous
    to the vanishing point. A `SceneryManager` placement change, not a geometry
