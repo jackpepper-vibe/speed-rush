@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Random } from '@/core/Random';
 
 /**
  * Canvas-authored road textures.
@@ -7,7 +8,34 @@ import * as THREE from 'three';
  * deployable with no asset pipeline, and so lane count changes in `Balance.ts`
  * regenerate correct markings instead of silently disagreeing with a baked
  * image.
+ *
+ * They are still *assets*, though, and that is what the seeding below is about.
+ * A shipped PNG is the same bytes on every run; these were drawing their grain
+ * from `Math.random`, so every page load produced a slightly different road.
+ * Nobody could see it — but the comparison harness could, and it put a spread
+ * of 0.035 on a histogram score that changes of 0.02 were being read from.
+ * Once the sun came down to a grazing angle the roughness map stopped being a
+ * subtlety and became most of what the carriageway does with the light, and
+ * the noise floor went with it.
+ *
+ * Each maker gets its own fixed stream. Not the world seed: two runs of the
+ * same road at different seeds should differ in their traffic and their
+ * scenery, and not in the aggregate of their asphalt. Deliberately not drawn
+ * from `ctx.rng` either — pulling from the shared stream at texture-build time
+ * would shift every draw made after it, so a change to the grain would silently
+ * relay out the traffic.
  */
+
+/**
+ * One stream per texture, so adding a `next()` to one maker cannot shift the
+ * grain of another. The values are arbitrary and only have to stay put.
+ */
+const TEXTURE_SEED = {
+  road: 0x5ea51de,
+  wear: 0x1a3f00d,
+  ground: 0x2c0a5720,
+  building: 0x77c17e5,
+} as const;
 
 function canvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
   const c = document.createElement('canvas');
@@ -23,6 +51,7 @@ export function makeRoadTexture(laneCount: number, repeatY: number): THREE.Textu
   const W = 512;
   const H = 512;
   const [c, ctx] = canvas(W, H);
+  const rng = new Random(TEXTURE_SEED.road);
 
   // Sun-bleached, not fresh-laid. The previous value came from "real asphalt
   // in daylight sits around 20% grey", which is true of new asphalt and wrong
@@ -55,7 +84,7 @@ export function makeRoadTexture(laneCount: number, repeatY: number): THREE.Textu
   const img = ctx.getImageData(0, 0, W, H);
   const d = img.data;
   for (let i = 0; i < d.length; i += 4) {
-    const n = (Math.random() - 0.5) * 26;
+    const n = (rng.next() - 0.5) * 26;
     d[i] += n;
     d[i + 1] += n;
     d[i + 2] += n;
@@ -108,6 +137,7 @@ export function makeRoadWearTexture(laneCount: number, repeatY: number): THREE.T
   const W = 256;
   const H = 256;
   const [c, ctx] = canvas(W, H);
+  const rng = new Random(TEXTURE_SEED.wear);
 
   // Base: coarse, with per-pixel grain so the whole surface is never uniform.
   ctx.fillStyle = '#d2d2d2';
@@ -115,7 +145,7 @@ export function makeRoadWearTexture(laneCount: number, repeatY: number): THREE.T
   const img = ctx.getImageData(0, 0, W, H);
   const d = img.data;
   for (let i = 0; i < d.length; i += 4) {
-    const n = (Math.random() - 0.5) * 46;
+    const n = (rng.next() - 0.5) * 46;
     d[i] += n; d[i + 1] += n; d[i + 2] += n;
   }
   ctx.putImageData(img, 0, 0);
@@ -123,10 +153,10 @@ export function makeRoadWearTexture(laneCount: number, repeatY: number): THREE.T
   // Repair patches: laid before the wheel tracks, because a patch gets driven
   // on too and the tracks should run straight over the top of it.
   for (let i = 0; i < 5; i++) {
-    const w = 26 + Math.random() * 70;
-    const h = 30 + Math.random() * 90;
-    ctx.fillStyle = `rgba(120,120,120,${0.3 + Math.random() * 0.35})`;
-    ctx.fillRect(Math.random() * (W - w), Math.random() * (H - h), w, h);
+    const w = rng.range(26, 96);
+    const h = rng.range(30, 120);
+    ctx.fillStyle = `rgba(120,120,120,${rng.range(0.3, 0.65)})`;
+    ctx.fillRect(rng.next() * (W - w), rng.next() * (H - h), w, h);
   }
 
   // Two polished bands per lane, soft-edged.
@@ -193,18 +223,19 @@ export function makeShoulderTexture(): THREE.Texture {
 export function makeGroundTexture(): THREE.Texture {
   const S = 256;
   const [c, ctx] = canvas(S, S);
+  const rng = new Random(TEXTURE_SEED.ground);
 
   ctx.fillStyle = '#b0b0b0';
   ctx.fillRect(0, 0, S, S);
 
   // Broad tonal drift, so the plane is not uniform at any scale.
   for (let i = 0; i < 26; i++) {
-    const r = 18 + Math.random() * 62;
+    const r = rng.range(18, 80);
     const g = ctx.createRadialGradient(
-      Math.random() * S, Math.random() * S, 0,
-      Math.random() * S, Math.random() * S, r,
+      rng.next() * S, rng.next() * S, 0,
+      rng.next() * S, rng.next() * S, r,
     );
-    const shade = Math.random() < 0.5 ? 150 : 210;
+    const shade = rng.chance(0.5) ? 150 : 210;
     g.addColorStop(0, `rgba(${shade},${shade},${shade},0.22)`);
     g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g;
@@ -215,7 +246,7 @@ export function makeGroundTexture(): THREE.Texture {
   const img = ctx.getImageData(0, 0, S, S);
   const d = img.data;
   for (let i = 0; i < d.length; i += 4) {
-    const n = (Math.random() - 0.5) * 40;
+    const n = (rng.next() - 0.5) * 40;
     d[i] += n; d[i + 1] += n; d[i + 2] += n;
   }
   ctx.putImageData(img, 0, 0);
@@ -320,11 +351,12 @@ export function makeContactShadowTexture(): THREE.Texture {
 /** Lit windows for city buildings, with a scattering of dark units. */
 export function makeBuildingTexture(): THREE.Texture {
   const [c, ctx] = canvas(128, 256);
+  const rng = new Random(TEXTURE_SEED.building);
   ctx.fillStyle = '#1b1e26';
   ctx.fillRect(0, 0, 128, 256);
   for (let y = 6; y < 250; y += 14) {
     for (let x = 6; x < 122; x += 14) {
-      const r = Math.random();
+      const r = rng.next();
       ctx.fillStyle = r > 0.62 ? '#ffdd99' : r > 0.5 ? '#88aadd' : '#141720';
       ctx.fillRect(x, y, 9, 9);
     }

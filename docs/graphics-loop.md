@@ -54,11 +54,20 @@ High tier, cruise row, unless stated.
 | 9 | `330c014` | 0.696 | 0.93 | 0.76 | — | 244/245 |
 | 10 | `d6e56ef` | **0.684** | 0.99 | 0.76 | 0.47 | 244/245 |
 | 11 | `f041d54` | **0.629** | 0.93 | 0.82 | 0.42 | 244/245 |
+| 12 | `PENDING` | 0.632 | 0.94 | 0.82 | 0.41 | 244/245 |
 
-**Iteration 11's number is a mean of three runs, and that is new.** The same
-code state measured 0.615, 0.650 and 0.622 — a spread of 0.035, where earlier
-iterations were treated as repeatable to about 0.005. See "The measurement is
-noisier than it was" below before reading any delta smaller than 0.04 as real.
+**Iteration 11's number is a mean of three runs.** The same code state measured
+0.615, 0.650 and 0.622 — a spread of 0.035, where earlier iterations had been
+treated as repeatable to about 0.005.
+
+**Iteration 12 closed that.** Three consecutive runs now read 0.632, 0.632,
+0.632 — identical, not merely close. Iteration 12 is not an art change and its
+0.632 is not a regression against iteration 11's 0.629: it is the same frame,
+measured exactly instead of approximately, and 0.629 was a mean whose samples
+straddled it. **Every row above iteration 12 carries an unquantified ±0.02 or
+so; every row from 12 down is exact.** Read the older deltas accordingly — in
+particular iteration 10's 0.696 -> 0.684 is inside the old noise band and
+should be treated as directionally right rather than as a measured 0.012.
 
 Iteration 10 also measured two states that were **not** kept, because the band
 dump is the only thing that explains the one that was:
@@ -187,19 +196,35 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     luminance below the landing costs 0.14 — but the first two are inside the
     noise band and should not be read as ranked.
 
-### The measurement is noisier than it was
+12. All five canvas texture makers seeded. `makeRoadTexture`,
+    `makeRoadWearTexture`, `makeGroundTexture` and `makeBuildingTexture` drew
+    their grain from `Math.random()`; they now each take a fixed stream from
+    `TEXTURE_SEED`. Three consecutive comparison runs went from 0.615/0.650/
+    0.622 to **0.632/0.632/0.632**.
 
-`makeRoadTexture` and `makeRoadWearTexture` both speckle with bare
+    Fixed constants, deliberately not the world seed: two runs at different
+    seeds should differ in their traffic and their scenery, not in the
+    aggregate of their asphalt. Also deliberately not drawn from `ctx.rng` —
+    pulling from the shared stream during texture build would shift every draw
+    made after it, so a change to the road's grain would silently relay out the
+    traffic. One stream per maker, so adding a `next()` to one cannot move
+    another's grain.
+
+    No art change and no score change beyond the noise it removed. It is here
+    because the spread had grown wider than most of the gains being booked
+    against it, which makes every number a guess dressed as a measurement.
+
+### The measurement was noisier than it was — fixed at iteration 12
+
+`makeRoadTexture` and `makeRoadWearTexture` both speckled with bare
 `Math.random()`, reseeded on every page load and not tied to `--seed`. That was
 tolerable under a 54-degree sun, where the roughness map barely showed. Under a
 grazing one it is most of what the carriageway does with the light, so the
-run-to-run spread on the histogram went from roughly 0.005 to **0.035**.
+run-to-run spread on the histogram went from roughly 0.005 to **0.035** — wider
+than most of the art gains this loop has booked.
 
-Nothing about the art is wrong here — the frame is stable, the *measurement*
-is not. Until those two textures draw from the seeded `Random`, a single
-comparison run cannot resolve a change smaller than about 0.04, and iterations
-should quote a mean of three. Queued as item 2, ahead of any art, because every
-number below it depends on it.
+Nothing about the art was wrong; the frame was stable and the *measurement* was
+not. See entry 12 below.
 
 ## The residual is now the sky, and most of it is framing
 
@@ -264,9 +289,10 @@ threshold.
    only justification is a hypothesis that measured false is dead weight, and
    it is twenty lines to restore if a later iteration needs it.
 
-2. **Seed the road texture noise.** Measurement integrity, and it now blocks
-   everything behind it — see "The measurement is noisier than it was". Not an
-   art change and it will not move a score; it makes the scores mean something.
+2. ~~**Seed the road texture noise.**~~ **Done at iteration 12.** All five
+   makers now draw from fixed per-texture streams and three consecutive runs
+   agree exactly. Scores from iteration 12 onward are exact; everything above
+   carries roughly ±0.02.
 3. **Cadence props scatter rather than placing sequentially**, so the verge
    railings read as separated runs where the reference's railing is continuous
    to the vanishing point. A `SceneryManager` placement change, not a geometry
