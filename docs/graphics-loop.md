@@ -59,6 +59,8 @@ High tier, cruise row, unless stated.
 | 14 | `3e7d6c6` | 0.734 | 0.75 | — | — | 244/245 |
 | 15 | `165f73a` | 0.734 | 0.75 | — | — | 244/245 |
 
+| 16 | `PENDING` | 0.734 | 0.75 | 0.75 | 0.42 | 244/245 |
+
 **Iteration 15 did not achieve what it claimed, and the claim was published
 before the evidence was in.** Three probe runs at `165f73a` returned 0.662,
 0.696, 0.662. The gate is still not reproducible. The commit message and the
@@ -322,6 +324,40 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     samples are the minimum to claim determinism, and this iteration published
     the claim off one.
 
+16. The probe's analysis capture waits for the renderer to have actually
+    resized. No art change.
+
+    Iteration 15's diagnosis was wrong and this records the correction. The
+    suspicion was that boot frames drifted the simulation before the loop was
+    stopped. They cannot: `startRun` calls `managers.resetAll()`, which zeroes
+    `road.distance`, so nothing before a scenario survives into it. A direct
+    test settles it — stop the loop, wait two seconds of wall clock, read the
+    distance: it moves 0.000. **The simulation was already deterministic after
+    iteration 15. The frame was not.**
+
+    The swing was 0.034, which is larger than most art changes this loop has
+    booked, and far too large for a one-tick pose difference. That was the
+    clue. `SceneRig.onResize` reads `window.innerWidth` off an asynchronous
+    resize event; the probe called `setViewportSize`, drove a single beat and
+    captured, with nothing proving the handler had run. When it had not, the
+    capture was a 960-wide frame scored against a 620-wide reference. The pose
+    was identical every run; the frame size was not.
+
+    Now it polls the canvas until the drawing buffer reflects the new size
+    before driving the beat, and the analysis height is derived from the hero
+    page's real viewport rather than from a hardcoded 1000x560 that did not
+    match the 960x540 the page was created at — the old code also restored the
+    viewport to a size the page never had.
+
+    The resample ratios are now reported to `environment` when they are not
+    1.00x, which is how `compare.mjs` has always guarded this. Reported, not
+    checked: a harness fault reading as an art failure is the confusion this
+    whole section exists to stop, and the pass count stays 245.
+
+    **Determinism not yet claimed.** One run at 0.661 with no resample warning.
+    Two confirmation runs are in flight; iteration 15 published this claim off
+    a single sample and was wrong, and three is the minimum.
+
 ### The measurement was noisier than it was — fixed at iteration 12
 
 `makeRoadTexture` and `makeRoadWearTexture` both speckled with bare
@@ -416,10 +452,9 @@ threshold.
 
    Note the shape: 0.662 twice and 0.696 once is still discrete. Discrete means
    race, as at iteration 14.
-3. **Cadence props scatter rather than placing sequentially**, so the verge
-   railings read as separated runs where the reference's railing is continuous
-   to the vanishing point. A `SceneryManager` placement change, not a geometry
-   one.
+3. ~~**Cadence props scatter rather than placing sequentially.**~~ **Done at
+   iteration 13.** They are laid on a world-anchored grid facing the road, and
+   the railing is continuous to the vanishing point.
 4. **Contrast is 0.82**, having crossed from 1.30 at iteration 7 and recovered
    from 0.76 at iteration 10. The lower sun is what recovered it — raking light
    is what puts a light and a dark side on the same object. Still flatter than

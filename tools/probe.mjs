@@ -2453,12 +2453,41 @@ phase = 'render-quality';
        * screenshot sizes rather than the art. Resize, let a frame land at the
        * new size, measure, put the viewport back — the checks after this one
        * are written against the hero viewport. */
-      const analysisHeight = Math.round(ANALYSIS_WIDTH / (1000 / 560));
-      await hero.setViewportSize({ width: ANALYSIS_WIDTH, height: analysisHeight });
-      await hero.evaluate(() => window.carRacer.drive(0.05, 0));
+      /* Wait for the renderer to have actually resized, rather than assuming
+       * one beat is enough.
+       *
+       * `SceneRig.onResize` reads `window.innerWidth` off an asynchronous
+       * resize event. `setViewportSize` changes that width, but nothing here
+       * proved the handler had run before the capture — and a snapshot taken
+       * one beat too early is a 960-wide frame scored against a 620-wide
+       * reference, which is a large error that looks like an art result. It is
+       * the best explanation for this gate reading 0.662, 0.696, 0.662 across
+       * three runs of one commit after the simulation itself was made
+       * deterministic at iteration 15: the pose was identical every time, and
+       * the frame was not.
+       *
+       * Polling the drawing buffer is the honest test. `renderer.setSize`
+       * writes it, so it changes only once the handler has genuinely run.
+       */
+      const heroView = hero.viewportSize();
+      const analysisHeight = Math.round(ANALYSIS_WIDTH / (heroView.width / heroView.height));
+      const settleTo = async (width, height) => {
+        await hero.setViewportSize({ width, height });
+        await hero.waitForFunction(
+          (w) => {
+            const canvas = document.querySelector('canvas');
+            return canvas !== null && canvas.clientWidth === w && canvas.width > 0;
+          },
+          width,
+          { timeout: 10000 },
+        );
+        // The handler has run; this draws the first frame at the new size.
+        await hero.evaluate(() => window.carRacer.drive(0.05, 0));
+      };
+
+      await settleTo(ANALYSIS_WIDTH, analysisHeight);
       const analysisShot = await hero.evaluate(() => window.carRacer.snapshot());
-      await hero.setViewportSize({ width: 1000, height: 560 });
-      await hero.evaluate(() => window.carRacer.drive(0.05, 0));
+      await settleTo(heroView.width, heroView.height);
 
       const profiled = await hero.evaluate(profilePair, {
         shot: analysisShot,
@@ -2470,6 +2499,21 @@ phase = 'render-quality';
         histogram: profiled.distance.histogram,
         vergeRatio: profiled.distance.vergeRatio,
       };
+
+      /* A frame that had to be resampled on the way in was the wrong size, and
+       * every number below it is then measuring the capture rather than the
+       * art. Reported rather than checked: this is a statement about whether
+       * the measurement is sound, and folding it into the pass count would
+       * make a harness fault read as an art failure. `compare.mjs` prints the
+       * same two ratios for the same reason. */
+      const resample = profiled.distance.resample;
+      if (Math.abs(resample.mine - 1) > 0.01 || Math.abs(resample.reference - 1) > 0.01) {
+        environment.push(
+          `render/reference-distance measured a resampled frame — ${resample.mine.toFixed(2)}x capture, ` +
+          `${resample.reference.toFixed(2)}x reference, both should be 1.00x. The scores below it are ` +
+          'comparing screenshot sizes, not art.',
+        );
+      }
 
       check('render', 'reference-distance/histogram', scored.histogram <= 0.55,
         `L1 distance between luminance histograms is ${scored.histogram.toFixed(3)}, ` +
