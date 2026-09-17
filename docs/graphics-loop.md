@@ -56,7 +56,7 @@ High tier, cruise row, unless stated.
 | 11 | `f041d54` | **0.629** | 0.93 | 0.82 | 0.42 | 244/245 |
 | 12 | `16236c5` | 0.631 | 0.94 | 0.82 | 0.41 | 244/245 |
 | 13 | `c111267` | 0.642 | 0.87 | 0.78 | — | 244/245 |
-| 14 | `PENDING` | 0.734 | 0.75 | — | — | 244/245 |
+| 14 | `3e7d6c6` | 0.734 | 0.75 | — | — | 244/245 |
 
 **Iteration 14 is a re-baseline, not a regression.** It changed no art. It
 stopped the render loop advancing the world behind the harness's back, which
