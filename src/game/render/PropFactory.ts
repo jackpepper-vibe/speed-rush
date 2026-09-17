@@ -450,6 +450,39 @@ function lampGeo(): THREE.BufferGeometry {
   return geo;
 }
 
+/**
+ * A run of pedestrian railing: two posts carrying two horizontal rails.
+ *
+ * Eight units long, which is long enough that a single instance reads as a run
+ * of railing rather than as a gate. It does NOT yet read as one unbroken line:
+ * the placement pass scatters every kind on a seeded random, so these land as
+ * separated runs along the verge rather than end to end. The reference's
+ * railing is continuous to the vanishing point and ours is not, and closing
+ * that needs cadence kinds placed sequentially rather than scattered — a
+ * change to SceneryManager's placement, not to this geometry.
+ *
+ * Its value here is contrast, not silhouette. The verge is pale ground under a
+ * pale sky, and once the carriageway was lightened to match the reference the
+ * shoulder stripes lost most of the contrast they had been contributing. A
+ * dark horizontal against pale sand puts that edge energy back where the
+ * reference actually has it, rather than by darkening the road again.
+ */
+function railingGeo(): THREE.BufferGeometry {
+  const SPAN = 8;
+  const HEIGHT = 1.15;
+  const post = new THREE.BoxGeometry(0.11, HEIGHT, 0.11);
+  const rail = new THREE.BoxGeometry(SPAN, 0.09, 0.08);
+
+  const geo = merge([
+    { geo: post, matrix: at(-SPAN / 2, HEIGHT / 2, 0), colour: 0x2f343c },
+    { geo: post, matrix: at(SPAN / 2, HEIGHT / 2, 0), colour: 0x2f343c },
+    { geo: rail, matrix: at(0, HEIGHT * 0.92, 0), colour: 0x343a43 },
+    { geo: rail, matrix: at(0, HEIGHT * 0.52, 0), colour: 0x343a43 },
+  ]);
+  post.dispose(); rail.dispose();
+  return geo;
+}
+
 function duneGeo(): THREE.BufferGeometry {
   const g = new THREE.SphereGeometry(5, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2);
   const merged = merge([{ geo: g, matrix: at(0, 0, 0, 1.6, 0.42, 1.2), colour: 0xc9a879 }]);
@@ -498,6 +531,9 @@ export function propsForBiome(biome: BiomeId): PropKind[] {
         // the horizon rather than as a handful of separate posts. One draw
         // call and around two thousand triangles, against 125k on the low tier.
         { id: 'lamp', geometry: lampGeo(), material: METAL, count: 48, radius: 1.4, scale: [0.94, 1.06], offset: [2.2, 5], sink: 0, cadence: true },
+        // Held tight to the barrier and at a fixed scale: a railing that varies
+        // in size along its own run stops reading as one line.
+        { id: 'railing', geometry: railingGeo(), material: METAL, count: 120, radius: 4, scale: [1, 1], offset: [1.6, 2], sink: 0, cadence: true },
         { id: 'scrub', geometry: scrubGeo(), material: FOLIAGE, count: 220, radius: 0.5, scale: [0.7, 1.6], offset: [1.2, 26], sink: 0.05 },
         { id: 'bush', geometry: bushGeo(), material: FOLIAGE, count: 90, radius: 0.9, scale: [0.6, 1.3], offset: [2, 30], sink: 0.12 },
         { id: 'rock', geometry: rockGeo(), material: ROCK, count: 48, radius: 1.5, scale: [0.5, 1.6], offset: [3, 44], sink: 0.35 },
