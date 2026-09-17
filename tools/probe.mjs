@@ -24,6 +24,7 @@ import { spawn } from 'node:child_process';
 import { resolve, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { referencePath, referenceExists, toDataUrl } from './reference.mjs';
+import { profilePair, ANALYSIS_WIDTH, REGIONS } from './profile.mjs';
 
 const require = createRequire('C:/Claude/Tools/shot/');
 const { chromium } = require('playwright');
@@ -2428,53 +2429,30 @@ phase = 'render-quality';
       );
     } else {
       const dataUrl = toDataUrl(target);
-      const scored = await hero.evaluate(async (reference) => {
-        const W = 480;
-        const H = 270;
-        const load = (src) => new Promise((res, rej) => {
-          const i = new Image();
-          i.onload = () => res(i);
-          i.onerror = () => rej(new Error('decode failed'));
-          i.src = src;
-        });
-        const profile = async (src) => {
-          const img = await load(src);
-          const c = document.createElement('canvas');
-          c.width = W; c.height = H;
-          const ctx = c.getContext('2d');
-          ctx.drawImage(img, 0, 0, W, H);
-          const d = ctx.getImageData(0, 0, W, H).data;
-          const lum = new Float32Array(W * H);
-          for (let i = 0, p = 0; i < d.length; i += 4, p++) {
-            lum[p] = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
-          }
-          const bins = new Array(32).fill(0);
-          for (const v of lum) bins[Math.min(31, Math.max(0, Math.floor(v / 8)))] += 1;
-          // The roadside: the outer thirds of the upper half, where scenery is.
-          let edge = 0;
-          let n = 0;
-          for (let y = 1; y < H * 0.6; y++) {
-            for (let x = 1; x < W - 1; x++) {
-              if (x > W / 3 && x < (W * 2) / 3) continue;
-              const i = y * W + x;
-              const gx = -lum[i - W - 1] - 2 * lum[i - 1] - lum[i + W - 1]
-                + lum[i - W + 1] + 2 * lum[i + 1] + lum[i + W + 1];
-              const gy = -lum[i - W - 1] - 2 * lum[i - W] - lum[i - W + 1]
-                + lum[i + W - 1] + 2 * lum[i + W] + lum[i + W + 1];
-              edge += Math.hypot(gx, gy);
-              n += 1;
-            }
-          }
-          return { histogram: bins.map((b) => b / lum.length), verge: n ? edge / n : 0 };
-        };
 
-        const mine = await profile(window.carRacer.snapshot());
-        const theirs = await profile(reference);
-        return {
-          histogram: mine.histogram.reduce((t, v, i) => t + Math.abs(v - theirs.histogram[i]), 0),
-          vergeRatio: mine.verge / (theirs.verge || 1),
-        };
-      }, dataUrl);
+      /* Analysed at the profiler's native width, for the same reason
+       * compare.mjs does it: the hero page renders 1000 wide, the reference is
+       * 620, and resampling only one of them to a shared canvas scores the
+       * screenshot sizes rather than the art. Resize, let a frame land at the
+       * new size, measure, put the viewport back — the checks after this one
+       * are written against the hero viewport. */
+      const analysisHeight = Math.round(ANALYSIS_WIDTH / (1000 / 560));
+      await hero.setViewportSize({ width: ANALYSIS_WIDTH, height: analysisHeight });
+      await hero.evaluate(() => window.carRacer.drive(0.05, 0));
+      const analysisShot = await hero.evaluate(() => window.carRacer.snapshot());
+      await hero.setViewportSize({ width: 1000, height: 560 });
+      await hero.evaluate(() => window.carRacer.drive(0.05, 0));
+
+      const profiled = await hero.evaluate(profilePair, {
+        shot: analysisShot,
+        reference: dataUrl,
+        width: ANALYSIS_WIDTH,
+        regions: REGIONS,
+      });
+      const scored = {
+        histogram: profiled.distance.histogram,
+        vergeRatio: profiled.distance.vergeRatio,
+      };
 
       check('render', 'reference-distance/histogram', scored.histogram <= 0.55,
         `L1 distance between luminance histograms is ${scored.histogram.toFixed(3)}, ` +

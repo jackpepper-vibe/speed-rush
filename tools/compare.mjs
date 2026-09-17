@@ -16,7 +16,12 @@
  * All image analysis happens inside the page. Node has no image decoder without
  * a dependency, and the browser already has one that is better than anything
  * worth vendoring — so the reference is handed in as a data URL and both images
- * are measured on the same canvases by the same code.
+ * are measured by `tools/profile.mjs`, the one profiler the probe also uses.
+ *
+ * The comparative scores are taken from a second capture rendered at the
+ * profiler's analysis width, not from the 1600-wide hero shot. See the note by
+ * that capture: scoring a large render against a small reference measures the
+ * screenshot sizes, and the fix is to stop downsampling one of them.
  */
 import { createRequire } from 'node:module';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -24,6 +29,7 @@ import { spawn } from 'node:child_process';
 import { resolve, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { referencePath, referenceExists, toDataUrl } from './reference.mjs';
+import { profilePair, ANALYSIS_WIDTH, REGIONS } from './profile.mjs';
 
 const require = createRequire('C:/Claude/Tools/shot/');
 const { chromium } = require('playwright');
@@ -152,119 +158,33 @@ const capture = await page.evaluate(() => window.carRacer.snapshot());
 const referenceDataUrl = referenceExists(REFERENCE) ? toDataUrl(REFERENCE) : null;
 
 /**
- * Measure both images the same way.
+ * A second capture at analysis width, taken for the comparative scores only.
  *
- * Everything is computed on a common 480-wide canvas so the two resolutions do
- * not decide the answer: an edge-density score that rises simply because one
- * image has more pixels measures the screenshot, not the art.
+ * The hero capture above is 1600 wide because that is what a human should look
+ * at. Scoring it meant resampling it down to the analysis canvas, which is a
+ * low-pass the reference — already small — barely feels, so the capture was
+ * losing fine detail the reference kept and the roadside ratio was reading the
+ * screenshot sizes rather than the art. Rendering the analysis frame natively
+ * at the same width removes the asymmetry instead of trying to correct for it.
+ *
+ * The aspect is held at the hero capture's, not the reference's: framing is not
+ * something the art can answer for, and cropping the capture's sides would
+ * throw away the verge, which is the thing being measured.
  */
-const scores = await page.evaluate(async ({ shot, reference }) => {
-  const W = 480;
-  const H = 270;
+const analysisHeight = Math.round(ANALYSIS_WIDTH / (opt.width / opt.height));
+await page.setViewportSize({ width: ANALYSIS_WIDTH, height: analysisHeight });
+// The renderer resizes off a window event, so the next frame is the first one
+// drawn at the new size. Drive a beat rather than snapshotting into a resize.
+await page.evaluate(() => window.carRacer.drive(0.05, 0));
+const analysisCapture = await page.evaluate(() => window.carRacer.snapshot());
+await page.setViewportSize({ width: opt.width, height: opt.height });
 
-  const load = (src) => new Promise((res, rej) => {
-    const img = new Image();
-    img.onload = () => res(img);
-    img.onerror = () => rej(new Error('decode failed'));
-    img.src = src;
-  });
-
-  const luminanceOf = (img) => {
-    const c = document.createElement('canvas');
-    c.width = W; c.height = H;
-    const ctx = c.getContext('2d');
-    ctx.drawImage(img, 0, 0, W, H);
-    const d = ctx.getImageData(0, 0, W, H).data;
-    const lum = new Float32Array(W * H);
-    for (let i = 0, p = 0; i < d.length; i += 4, p++) {
-      lum[p] = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
-    }
-    return lum;
-  };
-
-  /** Sobel magnitude, averaged over a horizontal slice of the frame. */
-  const edgeDensity = (lum, x0, x1, y0, y1) => {
-    let total = 0;
-    let n = 0;
-    // Floored: fractional bounds give fractional indices, and lum[121.5] is
-    // undefined, which propagates to a NaN score that looks like a broken
-    // renderer rather than a broken loop.
-    const yStart = Math.max(1, Math.floor(y0));
-    const yEnd = Math.min(H - 1, Math.floor(y1));
-    const xStart = Math.max(1, Math.floor(x0));
-    const xEnd = Math.min(W - 1, Math.floor(x1));
-    for (let y = yStart; y < yEnd; y++) {
-      for (let x = xStart; x < xEnd; x++) {
-        const i = y * W + x;
-        const gx =
-          -lum[i - W - 1] - 2 * lum[i - 1] - lum[i + W - 1] +
-          lum[i - W + 1] + 2 * lum[i + 1] + lum[i + W + 1];
-        const gy =
-          -lum[i - W - 1] - 2 * lum[i - W] - lum[i - W + 1] +
-          lum[i + W - 1] + 2 * lum[i + W] + lum[i + W + 1];
-        total += Math.hypot(gx, gy);
-        n += 1;
-      }
-    }
-    return n ? total / n : 0;
-  };
-
-  const histogram = (lum) => {
-    const bins = new Array(32).fill(0);
-    for (const v of lum) bins[Math.min(31, Math.max(0, Math.floor(v / 8)))] += 1;
-    return bins.map((b) => b / lum.length);
-  };
-
-  const stats = (lum) => {
-    let sum = 0;
-    for (const v of lum) sum += v;
-    const mean = sum / lum.length;
-    let variance = 0;
-    for (const v of lum) variance += (v - mean) ** 2;
-    const sorted = Float32Array.from(lum).sort();
-    return {
-      mean,
-      std: Math.sqrt(variance / lum.length),
-      p05: sorted[Math.floor(sorted.length * 0.05)],
-      p95: sorted[Math.floor(sorted.length * 0.95)],
-      // Pixels bright enough to read as a specular hit or a light source.
-      bright: lum.reduce((n, v) => n + (v > 220 ? 1 : 0), 0) / lum.length,
-      dark: lum.reduce((n, v) => n + (v < 24 ? 1 : 0), 0) / lum.length,
-    };
-  };
-
-  const profile = (img) => {
-    const lum = luminanceOf(img);
-    return {
-      ...stats(lum),
-      edgesAll: edgeDensity(lum, 0, W, 0, H),
-      // The roadside: the outer thirds of the upper half, where scenery lives.
-      edgesVerge: (edgeDensity(lum, 0, W / 3, 0, H * 0.6) +
-        edgeDensity(lum, (W * 2) / 3, W, 0, H * 0.6)) / 2,
-      // The hero: the middle of the lower half, where the car sits.
-      edgesHero: edgeDensity(lum, W * 0.3, W * 0.7, H * 0.45, H),
-      histogram: histogram(lum),
-    };
-  };
-
-  const mine = profile(await load(shot));
-  if (!reference) return { mine, reference: null, distance: null };
-
-  const theirs = profile(await load(reference));
-  // L1 over the normalised histograms: 0 identical, 2 disjoint.
-  const histDistance = mine.histogram.reduce((n, v, i) => n + Math.abs(v - theirs.histogram[i]), 0);
-
-  return {
-    mine, reference: theirs,
-    distance: {
-      histogram: histDistance,
-      vergeRatio: mine.edgesVerge / (theirs.edgesVerge || 1),
-      heroRatio: mine.edgesHero / (theirs.edgesHero || 1),
-      contrastRatio: mine.std / (theirs.std || 1),
-      brightRatio: mine.bright / (theirs.bright || 1e-6),
-    },
-  };
-}, { shot: capture, reference: referenceDataUrl });
+const scores = await page.evaluate(profilePair, {
+  shot: analysisCapture,
+  reference: referenceDataUrl,
+  width: ANALYSIS_WIDTH,
+  regions: REGIONS,
+});
 
 /* Side-by-side, for a human. */
 let sideBySide = null;
@@ -302,6 +222,9 @@ const outDir = resolve(ROOT, 'shots/compare');
 mkdirSync(outDir, { recursive: true });
 
 writeFileSync(resolve(outDir, `${tag}.png`), Buffer.from(capture.split(',')[1], 'base64'));
+// The frame the comparative scores were actually taken from. Written out
+// because a score nobody can look at is a number to be taken on trust.
+writeFileSync(resolve(outDir, `${tag}-analysis.png`), Buffer.from(analysisCapture.split(',')[1], 'base64'));
 if (sideBySide) {
   writeFileSync(resolve(outDir, `${tag}-vs-reference.png`), Buffer.from(sideBySide.split(',')[1], 'base64'));
 }
@@ -324,6 +247,11 @@ if (scores.distance) {
   const d = scores.distance;
   const r = scores.reference;
   console.log(`\nagainst reference      ${relative(ROOT, REFERENCE)}`);
+  // Stated, not assumed: a ratio that is not 1.00 means that image was filtered
+  // on the way into the analysis, and the edge scores are softer than the art.
+  console.log(`  analysed at            ${m.analysed.join('x')} vs ${r.analysed.join('x')} ` +
+    `· resample ${n(d.resample.mine)}x / ${n(d.resample.reference)}x`);
+  console.log(`  reference native       ${r.native.join('x')}`);
   console.log(`  reference mean/std     ${n(r.mean)} / ${n(r.std)}`);
   console.log(`  histogram distance     ${n(d.histogram, 3)}   (0 identical, 2 disjoint)`);
   console.log(`  verge edge ratio       ${n(d.vergeRatio)}   (1.0 = matched)`);
