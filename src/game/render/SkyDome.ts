@@ -141,12 +141,25 @@ export class SkyDome {
               float n = noise2(p) * 0.78 + 0.12;
             #endif
 
-            // Coverage as a threshold on the noise, so a rising uClouds grows
-            // the existing clouds outward instead of fading in a grey veil.
-            float cover = smoothstep(0.60 - uClouds * 0.34, 0.80 - uClouds * 0.22, n);
+            /* Coverage as a threshold on the noise, so a rising uClouds grows
+             * the existing clouds outward instead of fading in a grey veil.
+             *
+             * The window between the two edges is what decides whether the sky
+             * reads as weather or as haze. A wide one leaves most of the dome
+             * sitting at partial cover — a pale wash that never resolves into
+             * anything — and that wash was the single largest block of pixels
+             * in the frame. Narrow it and the same noise field gives discrete
+             * banks with sky between them. */
+            float cover = smoothstep(0.64 - uClouds * 0.30, 0.74 - uClouds * 0.16, n);
             // Gone by the horizon: at a grazing angle the projection stretches
             // to infinity and every cloud smears into a band.
             cover *= smoothstep(0.02, 0.26, dir.y);
+            /* And gone again well before the zenith. Cumulus sits on a deck a
+             * couple of kilometres up, so from the ground it crowds the lower
+             * sky and leaves clear blue overhead. Without this the projection
+             * happily tiles cloud all the way to straight up, which is the one
+             * part of the sky that should be bluest. */
+            cover *= 1.0 - smoothstep(0.30, 0.66, dir.y);
 
             /* Lit on the sun's side, shaded away from it, and shaded again by
              * how deep into the cloud the sample is. One dot product and one

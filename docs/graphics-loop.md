@@ -52,6 +52,16 @@ High tier, cruise row, unless stated.
 | 7 | `cbf3714` | **0.706** | 0.80 | 0.77 | 0.94 | **243/245** |
 | 8 | `89590bf` | 0.723 | 0.88 | 0.78 | 0.94 | 244/245 |
 | 9 | `330c014` | 0.696 | 0.93 | 0.76 | — | 244/245 |
+| 10 | `8b9b8d9` | **0.684** | 0.99 | 0.76 | 0.47 | 244/245 |
+
+Iteration 10 also measured two states that were **not** kept, because the band
+dump is the only thing that explains the one that was:
+
+| state | change | hist | bright ratio |
+|-------|--------|------|--------------|
+| 010b | narrow cover + zenith clear + cloud top `*1.18` | 0.718 | 1.19 |
+| 010c | as 010b but cloud top `*1.55` | 0.891 | 2.04 |
+| 010d | narrow cover + zenith clear only — **kept** | 0.684 | 0.47 |
 
 Low tier at iteration 5: verge 0.59 cruise, 0.54 boost. The probe reads this
 metric roughly 0.16 above what `compare.mjs --quality low` reads for it at the
@@ -121,6 +131,30 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
    reference has clear blue with one discrete cumulus bank. That is the next
    sky lever.
 
+10. Cloud **cover**, not cloud character. Two edits to the `CLOUD_DETAIL > 0`
+    block: the coverage window narrowed from `0.60..0.80 - uClouds` to
+    `0.64..0.74 - uClouds`, and a second fade `1 - smoothstep(0.30, 0.66, dir.y)`
+    added so cloud stops well below the zenith. Histogram 0.696 -> 0.684, verge
+    0.93 -> 0.99. Free at every tier: two smoothsteps, no new octaves.
+
+    **The cloud's brightness is not a free parameter, and that is the finding.**
+    The queue called for blown cumulus tops at 240-255, where the reference
+    holds 7.5% against our 1.1%. Two attempts at it both went the wrong way —
+    `*1.18` gave 0.718, `*1.55` gave 0.891 — and the band dump says the reason
+    is structural, not a matter of finding the right multiplier. The dome is
+    what the environment map is built from, so raising the cloud raises the
+    exposure of *the whole scene*: at `*1.55` the 144-151 band fell 8.7% -> 5.8%
+    and the dark end emptied entirely, both away from the reference, while the
+    clouds themselves only crawled from 208-215 into 216-231. **248-255 never
+    moved off 0.2-0.3% at any multiplier** — tone mapping asymptotes there, so
+    the reference's clipped 3.7% in the top bin is not reachable by brightening
+    anything in the dome.
+
+    So the sky gap splits three ways, not two: cover is winnable and was won;
+    area is framing and is not; **character is reachable only by decoupling the
+    cloud's rendered value from the env-map value it contributes**, which is a
+    SceneRig change, not a palette one. Queued as its own item.
+
 ## The residual is now the sky, and most of it is framing
 
 With the road landed, the remaining L1 of 0.706 breaks down as:
@@ -151,12 +185,16 @@ threshold.
 
 ## Queue
 
-1. **Cloud cover and character.** The larger half of the sky gap. Day `clouds`
-   is 0.28 in `Palettes.ts` and lays pale wisps across the whole dome; the
-   reference has clear blue broken by one discrete cumulus bank, which is also
-   where its 7.5% of blown highlights at 240-255 come from against our 1.1%.
-   Say which half of the sky gap any gain came from: character is winnable,
-   area is framing and is not.
+1. **Decouple the cloud's rendered value from its env-map contribution.**
+   Iteration 10 established that the dome cannot simply be brightened: it is the
+   env-map source, so a brighter cloud is a brighter everything, and the frame
+   loses more at 144-151 than the cloud gains at 216-231. It also established
+   that tone mapping caps us near 247 whatever the dome does, so the reference's
+   3.7% at 248-255 needs the highlight to be added *after* the tone map or to be
+   exempted from it. Either the env map is generated from a separate, unlifted
+   pass, or the cloud highlight moves into the post chain as a bloom-fed term.
+   A post-chain term is per-pixel and gets a rung. Measure 144-151 and 240-255
+   together: a gain in one paid for out of the other is not a gain.
 2. **Cadence props scatter rather than placing sequentially**, so the verge
    railings read as separated runs where the reference's railing is continuous
    to the vanishing point. A `SceneryManager` placement change, not a geometry
