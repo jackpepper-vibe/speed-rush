@@ -51,7 +51,7 @@ High tier, cruise row, unless stated.
 | 6 | `41b89ef` | 1.093 | 0.86 | 1.30 | 0.93 | 244/245 |
 | 7 | `cbf3714` | **0.706** | 0.80 | 0.77 | 0.94 | **243/245** |
 | 8 | `89590bf` | 0.723 | 0.88 | 0.78 | 0.94 | 244/245 |
-| 9 | pending | 0.696 | 0.93 | 0.76 | — | pending |
+| 9 | `330c014` | 0.696 | 0.93 | 0.76 | — | 244/245 |
 
 Low tier at iteration 5: verge 0.59 cruise, 0.54 boost. The probe reads this
 metric roughly 0.16 above what `compare.mjs --quality low` reads for it at the
