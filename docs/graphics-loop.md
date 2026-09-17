@@ -151,20 +151,29 @@ threshold.
 
 ## Queue
 
-1. **Verge ground.** The band is uniform sand where the target has textured
-   green with tonal variation. Relief stops at 96 units to keep the scenery
-   gate honest, so this wants scatter and ground texture, not geometry.
-2. **Traffic silhouettes.** Still the cheap stacked build, reading as boxes at
-   mid-distance beside a lofted hero. target2 does **not** adjudicate this —
-   its traffic is small and distant. Play evidence only. A middle detail tier
-   for near traffic is the likely answer.
-3. **Aerial perspective.** Originally thought the largest gap; the data says
-   otherwise now that the phase fix landed the fog at its pale blue day value.
-   Re-measure before spending an iteration on it.
-4. **Directional shadows** from roadside props, at the tiers that can afford
+1. **Cloud cover and character.** The larger half of the sky gap. Day `clouds`
+   is 0.28 in `Palettes.ts` and lays pale wisps across the whole dome; the
+   reference has clear blue broken by one discrete cumulus bank, which is also
+   where its 7.5% of blown highlights at 240-255 come from against our 1.1%.
+   Say which half of the sky gap any gain came from: character is winnable,
+   area is framing and is not.
+2. **Cadence props scatter rather than placing sequentially**, so the verge
+   railings read as separated runs where the reference's railing is continuous
+   to the vanishing point. A `SceneryManager` placement change, not a geometry
+   one.
+3. **Contrast is 0.76**, having crossed from 1.30 — the frame is now flatter
+   than the reference where it used to be harder. Watch it. Do not chase it
+   with the grade, which is a shipping feature.
+4. **Verge ground.** Uniform sand where the target has textured green.
+   `GROUND_HALF_WIDTH` is 420 and `makeGroundTexture` repeats 38x5, so measure
+   the texel density before assuming it is stretched flat.
+5. **Traffic silhouettes.** Boxes at mid-distance beside a lofted hero. target2
+   does **not** adjudicate this — its traffic is small and distant. Play
+   evidence only. A middle detail tier for near traffic is the likely answer.
+6. **Directional shadows** from roadside props, at the tiers that can afford
    them. The target throws long soft palm shadows across the road.
-5. **Tyre smoke** as volume rather than a sprite sheet.
-6. **Hero tail crease** and **nitro bloom haze**. No support from target2 — its
+7. **Tyre smoke** as volume rather than a sprite sheet.
+8. **Hero tail crease** and **nitro bloom haze**. No support from target2 — its
    hero is a matte classic coupe under no boost. Play observations only.
 
 ## Our coast has no coast
