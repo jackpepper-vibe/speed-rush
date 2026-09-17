@@ -54,20 +54,27 @@ High tier, cruise row, unless stated.
 | 9 | `330c014` | 0.696 | 0.93 | 0.76 | — | 244/245 |
 | 10 | `d6e56ef` | **0.684** | 0.99 | 0.76 | 0.47 | 244/245 |
 | 11 | `f041d54` | **0.629** | 0.93 | 0.82 | 0.42 | 244/245 |
-| 12 | `16236c5` | 0.632 | 0.94 | 0.82 | 0.41 | 244/245 |
+| 12 | `16236c5` | 0.631 | 0.94 | 0.82 | 0.41 | 244/245 |
+| 13 | `PENDING` | 0.642 | 0.87 | 0.78 | — | 244/245 |
 
 **Iteration 11's number is a mean of three runs.** The same code state measured
 0.615, 0.650 and 0.622 — a spread of 0.035, where earlier iterations had been
 treated as repeatable to about 0.005.
 
-**Iteration 12 closed that.** Three consecutive runs now read 0.632, 0.632,
-0.632 — identical, not merely close. Iteration 12 is not an art change and its
-0.632 is not a regression against iteration 11's 0.629: it is the same frame,
-measured exactly instead of approximately, and 0.629 was a mean whose samples
-straddled it. **Every row above iteration 12 carries an unquantified ±0.02 or
-so; every row from 12 down is exact.** Read the older deltas accordingly — in
-particular iteration 10's 0.696 -> 0.684 is inside the old noise band and
-should be treated as directionally right rather than as a measured 0.012.
+**Iteration 12 closed most of it, and iteration 13 corrected the claim.**
+Seeding the textures took the spread from 0.035 to about 0.013. It did not take
+it to zero. Iteration 12 reported three consecutive identical runs and read that
+as proof of determinism; iteration 13 ran the *same commit* four times and got
+0.632, 0.624, 0.632, 0.637. Three identical samples out of a distribution with
+two or three modes is luck, not a proof, and three is too few to tell the
+difference. **Every number in this table is a single sample unless it says
+otherwise, and carries about ±0.013.** Read no delta below 0.02 as real.
+
+What remains is **discrete, not Gaussian** — runs alternate between a few fixed
+values rather than scattering. That is the signature of a frame-timing race, not
+of noise: the harness calls `setViewportSize` and the resize lands a frame
+either side of a render, so the capture is taken one simulation step apart. See
+queue item 2.
 
 Iteration 10 also measured two states that were **not** kept, because the band
 dump is the only thing that explains the one that was:
@@ -214,6 +221,37 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     because the spread had grown wider than most of the gains being booked
     against it, which makes every number a guess dressed as a measurement.
 
+13. Cadence kinds are **laid, not scattered**. `PropKind.cadence` carries the
+    along-road pitch instead of a boolean; `SceneryManager` places those kinds
+    sequentially on a grid anchored to the band origin, half the instances to
+    each verge, and turns each one's local +X to face the road instead of
+    yawing it at random. `railingGeo` was re-authored to span Z so that one
+    facing rule serves both kinds — it swings a lamp's arm over the carriageway
+    and leaves a railing running along the verge. Railing posts went from two
+    per eight-unit section to one every two units. Lamp pitch 20, railing pitch
+    8, both divisors of `BAND_LENGTH`.
+
+    The documented gap is closed: the railing is one unbroken line to the
+    vanishing point, as the reference's is, and the lamps keep an even rhythm
+    with their heads over the traffic.
+
+    **It cost the verge metric and that is worth stating plainly.** Roadside
+    density 0.94 -> 0.87, a 0.07 move well outside the 0.013 noise floor, while
+    the histogram went 0.631 -> 0.642, which is inside it and should be read as
+    a wash. The metric was rewarding the clutter: 120 randomly yawed sections at
+    random depths overlapping each other produce more edge energy per unit area
+    than one clean line does, and the clean line is what the reference has.
+    Denser posts recovered some of it (0.85 -> 0.87 across the same runs) but
+    not all. **This is a case where the target and the metric disagree**, the
+    target was followed, and the metric stays comfortably inside its 0.6-1.7
+    bound. Triangles 343323 -> 349083 at high tier.
+
+    Two false starts, both from the placement being written before its
+    conventions were read: lamp pitch 30 left a third of the lamps parked off
+    the end of the draw distance (verge 0.82), and the first `ahead` subtracted
+    `distance` where the scatter beside it anchors on `base`, which double-counts
+    what `reposition` already applies.
+
 ### The measurement was noisier than it was — fixed at iteration 12
 
 `makeRoadTexture` and `makeRoadWearTexture` both speckled with bare
@@ -289,10 +327,13 @@ threshold.
    only justification is a hypothesis that measured false is dead weight, and
    it is twenty lines to restore if a later iteration needs it.
 
-2. ~~**Seed the road texture noise.**~~ **Done at iteration 12.** All five
-   makers now draw from fixed per-texture streams and three consecutive runs
-   agree exactly. Scores from iteration 12 onward are exact; everything above
-   carries roughly ±0.02.
+2. **Close the residual measurement race.** Texture seeding at iteration 12 took
+   the spread 0.035 -> 0.013 but not to zero, and what is left is discrete:
+   repeated runs of one commit land on a few fixed values, which is a race and
+   not noise. Most likely `compare.mjs`'s `setViewportSize` landing a frame
+   either side of a render, so the capture differs by one simulation step.
+   Until it is closed, **quote a mean of three and treat 0.02 as the resolution
+   limit.** This still gates every art delta behind it.
 3. **Cadence props scatter rather than placing sequentially**, so the verge
    railings read as separated runs where the reference's railing is continuous
    to the vanishing point. A `SceneryManager` placement change, not a geometry

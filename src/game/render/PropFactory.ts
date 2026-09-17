@@ -38,8 +38,18 @@ export interface PropKind {
    * regular rhythm down the verge is the thing being drawn rather than an
    * accumulation of detail. These kinds are cheap enough to keep whole at
    * every tier, and are counted in units of tens.
+   *
+   * The value is the along-road pitch in world units, and setting it also opts
+   * the kind out of the random scatter: cadence kinds are laid sequentially
+   * down each verge on a world-anchored grid, half the instances to a side. A
+   * scattered rhythm is not a rhythm — it was placing railing sections in
+   * clumps with gaps between them, where a railing's whole job is to be one
+   * unbroken line to the vanishing point.
+   *
+   * Keep the pitch a divisor of `BAND_LENGTH`, or the grid shifts under the
+   * player every time the band is rebuilt.
    */
-  readonly cadence?: boolean;
+  readonly cadence?: number;
 }
 
 interface Part {
@@ -453,13 +463,11 @@ function lampGeo(): THREE.BufferGeometry {
 /**
  * A run of pedestrian railing: two posts carrying two horizontal rails.
  *
- * Eight units long, which is long enough that a single instance reads as a run
- * of railing rather than as a gate. It does NOT yet read as one unbroken line:
- * the placement pass scatters every kind on a seeded random, so these land as
- * separated runs along the verge rather than end to end. The reference's
- * railing is continuous to the vanishing point and ours is not, and closing
- * that needs cadence kinds placed sequentially rather than scattered — a
- * change to SceneryManager's placement, not to this geometry.
+ * Eight units long, and placed end to end: `cadence: 8` matches this SPAN
+ * exactly, so consecutive instances butt against one another and the run reads
+ * as one unbroken line to the vanishing point, the way the reference's does.
+ * The two numbers have to stay equal — a pitch wider than the span opens gaps,
+ * a pitch narrower makes the posts double up.
  *
  * Its value here is contrast, not silhouette. The verge is pale ground under a
  * pale sky, and once the carriageway was lightened to match the reference the
@@ -471,14 +479,30 @@ function railingGeo(): THREE.BufferGeometry {
   const SPAN = 8;
   const HEIGHT = 1.15;
   const post = new THREE.BoxGeometry(0.11, HEIGHT, 0.11);
-  const rail = new THREE.BoxGeometry(SPAN, 0.09, 0.08);
+  // Spanning Z, not X, so that the one rule the placement pass applies to every
+  // cadence kind — turn local +X to face the road — leaves this running along
+  // the verge while it swings a lamp's arm out over the carriageway.
+  const rail = new THREE.BoxGeometry(0.08, 0.09, SPAN);
 
-  const geo = merge([
-    { geo: post, matrix: at(-SPAN / 2, HEIGHT / 2, 0), colour: 0x2f343c },
-    { geo: post, matrix: at(SPAN / 2, HEIGHT / 2, 0), colour: 0x2f343c },
+  /* A post every two units, and only at the near end of each interval.
+   *
+   * Two posts per eight-unit section is a gate, not a railing, and once the
+   * sections were laid end to end the doubled-up posts at the joins were the
+   * only rhythm in the run. The reference's railing stands on posts far closer
+   * together than that, and that vertical repetition is most of what the verge
+   * reads as. Omitting the far post lets the next section supply it, so the
+   * spacing stays even across a join instead of pairing up.
+   */
+  const POST_PITCH = 2;
+  const parts: Part[] = [
     { geo: rail, matrix: at(0, HEIGHT * 0.92, 0), colour: 0x343a43 },
     { geo: rail, matrix: at(0, HEIGHT * 0.52, 0), colour: 0x343a43 },
-  ]);
+  ];
+  for (let z = -SPAN / 2; z < SPAN / 2; z += POST_PITCH) {
+    parts.push({ geo: post, matrix: at(0, HEIGHT / 2, z), colour: 0x2f343c });
+  }
+
+  const geo = merge(parts);
   post.dispose(); rail.dispose();
   return geo;
 }
@@ -530,10 +554,10 @@ export function propsForBiome(biome: BiomeId): PropKind[] {
         // units — close enough that the row recedes as a continuous rhythm to
         // the horizon rather than as a handful of separate posts. One draw
         // call and around two thousand triangles, against 125k on the low tier.
-        { id: 'lamp', geometry: lampGeo(), material: METAL, count: 48, radius: 1.4, scale: [0.94, 1.06], offset: [2.2, 5], sink: 0, cadence: true },
+        { id: 'lamp', geometry: lampGeo(), material: METAL, count: 48, radius: 1.4, scale: [0.94, 1.06], offset: [2.2, 5], sink: 0, cadence: 20 },
         // Held tight to the barrier and at a fixed scale: a railing that varies
         // in size along its own run stops reading as one line.
-        { id: 'railing', geometry: railingGeo(), material: METAL, count: 120, radius: 4, scale: [1, 1], offset: [1.6, 2], sink: 0, cadence: true },
+        { id: 'railing', geometry: railingGeo(), material: METAL, count: 120, radius: 4, scale: [1, 1], offset: [1.6, 2], sink: 0, cadence: 8 },
         { id: 'scrub', geometry: scrubGeo(), material: FOLIAGE, count: 220, radius: 0.5, scale: [0.7, 1.6], offset: [1.2, 26], sink: 0.05 },
         { id: 'bush', geometry: bushGeo(), material: FOLIAGE, count: 90, radius: 0.9, scale: [0.6, 1.3], offset: [2, 30], sink: 0.12 },
         { id: 'rock', geometry: rockGeo(), material: ROCK, count: 48, radius: 1.5, scale: [0.5, 1.6], offset: [3, 44], sink: 0.35 },

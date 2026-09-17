@@ -227,6 +227,25 @@ export class SceneryManager implements Manager {
       const { kind, mesh } = entry;
       let placed = 0;
 
+      /* Cadence kinds are laid, not scattered.
+       *
+       * Half the instances down each verge on a grid anchored to the world, so
+       * a railing meets the next railing and a lamp answers the lamp before it.
+       * The scatter below is right for anything that grew where it landed and
+       * wrong for anything a council put there: run through it, a railing comes
+       * out in clumps with holes between them, which is the one thing a railing
+       * must never be.
+       *
+       * Anchored on `base` rather than on `distance` for the same reason the
+       * scatter is seeded on it — the grid has to be a property of the road,
+       * not of where the camera happens to be, or the whole run slides every
+       * time the band is rebuilt. `PropKind.cadence` is required to divide
+       * BAND_LENGTH so that crossing a band lands on the same grid.
+       */
+      const pitch = kind.cadence ?? 0;
+      const perSide = pitch > 0 ? Math.max(1, Math.floor(mesh.count / 2)) : 0;
+      const anchor = Math.floor((base - behind) / Math.max(pitch, 1)) * pitch;
+
       for (let i = 0; i < mesh.count; i++) {
         // A seeded scatter keyed on the band, so the same stretch of road is
         // dressed the same way every time it is driven.
@@ -236,10 +255,38 @@ export class SceneryManager implements Manager {
         const r3 = fract(Math.sin(seed * 2.9 + 5.1) * 19349.1233);
         const r4 = fract(Math.sin(seed * 3.7 + 9.4) * 31547.9182);
 
-        const ahead = -behind + r1 * (span + behind);
-        const side = r2 < 0.5 ? -1 : 1;
-        const depth = kind.offset[0] + r3 * (kind.offset[1] - kind.offset[0]);
-        const scale = kind.scale[0] + r4 * (kind.scale[1] - kind.scale[0]);
+        const laid = pitch > 0;
+        // Street furniture stands at one height, so a cadence kind takes the
+        // middle of its scale range rather than a sample from it. A run of
+        // railing that breathes in and out along its length is a fence.
+        const scale = laid
+          ? (kind.scale[0] + kind.scale[1]) / 2
+          : kind.scale[0] + r4 * (kind.scale[1] - kind.scale[0]);
+        /* Measured from `base`, not from `distance`, which is the convention
+         * the scatter beside it already follows — `reposition` slides the whole
+         * group by `distance - base` between rebuilds, so an `ahead` that has
+         * already subtracted `distance` counts it twice.
+         *
+         * It showed up as a bimodal score: the same code state alternated
+         * between exactly 0.641 and 0.645 run to run, because the harness's
+         * resize lands a frame either side of a render and `distance` at
+         * repopulate time differs by one step's travel. The scatter never saw
+         * it, having no `distance` term to perturb. Two discrete values are a
+         * race, not noise, and the fix is to stop reading the clock.
+         */
+        const ahead = laid
+          ? anchor + (i % perSide) * pitch - base
+          : -behind + r1 * (span + behind);
+        const side = laid ? (i < perSide ? -1 : 1) : (r2 < 0.5 ? -1 : 1);
+        const depth = laid
+          ? kind.offset[0]
+          : kind.offset[0] + r3 * (kind.offset[1] - kind.offset[0]);
+
+        // Off the back or past the horizon: park it rather than draw it.
+        if (laid && (ahead < -behind || ahead > span)) {
+          mesh.setMatrixAt(i, this.matrix.makeTranslation(0, -9999, 0));
+          continue;
+        }
 
         // Road-space x, pushed out past the barrier by its own footprint so the
         // prop's base is clear of the tarmac, not merely its origin.
@@ -269,7 +316,16 @@ export class SceneryManager implements Manager {
         this.maxLateral = Math.max(this.maxLateral, Math.abs(x) + kind.radius * scale);
 
         this.position.set(px, py, pz);
-        this.quaternion.setFromAxisAngle(UP, r3 * Math.PI * 2);
+        /* A laid kind faces the road; a scattered one faces wherever it grew.
+         *
+         * One rule covers every cadence kind because their geometry is authored
+         * to it: local +X points at the carriageway, which swings a lamp's arm
+         * out over the traffic and leaves a railing — authored spanning Z —
+         * running along the verge. A random yaw on street furniture is the
+         * other half of why the railing did not read as a line: even placed end
+         * to end, sections turned through arbitrary angles meet at corners.
+         */
+        this.quaternion.setFromAxisAngle(UP, laid ? (side < 0 ? 0 : Math.PI) : r3 * Math.PI * 2);
         this.scaleVec.setScalar(scale);
         mesh.setMatrixAt(i, this.matrix.compose(this.position, this.quaternion, this.scaleVec));
         placed += 1;
