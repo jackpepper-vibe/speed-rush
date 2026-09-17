@@ -298,12 +298,19 @@ export class WorldManager implements Manager {
    * table between them.
    */
   private applyLook(distance: number): void {
-    // A pinned phase sits at its own midpoint rather than wherever the distance
-    // happened to land, so the light is the phase itself and not a crossfade
-    // halfway into the next one.
+    // A pinned phase sits at its own palette entry rather than wherever the
+    // distance happened to land, so the light is the phase itself and not a
+    // crossfade halfway into the next one.
+    //
+    // Not +0.5. Position `i` on this scale is pure phase `i` and `i+1` is pure
+    // phase `i+1`, so the middle of a slot is a 50/50 blend of two phases, not
+    // the settled look of one. Pinning 'day' with the half added lit the scene
+    // halfway to dusk — sun 2.8 instead of 3.6, fog an orange 0xc06a50 instead
+    // of a pale blue 0x9fc4e8 — while `state()` still reported 'day', so every
+    // reference capture was scored against a phase it was not in.
     const cycle = (distance % WORLD.dayCycleLength) / WORLD.dayCycleLength;
     const scaled = this.pinned?.phase
-      ? PHASE_ORDER.indexOf(this.pinned.phase) + 0.5
+      ? PHASE_ORDER.indexOf(this.pinned.phase)
       : cycle * PHASE_ORDER.length;
     const slot = Math.min(Math.floor(scaled), PHASE_ORDER.length - 1);
     const frac = scaled - slot;
