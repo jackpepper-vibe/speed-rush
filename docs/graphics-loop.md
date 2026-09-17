@@ -59,7 +59,7 @@ High tier, cruise row, unless stated.
 | 14 | `3e7d6c6` | 0.734 | 0.75 | — | — | 244/245 |
 | 15 | `165f73a` | 0.734 | 0.75 | — | — | 244/245 |
 
-| 16 | `PENDING` | 0.734 | 0.75 | 0.75 | 0.42 | 244/245 |
+| 16 | `069aefc` | 0.734 | 0.75 | 0.75 | 0.42 | 244/245 |
 
 **Iteration 15 did not achieve what it claimed, and the claim was published
 before the evidence was in.** Three probe runs at `165f73a` returned 0.662,
