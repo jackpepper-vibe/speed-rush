@@ -49,7 +49,8 @@ High tier, cruise row, unless stated.
 | 4 | `181c7df` | 1.109 | 0.70 | 1.31 | 0.89 | 243/245 |
 | 5 | `a5ea7e5` | 1.103 | 0.81 | — | — | 244/245 |
 | 6 | `41b89ef` | 1.093 | 0.86 | 1.30 | 0.93 | 244/245 |
-| 7 | pending | **0.706** | 0.80 | 0.77 | 0.94 | pending |
+| 7 | `cbf3714` | **0.706** | 0.80 | 0.77 | 0.94 | **243/245** |
+| 8 | `89590bf` | 0.723 | 0.88 | 0.78 | 0.94 | 244/245 |
 
 Low tier at iteration 5: verge 0.59 cruise, 0.54 boost. The probe reads this
 metric roughly 0.16 above what `compare.mjs --quality low` reads for it at the
@@ -92,6 +93,21 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
    reference's peak. Histogram **1.093 -> 0.706**, the largest single move of
    the loop. Cost: contrast ratio went 1.30 to 0.77, so the frame is now
    slightly flatter than the reference where it used to be harder.
+
+8. `89590bf` — verge railings. The asphalt change had dropped roadside-density
+   to 0.59: the red-and-white shoulder stripes sit inside the verge sample
+   region, and raising the carriageway from luminance 72 to 150 halved their
+   contrast against it. The edge energy the metric counted there was
+   road-to-stripe. Recovered with a dark iron railing rather than by darkening
+   the road back, which would have traded a 0.387 histogram gain for a 0.06
+   verge one. Verge 0.80 -> 0.88 high, 0.59 -> 0.65 low; histogram gave back
+   0.017. Low tier cost: draw calls 621 -> 622, triangles 127762 -> 133522.
+
+   Incomplete: cadence kinds are placed by the same seeded scatter as
+   everything else, so the railings land as separated runs. The reference's
+   railing is continuous to the vanishing point. Fixing that is a
+   SceneryManager placement change — sequential placement for cadence kinds —
+   not a geometry one.
 
 ## The residual is now the sky, and most of it is framing
 
