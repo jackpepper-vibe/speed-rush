@@ -52,7 +52,12 @@ export const DAY_PALETTE: Record<DayPhase, Palette> = {
   },
   day: {
     sunColor: 0xfff2dc, sunIntensity: 3.6,
-    skyTop: 0x1e5fbe, skyBottom: 0xa8ccec, horizon: 0xfff2d0,
+    // skyBottom, not skyTop, is what a chase camera actually sees: the view
+    // sits on the horizon, so the lower dome fills the frame and the zenith
+    // barely appears. At 0xa8ccec that band rendered at luminance 199, which is
+    // where our sky was piling 29% of the frame against the reference's 3%.
+    // The reference holds a deeper blue much further down towards its horizon.
+    skyTop: 0x1e5fbe, skyBottom: 0x7fb0e0, horizon: 0xfff2d0,
     hemiSky: 0xbcd8ff, hemiGround: 0x45402f, hemiIntensity: 0.82,
     fogColor: 0x9fc4e8, fogDensity: 0.0017, sunElevation: 0.85, exposure: 1.05,
     stars: 0, clouds: 0.28, headlights: 0,

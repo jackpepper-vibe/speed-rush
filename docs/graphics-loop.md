@@ -51,6 +51,7 @@ High tier, cruise row, unless stated.
 | 6 | `41b89ef` | 1.093 | 0.86 | 1.30 | 0.93 | 244/245 |
 | 7 | `cbf3714` | **0.706** | 0.80 | 0.77 | 0.94 | **243/245** |
 | 8 | `89590bf` | 0.723 | 0.88 | 0.78 | 0.94 | 244/245 |
+| 9 | pending | 0.696 | 0.93 | 0.76 | — | pending |
 
 Low tier at iteration 5: verge 0.59 cruise, 0.54 boost. The probe reads this
 metric roughly 0.16 above what `compare.mjs --quality low` reads for it at the
@@ -108,6 +109,17 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
    railing is continuous to the vanishing point. Fixing that is a
    SceneryManager placement change — sequential placement for cadence kinds —
    not a geometry one.
+
+9. Day `skyBottom` `0xa8ccec` -> `0x7fb0e0`. The sky excess was not the zenith:
+   `skyTop` was already a deep `0x1e5fbe` at luminance 88, but a chase camera
+   sits on the horizon so the lower dome fills the frame and the zenith barely
+   appears. `skyBottom` rendered at 199, right inside the 200-223 pile.
+   Histogram 0.726 -> 0.696. That gain is entirely the **character** half of
+   the sky gap, not the area half — the area half is framing and unreachable.
+   Modest because cloud cover, not gradient, is what fills most of our sky:
+   day `clouds` is 0.28 and lays pale wisps across the whole dome, where the
+   reference has clear blue with one discrete cumulus bank. That is the next
+   sky lever.
 
 ## The residual is now the sky, and most of it is framing
 
