@@ -59,6 +59,13 @@ High tier, cruise row, unless stated.
 | 14 | `3e7d6c6` | 0.734 | 0.75 | — | — | 244/245 |
 | 15 | `165f73a` | 0.734 | 0.75 | — | — | 244/245 |
 
+**Iteration 15 did not achieve what it claimed, and the claim was published
+before the evidence was in.** Three probe runs at `165f73a` returned 0.662,
+0.696, 0.662. The gate is still not reproducible. The commit message and the
+entry below were written off a single run; the two confirmation runs landed
+afterwards and contradicted them. `compare.mjs` *is* reproducible — four
+identical runs at iteration 14, re-confirmed since. `probe.mjs` is not.
+
 **Iteration 14 is a re-baseline, not a regression.** It changed no art. It
 stopped the render loop advancing the world behind the harness's back, which
 moved the pose every score above it was measured at. 0.642 and 0.734 are the
@@ -307,9 +314,13 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     happen in. Stopping the loop first would have traded a measurement bug for
     a dead renderer.
 
-    Gate held at 244/245. The histogram it reports moved 0.646 -> 0.662, which
-    is the same re-basing iteration 14 applied to the comparison — the poses it
-    scores are now the poses its checks ask for.
+    Gate held at 244/245 across all three runs. **But it did not make the probe
+    reproducible, and this entry originally said it had.** That was written
+    from one run; three runs give 0.662, 0.696, 0.662. Necessary, not
+    sufficient. See queue item 2 for where to look next, and note the process
+    failure as much as the technical one: iteration 14 established that three
+    samples are the minimum to claim determinism, and this iteration published
+    the claim off one.
 
 ### The measurement was noisier than it was — fixed at iteration 12
 
@@ -386,10 +397,25 @@ threshold.
    only justification is a hypothesis that measured false is dead weight, and
    it is twenty lines to restore if a later iteration needs it.
 
-2. ~~**Close the residual measurement race.**~~ **Done at iterations 14 and 15.**
-   `compare.mjs` and `probe.mjs` both call `setAutoAdvance(false)` now, and both
-   are reproducible. The measurement is no longer the thing limiting what this
-   loop can resolve; the art is. **From here, back to art.**
+2. **Close the probe's measurement race. Still open — iteration 15 failed.**
+   `compare.mjs` is reproducible; `probe.mjs` is not, returning 0.662, 0.696,
+   0.662 across three runs at `165f73a`.
+
+   `setAutoAdvance(false)` was necessary and not sufficient, and the leading
+   suspect is where iteration 15 put it. It sits *after* the boot-context
+   settle, which is a `waitForFunction` poll — so a variable number of boot
+   frames tick the world before the loop is ever stopped. That is the same
+   quantised drift, just moved earlier in the sequence.
+
+   Two things to check first, in order. Does `startRun(seed)` fully reset
+   `road.travelled` and the manager state? If it does, pre-settle drift cannot
+   survive into a scenario and the cause is elsewhere. If it does not, the fix
+   is to reset after stopping rather than to stop earlier — stopping before the
+   settle would leave the WebGL context unable to restore, which is why it was
+   placed there.
+
+   Note the shape: 0.662 twice and 0.696 once is still discrete. Discrete means
+   race, as at iteration 14.
 3. **Cadence props scatter rather than placing sequentially**, so the verge
    railings read as separated runs where the reference's railing is continuous
    to the vanishing point. A `SceneryManager` placement change, not a geometry
