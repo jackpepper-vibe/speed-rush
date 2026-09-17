@@ -176,11 +176,47 @@ await page.setViewportSize({ width: ANALYSIS_WIDTH, height: analysisHeight });
 // The renderer resizes off a window event, so the next frame is the first one
 // drawn at the new size. Drive a beat rather than snapshotting into a resize.
 await page.evaluate(() => window.carRacer.drive(0.05, 0));
-const analysisCapture = await page.evaluate(() => window.carRacer.snapshot());
+const boostShot = await page.evaluate(() => window.carRacer.snapshot());
+
+/**
+ * A second analysis frame, cruising rather than boosting.
+ *
+ * The hero pose runs flat out with nitro lit, and the colour grade is
+ * speed-reactive: at that pose the vignette is 0.64 and the contrast curve is
+ * 1.23, so the frame's edges are crushed towards black by design. The grade is
+ * a shipping feature and is not up for weakening — but it means a comparative
+ * score taken at the hero pose is mostly measuring post-processing. Whatever
+ * the scenery does, the histogram cannot move far while a 0.64 vignette is
+ * sitting on top of it.
+ *
+ * Both frames are therefore scored and both are printed. Which one is the fair
+ * comparison depends on the reference: a target showing a car under boost
+ * should be read against the boost row, one showing a car cruising against the
+ * cruise row. Keeping both on the scorecard is what stops the choice being
+ * made silently in whichever direction flatters the number.
+ */
+const CRUISE_KMH = 140;
+const cruise = await page.evaluate(async (kmh) => {
+  const cr = window.carRacer;
+  cr.clearPowerups();
+  cr.place({ x: 0, vx: 0, speed: kmh / 3.1 });
+  cr.drive(0.4, 0);
+  cr.place({ x: 0, vx: 0, speed: kmh / 3.1 });
+  cr.drive(0.1, 0);
+  const s = cr.state();
+  return { speedKmh: s.speedKmh, contextLost: s.contextLost };
+}, CRUISE_KMH);
+const cruiseShot = await page.evaluate(() => window.carRacer.snapshot());
 await page.setViewportSize({ width: opt.width, height: opt.height });
 
 const scores = await page.evaluate(profilePair, {
-  shot: analysisCapture,
+  shot: boostShot,
+  reference: referenceDataUrl,
+  width: ANALYSIS_WIDTH,
+  regions: REGIONS,
+});
+const cruiseScores = await page.evaluate(profilePair, {
+  shot: cruiseShot,
   reference: referenceDataUrl,
   width: ANALYSIS_WIDTH,
   regions: REGIONS,
@@ -224,7 +260,8 @@ mkdirSync(outDir, { recursive: true });
 writeFileSync(resolve(outDir, `${tag}.png`), Buffer.from(capture.split(',')[1], 'base64'));
 // The frame the comparative scores were actually taken from. Written out
 // because a score nobody can look at is a number to be taken on trust.
-writeFileSync(resolve(outDir, `${tag}-analysis.png`), Buffer.from(analysisCapture.split(',')[1], 'base64'));
+writeFileSync(resolve(outDir, `${tag}-analysis-boost.png`), Buffer.from(boostShot.split(',')[1], 'base64'));
+writeFileSync(resolve(outDir, `${tag}-analysis-cruise.png`), Buffer.from(cruiseShot.split(',')[1], 'base64'));
 if (sideBySide) {
   writeFileSync(resolve(outDir, `${tag}-vs-reference.png`), Buffer.from(sideBySide.split(',')[1], 'base64'));
 }
@@ -253,11 +290,19 @@ if (scores.distance) {
     `· resample ${n(d.resample.mine)}x / ${n(d.resample.reference)}x`);
   console.log(`  reference native       ${r.native.join('x')}`);
   console.log(`  reference mean/std     ${n(r.mean)} / ${n(r.std)}`);
-  console.log(`  histogram distance     ${n(d.histogram, 3)}   (0 identical, 2 disjoint)`);
-  console.log(`  verge edge ratio       ${n(d.vergeRatio)}   (1.0 = matched)`);
-  console.log(`  hero edge ratio        ${n(d.heroRatio)}`);
-  console.log(`  contrast ratio         ${n(d.contrastRatio)}`);
-  console.log(`  bright-pixel ratio     ${n(d.brightRatio)}`);
+
+  // Two rows, always. The boost row carries the speed grade — vignette 0.64,
+  // contrast 1.23 — and the cruise row does not. Printing only one of them
+  // would be picking the comparison after seeing the numbers.
+  const c = cruiseScores.distance;
+  console.log('                         boost      cruise');
+  console.log(`  histogram distance     ${n(d.histogram, 3)}      ${n(c.histogram, 3)}   (0 identical, 2 disjoint)`);
+  console.log(`  verge edge ratio       ${n(d.vergeRatio)}       ${n(c.vergeRatio)}    (1.0 = matched)`);
+  console.log(`  hero edge ratio        ${n(d.heroRatio)}       ${n(c.heroRatio)}`);
+  console.log(`  contrast ratio         ${n(d.contrastRatio)}       ${n(c.contrastRatio)}`);
+  console.log(`  bright-pixel ratio     ${n(d.brightRatio)}       ${n(c.brightRatio)}`);
+  console.log(`  grade state            ${n(pose.speedKmh, 0)} km/h + nitro   ` +
+    `${n(cruise.speedKmh, 0)} km/h, no nitro`);
 } else {
   console.log('\nagainst reference');
   console.log(`  no reference — nothing at ${relative(ROOT, REFERENCE)}`);
@@ -272,4 +317,5 @@ if (noise.length) {
 console.log(`\nwrote ${resolve(outDir, `${tag}.png`)}`);
 if (sideBySide) console.log(`wrote ${resolve(outDir, `${tag}-vs-reference.png`)}`);
 
-writeFileSync(resolve(outDir, `${tag}.json`), JSON.stringify({ pose, scores, noise }, null, 2));
+writeFileSync(resolve(outDir, `${tag}.json`),
+  JSON.stringify({ pose, cruise, scores, cruiseScores, noise }, null, 2));
