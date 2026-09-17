@@ -4,7 +4,7 @@
  *
  * Drives the game to a fixed hero pose — chase camera, player centred, road to
  * the horizon, traffic ahead, daylight — captures it at 1600x900, and prints a
- * numeric scorecard. When `reference/target.jpg` is present it also writes a
+ * numeric scorecard. When `reference/target1.png` is present it also writes a
  * side-by-side and scores the capture against it.
  *
  * The pose is fixed on purpose. Two captures taken from different distances
@@ -27,7 +27,14 @@ const require = createRequire('C:/Claude/Tools/shot/');
 const { chromium } = require('playwright');
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const REFERENCE = resolve(ROOT, 'reference/target.jpg');
+const REFERENCE = resolve(ROOT, 'reference/target1.png');
+
+/** Data-URL a local image, typed from its extension rather than assumed. */
+function toDataUrl(path) {
+  const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase();
+  const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+  return `data:${mime};base64,${readFileSync(path).toString('base64')}`;
+}
 
 const argv = process.argv.slice(2);
 const opt = {
@@ -146,9 +153,7 @@ const capture = await page.evaluate(() => window.carRacer.snapshot());
 
 /* ------------------------------------------------------------------ scoring */
 
-const referenceDataUrl = existsSync(REFERENCE)
-  ? `data:image/jpeg;base64,${readFileSync(REFERENCE).toString('base64')}`
-  : null;
+const referenceDataUrl = existsSync(REFERENCE) ? toDataUrl(REFERENCE) : null;
 
 /**
  * Measure both images the same way.
@@ -331,7 +336,7 @@ if (scores.distance) {
   console.log(`  bright-pixel ratio     ${n(d.brightRatio)}`);
 } else {
   console.log('\nagainst reference');
-  console.log('  no reference — put the target image at reference/target.jpg');
+  console.log('  no reference — put the target image at reference/target1.png');
   console.log('  (comparative scores are withheld, not passed)');
 }
 

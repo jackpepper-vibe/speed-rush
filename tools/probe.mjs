@@ -2416,14 +2416,16 @@ phase = 'render-quality';
    * score with nothing to compare against is not a pass, and treating it as
    * one is how a missing file comes to certify a match. */
   {
-    const referencePath = resolve(ROOT, 'reference/target.jpg');
+    const referencePath = resolve(ROOT, 'reference/target1.png');
     if (!existsSync(referencePath)) {
       environment.push(
-        'render/reference-distance SKIPPED — reference/target.jpg is absent, so the ' +
+        'render/reference-distance SKIPPED — reference/target1.png is absent, so the ' +
         'histogram and roadside-density comparisons have nothing to measure against',
       );
     } else {
-      const dataUrl = `data:image/jpeg;base64,${readFileSync(referencePath).toString('base64')}`;
+      const ext = referencePath.slice(referencePath.lastIndexOf('.') + 1).toLowerCase();
+      const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+      const dataUrl = `data:${mime};base64,${readFileSync(referencePath).toString('base64')}`;
       const scored = await hero.evaluate(async (reference) => {
         const W = 480;
         const H = 270;

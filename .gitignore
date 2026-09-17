@@ -4,8 +4,8 @@ shots/
 *.local
 .DS_Store
 
-# Art-direction target: a screenshot of another game, kept locally only.
-reference/target.jpg
+# Art-direction targets: screenshots of another game, kept locally only.
+reference/target*
 
 .vercel
 .env*
