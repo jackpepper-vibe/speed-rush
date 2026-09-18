@@ -18,6 +18,7 @@ import { GarageManager } from '@/game/managers/GarageManager';
 import { AudioManager } from '@/game/managers/AudioManager';
 import { SceneryManager } from '@/game/managers/SceneryManager';
 import { SkylineManager } from '@/game/managers/SkylineManager';
+import { MarinaManager } from '@/game/managers/MarinaManager';
 import { EffectsManager } from '@/game/managers/EffectsManager';
 import { SaveManager } from '@/game/SaveManager';
 import { SPEED } from '@/game/config/Balance';
@@ -52,6 +53,7 @@ export class Game {
   readonly audio: AudioManager;
   readonly scenery: SceneryManager;
   readonly skyline: SkylineManager;
+  readonly marina: MarinaManager;
   readonly effects: EffectsManager;
 
   private readonly managers = new ManagerRegistry();
@@ -104,6 +106,7 @@ export class Game {
     // units out, against the far ground's relief, and is keyed to the world
     // rather than to the scenery's recycled bands so that it cannot re-roll.
     this.skyline = this.managers.add(new SkylineManager(ctx, this.road, this.rig, this.world));
+    this.marina = this.managers.add(new MarinaManager(ctx, this.road, this.rig, this.world));
     // After the player, whose exhaust anchors the flame hangs off, and after
     // the rig, which it asks to shake on a crash.
     this.effects = this.managers.add(new EffectsManager(ctx, this.player, this.rig));

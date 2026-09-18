@@ -78,6 +78,7 @@ High tier, cruise row, unless stated.
 | 32 | `dc3d4c8` | 0.531 | 1.03 | 0.77 | 0.06 | **247/247** |
 | 33 | `2852c63` | **0.517** | 1.06 | 0.78 | 0.06 | 247/247 |
 | 34 | `52d5546` | **0.485** | 1.05 | 0.82 | 0.06 | 247/247 |
+| 35 | `PENDING` | 0.486 | 1.07 | 0.81 | 0.07 | 247/247 |
 
 From iteration 25 the probe has **246** checks, not 245. The new one asserts
 that something beside the road darkens it.
@@ -964,7 +965,57 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     Still to do in operator item 0: the marina and the cruise ship, which are
     the reference's only bright-and-small geometry and therefore the standing
     candidate for the 224+ deficit iteration 27 closed as unreachable through
-    the sky.
+    the sky. **Done at iteration 35, which also found that this iteration's
+    skyline never reached the low tier's frame at all.**
+
+35. **The water has a marina.** `MarinaManager`: white hulls moored inshore and
+    ships standing out in the haze, on a `CellField` base extracted from
+    iteration 34's skyline. **The histogram did not move — 0.485 -> 0.486
+    cruise, inside the noise band — and the art did.**
+
+    That gap is the iteration. Toggling the field and differencing two frames
+    moves the sea region by **+2.68 mean luminance**, with bright pixels there
+    going 13.6% -> 14.9% and edge energy 106.6 -> 110.3. A score that cannot
+    see a change this visible is the thermometer the operator's verdict was
+    about, and this file should stop expecting L1 to adjudicate content.
+
+    The reason it is worth the budget is the oldest open item here. Iteration 27
+    closed queue item 5 as unreachable *through the sky* and said in advance
+    what would be needed instead: geometry that is **bright and small**, which
+    in the reference is sun on water and sun on white superstructure. Cruise
+    bright-pixel ratio moved 0.06 -> 0.07 — real, and far short of the
+    reference's 1.0. The vessels are small in frame because the sea band is a
+    thin sliver from a chase camera, which is framing again.
+
+    **A defect in iteration 34, found only because the difference was measured
+    at the bottom of the ladder.** `CellField` scaled the *pool* by
+    `sceneryDensity`, and the window is `behind + ahead` units wide whatever the
+    tier — so a smaller pool of fixed cells does not thin the field, it
+    **truncates** it. At the low tier the skyline stopped 214 units ahead
+    instead of 700 and the toggle delta read back **exactly 0.00**: the city was
+    absent from the low tier's frame, not sparser in it, and iteration 34
+    shipped it that way. Density now widens the cell instead, which keeps the
+    reach and spends the smaller budget across all of it. Low tier re-measured:
+    skyline **-8.48**, marina edges **+2.31**, no context loss.
+
+    The general form, which this loop keeps relearning: **a change verified at
+    one rung of the ladder is verified at one rung of the ladder.** The top tier
+    could not have shown this, because at density 1 the two formulas agree.
+
+    Also recorded, since it cost a confusing run: a field re-fills only when its
+    anchor moves, so `pinWorld` does not take effect on one until the car has
+    driven past a cell boundary. Harmless in play — the biome cannot change
+    without distance changing — and a trap for any harness that pins and
+    captures immediately. `compare.mjs` and `probe.mjs` both drive after
+    pinning, so both are safe.
+
+    New seam: `cellFields()` and `setCellFieldVisible()` on the dev handle, the
+    same shape as `setSceneryVisible`. A white shape on the horizon could be a
+    hull, a cloud bank or the haze, and iterations 29 and 30 already paid for
+    guessing at that kind of question from a screenshot.
+
+    Cost: high tier 377451 -> 378531 tris, 990 -> **991 draws**. The whole
+    harbour is one draw call, as the whole city is.
 
 ### The measurement was noisier than it was — fixed at iteration 12
 
@@ -1020,12 +1071,12 @@ plumbing. The histogram fell 1.192 -> 0.531 and both bounds were met while the
 world stayed the same empty highway. **A metric that can improve by half while
 the content is untouched is not a plan; it is a thermometer.** Work these first.
 
-0. **Build the coast.** The standing scope question at the bottom of this file,
-   now answered by the operator: yes. Sea to the seaward side with a real
-   horizon line, city skyline massing in the mid-distance, marina between. This
-   is the largest divergence from the standard and the only remaining change
-   that is obvious in motion rather than in a histogram. Tiered like everything
-   else.
+0. ~~**Build the coast.**~~ **Done across iterations 33, 34 and 35**: sea
+   (33), city skyline (34), marina and ships (35). All three are tiered, and
+   the three of them together cost two draw calls. What is left is quality
+   rather than existence — the water is a flat plane with no surf line at the
+   shore, and the vessels have no moorings, jetties or harbour wall to belong
+   to. Requeue that as its own item rather than reopening this one.
 
 1. **Traffic vehicles are not good enough.** Iteration 28 tiered their detail;
    it did not make them better models. Boxy silhouettes, flat paint.

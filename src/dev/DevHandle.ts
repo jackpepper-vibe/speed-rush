@@ -189,6 +189,19 @@ export interface DevHandle {
   /** Hide the scenery so its cost can be measured as a difference. */
   setSceneryVisible(visible: boolean): void;
 
+  /**
+   * The world-anchored far fields — the city behind the road and what floats
+   * on the sea beside it — and a seam to hide either of them.
+   *
+   * Both are things this loop has learned not to judge from a screenshot. A
+   * white shape on the horizon could be a hull, a cloud bank or the haze;
+   * toggling the field and differencing two frames is the only reading that
+   * distinguishes them, which is exactly how the tyre smoke was finally
+   * settled at iteration 30 after two iterations of guessing at it.
+   */
+  cellFields(): { id: string; placed: number; pool: number }[];
+  setCellFieldVisible(id: string, visible: boolean): void;
+
   /** Element ids the HUD coverage gate is measured against. */
   uiElements(): { hud: string[]; screens: string[] };
   /** Drive the interface: menu, garage, pause. */
@@ -396,6 +409,18 @@ export function installDevHandle(game: Game, version: string): DevHandle {
 
     setSceneryVisible(visible) {
       game.scenery.setVisible(visible);
+    },
+
+    cellFields() {
+      return [
+        { id: 'skyline', ...game.skyline.snapshot() },
+        { id: 'marina', ...game.marina.snapshot() },
+      ];
+    },
+
+    setCellFieldVisible(id, visible) {
+      if (id === 'skyline') game.skyline.setVisible(visible);
+      if (id === 'marina') game.marina.setVisible(visible);
     },
 
     uiElements() {

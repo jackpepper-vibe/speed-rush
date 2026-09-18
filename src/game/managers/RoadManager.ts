@@ -80,7 +80,18 @@ const SEA_COLUMNS: readonly number[] = [
  * higher and the sea climbs the beach toward the barrier; lower and it
  * retreats.
  */
-const SEA_HEIGHT = -2.4;
+export const SEA_HEIGHT = -2.4;
+
+/**
+ * Where the water begins, laterally.
+ *
+ * The true waterline is wherever the beach profile crosses `SEA_HEIGHT`, which
+ * is a curve that bends with the road. Anything floating only needs to know
+ * that it is safely outboard of it, so this is that crossing rounded outwards
+ * rather than solved: the beach reaches -9 over 130 units from `RELIEF_INNER`,
+ * and -2.4 of that fall lands around 140 out.
+ */
+export const SHORELINE_LATERAL = 150;
 
 /** Height of the barrier post, and how many stand in one segment. */
 const BARRIER_TOP = 1.02;
