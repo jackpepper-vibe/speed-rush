@@ -75,7 +75,7 @@ High tier, cruise row, unless stated.
 | 29 | `72b2740` | 0.531 | 1.03 | 0.77 | 0.06 | 246/246 |
 | 30 | `57726ae` | 0.531 | 1.03 | 0.77 | 0.06 | 246/246 |
 | 31 | `7775fe0` | 0.531 | 1.03 | 0.77 | 0.06 | 246/246 |
-| 32 | `PENDING` | 0.531 | 1.03 | 0.77 | 0.06 | **247/247** |
+| 32 | `dc3d4c8` | 0.531 | 1.03 | 0.77 | 0.06 | **247/247** |
 
 From iteration 25 the probe has **246** checks, not 245. The new one asserts
 that something beside the road darkens it.
