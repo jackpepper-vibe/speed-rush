@@ -66,7 +66,7 @@ High tier, cruise row, unless stated.
 | 20 | `a6b888e` | **0.615** | 0.79 | 0.71 | 0.11 | 244/245* |
 | 21 | `a538ecd` | 0.615 | 0.79 | 0.71 | 0.11 | 244/245 |
 | 22 | `dfb2c24` | **0.535** | 0.90 | 0.65 | 0.05 | **245/245** |
-| 23 | `PENDING` | **0.534** | 0.90 | 0.66 | — | pending |
+| 23 | `7c7f5cd` | **0.534** | 0.90 | 0.66 | — | pending |
 
 **Iteration 22 is the first time the histogram bound has been met on
 `compare.mjs`.** Cruise 0.535 and boost 0.506 against a bound of 0.55, with
