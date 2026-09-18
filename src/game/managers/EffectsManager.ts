@@ -29,7 +29,14 @@ const SPARK_CAPACITY = 600;
 const SMOKE_CAPACITY = 700;
 
 /** Emission rates while a continuous effect is running, in particles/second. */
-const DRIFT_SMOKE_RATE = 260;
+/* Puffs per second, not particles per second — each emits a small cluster.
+ *
+ * Kept at a rate that leaves the live population inside SMOKE_CAPACITY: at
+ * SMOKE_PUFF_PARTICLES of 3 and lives of 0.9 to 1.7 seconds this settles near
+ * 400 of the 700 available, with headroom for the sparks field beside it. */
+const DRIFT_SMOKE_RATE = 105;
+/** Billboards per puff, spread along the car's axis so the plume has an inside. */
+const SMOKE_PUFF_PARTICLES = 3;
 const DRIFT_SPARK_RATE = 45;
 
 export class EffectsManager implements Manager {
@@ -283,16 +290,32 @@ export class EffectsManager implements Manager {
       this.smokeDebt -= 1;
       if (!this.visible.smoke) break;
       const side = this.rng.next() < 0.5 ? -1 : 1;
-      this.pos.set(
-        this.player.x + side * track + (this.rng.next() - 0.5) * 0.3,
-        0.22 + this.rng.next() * 0.14,
-        rear + (this.rng.next() - 0.5) * 0.4,
-      );
-      this.vel.set(
-        side * (0.6 + this.rng.next() * 1.4),
-        0.5 + this.rng.next() * 0.9,
-        3 + this.speed * 0.055,
-      );
+      /* A puff, not a billboard.
+       *
+       * One sprite per emission is what kept this reading as a stamp: every
+       * particle sat on the same plane at the same size and faded on the same
+       * schedule, so the camera moving past the plume revealed nothing inside
+       * it. Several per puff, separated along the car's axis and given
+       * different sizes and lifetimes, gives the mass an interior — near ones
+       * slide across far ones, and the edges dissolve at different moments
+       * rather than all at once.
+       *
+       * It costs pool and fill, not draw calls: `ParticleField` is one call
+       * however many are alive. The rate came down to keep the live population
+       * inside capacity.
+       */
+      for (let k = 0; k < SMOKE_PUFF_PARTICLES; k++) {
+        const depth = (k - (SMOKE_PUFF_PARTICLES - 1) / 2) * 0.6;
+        this.pos.set(
+          this.player.x + side * track + (this.rng.next() - 0.5) * 0.5,
+          0.22 + this.rng.next() * 0.2,
+          rear + depth + (this.rng.next() - 0.5) * 0.4,
+        );
+        this.vel.set(
+          side * (0.6 + this.rng.next() * 1.4),
+          0.5 + this.rng.next() * 0.9,
+          3 + this.speed * 0.055,
+        );
       /* Warm grey, and light enough to be seen against the road it is on.
        *
        * These values are linear and the pass is tone mapped downstream. The
@@ -308,16 +331,21 @@ export class EffectsManager implements Manager {
        * landed against what it sits on, and re-landing the road silently
        * un-landed this. Sunlit tyre smoke is a pale thing anyway — it is water
        * vapour far more than it is rubber. */
-      const shade = 0.58 + this.rng.next() * 0.18;
-      this.tint.setRGB(shade, shade * 0.97, shade * 0.92);
-      this.smoke.emit({
-        position: this.pos, velocity: this.vel,
-        life: 0.5 + this.rng.next() * 0.55,
-        size: 0.16 + this.rng.next() * 0.16,
-        sizeGrowth: 2.6,
-        colour: this.tint,
-        opacity: 0.26 + this.driftIntensity * 0.2,
-      });
+        const shade = 0.58 + this.rng.next() * 0.18;
+        this.tint.setRGB(shade, shade * 0.97, shade * 0.92);
+        this.smoke.emit({
+          position: this.pos, velocity: this.vel,
+          // Tyre smoke hangs. At half a second it was gone before it could
+          // accumulate into anything with a shape.
+          life: 0.9 + this.rng.next() * 0.8,
+          size: 0.18 + this.rng.next() * 0.3,
+          sizeGrowth: 3.1,
+          colour: this.tint,
+          // Thinner per particle because several now overlap: the mass builds
+          // from accumulation rather than from each sprite carrying it alone.
+          opacity: 0.16 + this.driftIntensity * 0.14,
+        });
+      }
     }
 
     this.sparkDebt += dt * DRIFT_SPARK_RATE * this.driftIntensity;

@@ -74,6 +74,7 @@ High tier, cruise row, unless stated.
 | 28 | `b25c41d` | 0.531 | 1.03 | 0.77 | 0.06 | 246/246 |
 | 29 | `72b2740` | 0.531 | 1.03 | 0.77 | 0.06 | 246/246 |
 | 30 | `57726ae` | 0.531 | 1.03 | 0.77 | 0.06 | 246/246 |
+| 31 | `PENDING` | 0.531 | 1.03 | 0.77 | 0.06 | pending |
 
 From iteration 25 the probe has **246** checks, not 245. The new one asserts
 that something beside the road darkens it.
@@ -834,6 +835,30 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     reference throws. That is the volume item, and it is now **observable**,
     which it was not when iteration 29 tried to write it blind.
 
+31. Tyre smoke given volume: three billboards per puff spread along the car's
+    axis, lives 0.5-1.05s -> 0.9-1.7s, size 0.16-0.32 -> 0.18-0.48 growing 3.1x
+    instead of 2.6x, per-particle opacity dropped from 0.46 to 0.30 because
+    several now overlap, emission rate 260 -> 105 puffs so the pool stays
+    inside capacity. **Toggle delta 2.40 -> 5.78.**
+
+    This is iteration 29's design, which was sound and unshippable: it could not
+    be measured then, and iteration 30 had to fix the colour before anything
+    about the shape could be judged. Now it measures. Live particles 206 -> 313
+    against a capacity of 700, and the smoke softens the road's edge energy
+    under it, 38.12 -> 35.98, which is what an occluding mass should do and a
+    flat stamp would not.
+
+    Ladder: `ParticleField` is one draw call however many are alive, so this
+    costs pool and fill and nothing else. High tier unchanged at 373923 tris
+    and 963 draws; **low tier byte-identical at 136402 and 622, no context
+    loss** — measured, not assumed. No scored pose moves, since smoke appears
+    in neither capture.
+
+    Still short of the reference: two plumes at the wheels rather than one
+    merged bank. The next lever is lateral spread and cross-drift so the two
+    sides meet behind the car, not more particles — 313 of 700 is not the
+    constraint.
+
 ### The measurement was noisier than it was — fixed at iteration 12
 
 `makeRoadTexture` and `makeRoadWearTexture` both speckled with bare
@@ -968,13 +993,15 @@ threshold.
    x=20, so a 1.7x-height shadow lands on the verge and stops. Either the palms
    move in or the sun's azimuth swings to throw along the road rather than
    across it. `quality.shadows` already gates the tier.
-10. **Tyre smoke volume.** Iteration 30 corrected iteration 29: the smoke
-    always rendered, it was simply the same luminance as the road. Now visible
-    (toggle delta 2.40) but small and sparse — two clusters where the reference
-    throws a bank. Measure by difference with `setDriftIntensity(1)` and
-    `setEffectVisible('smoke', …)`; `effects().smoke` gives the live count. A
-    probe check on that delta, the way `roadside-casts-onto-road` works, is
-    still the obvious companion and would have saved iteration 29 entirely.
+10. **Tyre smoke reads as two plumes, not one bank.** Iterations 30 and 31 took
+    it from invisible to a toggle delta of 5.78. What is left is that the left
+    and right wheels throw separate columns where the reference has a single
+    mass behind the car. Lateral spread and cross-drift, not more particles —
+    313 live of 700 is not the constraint. Measure by difference with
+    `setDriftIntensity(1)` and `setEffectVisible('smoke', …)`; `effects().smoke`
+    gives the live count. **A probe check on that delta, the way
+    `roadside-casts-onto-road` works, is still missing and would have saved
+    iteration 29 entirely.**
 11. **Hero tail crease** and **nitro bloom haze**. No support from target2 — its
    hero is a matte classic coupe under no boost. Play observations only.
 
