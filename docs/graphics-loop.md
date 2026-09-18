@@ -69,6 +69,7 @@ High tier, cruise row, unless stated.
 | 23 | `7c7f5cd` | **0.534** | 0.90 | 0.66 | — | **245/245 x3** |
 | 24 | `ab8e7ca` | **0.532** | 0.91 | 0.66 | — | **245/245** |
 | 25 | `258623c` | 0.532 | 0.91 | 0.66 | — | **246/246** |
+| 26 | `PENDING` | **0.531** | 1.03 | **0.77** | — | pending |
 
 From iteration 25 the probe has **246** checks, not 245. The new one asserts
 that something beside the road darkens it.
@@ -664,6 +665,40 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     was inert because the frustum was never the blocker either. It stays,
     still correct.
 
+26. The camera-side `fill` light confined to the vehicles by layer, and the sun
+    raised `3.6` -> `4.6` to put the level back. Histogram 0.532 -> 0.531,
+    **contrast 0.66 -> 0.77**, roadside density 0.91 -> 1.03, dark pixels
+    0.49% -> 2.49%.
+
+    This is the answer to why iteration 25 measured roadside shadows at two to
+    five luminance. The fill exists for one reason, stated in its own comment
+    since long before this loop: a chase camera means the only face of a car
+    ever pointed at the player is the face permanently turned away from the
+    sun. Being a plain directional light it lit everything else too — every
+    square metre of tarmac, at better than half the sun's intensity, **casting
+    no shadow.** The sun cut shadows and the fill filled them straight back in.
+    `FILL_LAYER` confines it to cars. It costs nothing per pixel; it is a bit
+    in a mask.
+
+    On its own it measured **0.658**, well over the bound, because taking that
+    much light out darkened the whole world and not just the shadows — mean
+    fell to 141.9 against the reference's 150.5. The level comes back through
+    **the sun and not the hemisphere**, and that choice is the whole point: the
+    sun is shadowed, so it restores the lit half of the frame and leaves the
+    dark half dark, where the hemisphere would have refilled exactly what had
+    just been won. Landed at 4.6 by measurement — 4.3 -> 0.534, 4.6 -> 0.531,
+    4.9 -> 0.567.
+
+    Everything improved together and the histogram barely moved, which is the
+    honest summary: this iteration bought **contrast and shadow**, not L1. The
+    frame now has a lit side and a dark side on every object in it, the
+    roadside ratio sits at 1.03 against a target of 1.00, and std went 37.1 ->
+    41.4 against the reference's 49.3.
+
+    Also corrected here: the comment iteration 24 left on `updateProjectionMatrix`
+    claimed no prop had ever shadowed the road. Iteration 25 disproved that and
+    the comment was still asserting it.
+
 ### The measurement was noisier than it was — fixed at iteration 12
 
 `makeRoadTexture` and `makeRoadWearTexture` both speckled with bare
@@ -797,15 +832,9 @@ threshold.
 8. **Traffic silhouettes.** Boxes at mid-distance beside a lofted hero. target2
    does **not** adjudicate this — its traffic is small and distant. Play
    evidence only. A middle detail tier for near traffic is the likely answer.
-9. **Roadside shadows are far too faint.** Not absent — iteration 25 measured
-   them at 2.34 and 4.89 luminance and added a check that holds the path
-   honest. The reference throws hard dark bands across the carriageway and
-   ours are invisible. First suspect is `fill`, the camera-side key light: it
-   casts no shadow, so it relights shadowed tarmac at full strength. Read its
-   comment in `SceneRig` before touching it — it exists because the hero is
-   permanently turned away from the sun and rendered as a black cut-out
-   without it. Deepening shadows also moves mid-tones, and iteration 23 showed
-   the histogram turns around before the contrast ratio does. Historic note:
+9. ~~**Roadside shadows are far too faint.**~~ **Done at iteration 26** — the
+   fill light was the cause and is now confined to the vehicles. Contrast
+   0.66 -> 0.77, dark pixels 0.49% -> 2.49%. Historic note:
    brought the sun down to 30 degrees. The barriers now rake across the
    carriageway, but the palms stand at roughly x=35 with the road edge near
    x=20, so a 1.7x-height shadow lands on the verge and stops. Either the palms

@@ -662,8 +662,30 @@ export function buildCar(opts: {
   return group;
 }
 
+/**
+ * Objects on this layer are additionally lit by the rig's camera-side fill.
+ *
+ * The fill exists for one reason — a chase camera means the only face of a car
+ * ever pointed at the player is the face permanently turned away from the sun —
+ * and it was never meant for anything else. Being a plain directional light it
+ * lit everything anyway, including every square metre of tarmac, at better than
+ * half the sun's intensity and casting no shadow. That is why the roadside
+ * shadows measured two to five luminance: they were being filled back in as
+ * fast as the sun cut them.
+ *
+ * Confining it to the vehicles gives the world its shadows back and leaves the
+ * cars exactly as readable as they were. Costs nothing per pixel; it is a bit
+ * in a mask.
+ */
+export const FILL_LAYER = 1;
+
+function litByFill(car: CarMesh): CarMesh {
+  car.traverse((o) => o.layers.enable(FILL_LAYER));
+  return car;
+}
+
 export function buildPlayerCar(def: CarDef): CarMesh {
-  return buildCar({
+  return litByFill(buildCar({
     profile: def.body,
     color: def.color,
     trim: def.trim,
@@ -671,7 +693,7 @@ export function buildPlayerCar(def: CarDef): CarMesh {
     isPlayer: true,
     headlights: true,
     detail: 'high',
-  });
+  }));
 }
 
 /** Long vehicles: a cab plus a body, rather than a stretched car. */
@@ -778,10 +800,10 @@ export function buildTrafficCar(kind: TrafficKind, colorRoll: number, detail: De
     Math.floor(colorRoll * TRAFFIC_PALETTE.length),
   )];
   const trim = 0x1c1c22;
-  if (kind === 'truck') return buildRig(color, 0xd5d8dd, false, detail);
-  if (kind === 'bus') return buildRig(0xc8531f, trim, true, detail);
+  if (kind === 'truck') return litByFill(buildRig(color, 0xd5d8dd, false, detail));
+  if (kind === 'bus') return litByFill(buildRig(0xc8531f, trim, true, detail));
   const profile = kind === 'coupe' ? 'coupe' : kind === 'suv' ? 'suv' : kind === 'van' ? 'van' : 'sedan';
-  return buildCar({ profile, color, trim, headlights: false, detail });
+  return litByFill(buildCar({ profile, color, trim, headlights: false, detail }));
 }
 
 /** Triangle count of a built vehicle, for the model budget gate. */

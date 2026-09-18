@@ -51,7 +51,15 @@ export const DAY_PALETTE: Record<DayPhase, Palette> = {
     stars: 0.18, clouds: 0.34, headlights: 1.4,
   },
   day: {
-    sunColor: 0xfff2dc, sunIntensity: 3.6,
+    /* Raised from 3.6 when the fill light was confined to the vehicles at
+     * iteration 26. That took better than half the scene's light away along
+     * with the flat it was laying over every shadow, so the level had to come
+     * back — and it comes back through the sun rather than the hemisphere on
+     * purpose. The sun is shadowed, so it restores the lit half of the frame
+     * and leaves the dark half dark; the hemisphere would have refilled
+     * exactly what had just been won. Landed by measurement: 4.3 -> 0.534,
+     * 4.6 -> 0.531, 4.9 -> 0.567. */
+    sunColor: 0xfff2dc, sunIntensity: 4.6,
     // skyBottom, not skyTop, is what a chase camera actually sees: the view
     // sits on the horizon, so the lower dome fills the frame and the zenith
     // barely appears. At 0xa8ccec that band rendered at luminance 199, which is

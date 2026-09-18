@@ -7,6 +7,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { GradeShader } from './GradeShader';
 import { SkyDome } from './SkyDome';
 import { resolveQuality, type QualitySettings } from './Quality';
+import { FILL_LAYER } from './CarFactory';
 
 /**
  * Renderer, camera, lighting and the post chain.
@@ -176,14 +177,18 @@ export class SceneRig {
      * else until the matrix is rebuilt — so the sun has been casting into a
      * ten-unit box around the car since the frustum was first written, which
      * is why no roadside prop has ever shadowed the road however the sun was
-     * angled. Iteration 11 lowered the sun to 30 degrees specifically to get
-     * long shadows and got none, and the failure was here rather than in the
-     * light. */
+     * angled — or so it looked. Iteration 25 measured it and found shadows had
+     * been reaching the road all along, just faintly, so this was a real bug
+     * hiding behind a merely weak result rather than the cause of it. The fix
+     * is correct either way and stays. */
     cam.updateProjectionMatrix();
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
 
     this.fill = new THREE.DirectionalLight(0xdce8ff, 1.5);
+    // Vehicles only. See FILL_LAYER in CarFactory for why this light has no
+    // business touching the road.
+    this.fill.layers.set(FILL_LAYER);
     this.fill.position.set(9, 7, 22);
     this.scene.add(this.fill);
     this.scene.add(this.fill.target);
