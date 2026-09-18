@@ -63,6 +63,11 @@ High tier, cruise row, unless stated.
 | 17 | `7c413aa` | **0.703** | 0.73 | 0.73 | 0.37 | 244/245 |
 | 18 | `75d3f61` | **0.690** | 0.72 | 0.74 | 0.37 | 244/245 |
 | 19 | `93f1997` | **0.634** | 0.79 | 0.72 | 0.11 | 244/245 |
+| 20 | `PENDING` | **0.615** | 0.79 | 0.71 | 0.11 | 244/245 |
+
+The probe's own reading of the same bound is now **0.579** and falling with it.
+The boost row at iteration 20 reads **0.564**. The 0.55 bound has stopped being
+theoretical.
 
 From iteration 17 on, a single run is enough: both harnesses are exactly
 reproducible, and repeated runs return the same digits.
@@ -444,6 +449,34 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     costing far more at 184-223 than it paid above 224 — but it means the
     highlight problem is no longer disguised.
 
+20. Asphalt albedo `#7a8090` -> `#7e8495`, re-landed a second time. Histogram
+    0.634 -> 0.615.
+
+    Iteration 19 took the sun's flare out and about six luminance off the whole
+    frame with it, which un-landed the carriageway: it had slipped below the
+    reference's peak into 128-143, where we held 8.8pp too much against a 6.2pp
+    shortfall in the peak itself. Same lesson as iteration 11, arriving from
+    the other direction — **this value tracks the illumination, and anything
+    that changes how much light is in the scene un-lands it.** Worth expecting
+    now rather than rediscovering: check the road after every lighting change.
+    The well is narrow as before, texture luminance 128 -> 0.634, 132 -> 0.615,
+    136 -> 0.648.
+
+    **The iteration's other half is a negative result, taken deliberately.**
+    Queue item 5 asked for highlights, and the obvious candidate was the cloud
+    crown that iteration 11 failed to lift. Conditions had genuinely changed —
+    cover was 0.28 then and is 0.07 now, and iteration 19 had established that
+    bloom is fine as long as what you feed it is small — so it was re-tested
+    rather than assumed. It failed again: 0.634 -> 0.668. The lift does reach
+    224-239 (0.0% -> 2.9%, 2.6%) and bright-pixel ratio recovers 0.11 -> 0.79,
+    but 200-223 inflates from 13.3pp to 24.5pp of excess, 144-151 falls as the
+    environment lift brightens everything, and **248-255 stays at 0.0% exactly
+    as it did at iteration 11** — the ACES asymptote does not care how small
+    the bright area is.
+
+    So the dome route to highlights is now falsified at both high and low
+    cover. Reverted. See queue item 5, rewritten.
+
 ### The measurement was noisier than it was — fixed at iteration 12
 
 `makeRoadTexture` and `makeRoadWearTexture` both speckled with bare
@@ -542,23 +575,26 @@ threshold.
    grade — that is a shipping feature the brief protects, and this is art in
    the dome.
 
-5. **Nothing in frame reaches 224 any more.** The reference holds 9.4% of its
-   pixels above that and we hold 0.0% — after iteration 19 this is the single
-   largest *deficit* in the residual, and unlike the dark end it is not obviously
-   geometry we lack.
+5. **Nothing in frame reaches 224, and the sky cannot supply it.** The
+   reference holds 9.4% of its pixels above that; we hold 0.0%. This is the
+   largest single deficit left.
 
-   Read iteration 11's finding before trying anything: brightening the sky dome
-   does not work, because the dome is the env-map source and a brighter cloud is
-   a brighter everything, and ACES asymptotes short of clipping whatever the
-   dome does. Iteration 19 then removed the one thing that *was* reaching those
-   bands, for a large net gain, so the flare is not the answer either.
+   **Three routes are now closed by measurement, so do not re-open them
+   casually:** lifting the cloud crown at high cover (iteration 11, 0.684 ->
+   0.715); the sun's flare, which did reach those bands and cost far more
+   elsewhere (iteration 19, removing it gained 0.056); and lifting the cloud
+   crown at low cover, re-tested on purpose at iteration 20 because the
+   conditions had changed, which failed the same way (0.634 -> 0.668).
 
-   What has never been tried is a **small, local** highlight — a specular glint
-   rather than a field. The reference's own blown pixels are exactly that: sun
-   on water, sun on a cloud edge, sun on chrome. Candidates are the sea we do
-   not have (see the scope question below), the hero's own bodywork, and the
-   cloud bank's lit edge as a rim term rather than a fill. Measure 144-151 and
-   224-255 together, as iteration 11 had to.
+   The through-line in all three is one fact: **248-255 never moves off 0.0%
+   whatever the dome does.** ACES asymptotes there. Anything that clips has to
+   arrive after the tone map or be a small enough area that its own bloom
+   carries it, and the dome is neither.
+
+   What the reference's blown pixels actually are: sun on water, sun on a
+   cumulus edge, sun on chrome. Two of those three we do not have the geometry
+   for — see the scope question below — and that may be the honest answer here.
+   If it is, say so rather than spending more iterations on the sky.
 
 6. **Contrast is 0.82**, having crossed from 1.30 at iteration 7 and recovered
    from 0.76 at iteration 10. The lower sun is what recovered it — raking light

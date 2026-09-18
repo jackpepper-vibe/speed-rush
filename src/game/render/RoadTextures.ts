@@ -77,7 +77,14 @@ export function makeRoadTexture(laneCount: number, repeatY: number): THREE.Textu
   // reference's peak into 104-135 and the histogram gave back most of what
   // iteration 7 had won. Raised to hold the same rendered band under the new
   // light, by the same method.
-  ctx.fillStyle = '#7a8090';
+  // Re-landed a second time at iteration 20, after iteration 19 took the sun's
+  // flare out and with it about six luminance off the whole frame. Same lesson
+  // as the sun-angle change at iteration 11, arriving from the other
+  // direction: this value tracks the illumination, and anything that changes
+  // how much light is in the scene un-lands it. The carriageway had slipped
+  // below the reference's peak into 128-143, where we held 8.8pp too much
+  // against a 6.2pp shortfall in the peak itself.
+  ctx.fillStyle = '#7e8495';
   ctx.fillRect(0, 0, W, H);
 
   // Aggregate speckle, and two darker wheel tracks per lane.
