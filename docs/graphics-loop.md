@@ -450,3 +450,43 @@ the number would be optimising the measurement against the brief.
 **Still basic, and not touched this pass:** cars carry no surface detail at all
 — no door lines, window frames, badges or plates, just coloured panels. That is
 the next real gap in this direction.
+
+### Iteration 52 — The cars had no surface (operator request)
+
+**Where the last pass left it.** Iteration 48 gave the six bodies genuinely
+different silhouettes and iteration 46 gave the rigs a rear end, but every car
+in the game was still one unbroken painted surface with lights stuck on it. An
+unbroken surface has no scale — nothing on it tells you whether you are looking
+at a car or a large toy — and that is most of what "very basic" means here.
+
+**Added, all on the tail, because that is the only surface a chase camera ever
+shows.**
+
+- **A number plate**, recessed in a dark surround. The strongest "this is a
+  car" cue available from directly behind: a small bright rectangle low on the
+  tail is something the eye has seen on every vehicle it has ever looked at.
+  Given to traffic as well as the player — you spend the run following traffic.
+- **A bumper shut line** across the full width of the tail.
+- **A boot shut** across the deck, a little forward of the tail. High detail
+  only.
+
+**Removed, deliberately, after building them.** Door shut lines and handles
+went in and came straight back out. `halfAt` returns the body's half-width at
+the *waist*, but a section here is a superellipse that draws in above and below
+it, so a strip placed at waist width stands off the bodywork everywhere else —
+the garage capture showed a black rod hanging in the air beside the car. Doing
+it properly means evaluating the section at the right height rather than
+guessing, and the entire flank is invisible from a chase camera. It would have
+been real work to be seen by nobody. Recorded here so the next pass does not
+rediscover the idea and repeat the first half of it.
+
+**Third instance of the same bug class, which is worth naming.** The flank
+strips were positioned from `p.hgt`, exactly as the spoilers were at iteration
+48 and the rear clusters still are. `p.hgt` scales the *box fallback* and the
+cabin, not the lofted shell — that takes its height from the station list plus
+`sill * 0.32`. Anything positioned against `p.hgt` on a lofted body is a guess
+that happens to be close. The new tail detail reads the stations instead.
+
+**Verification.** `iter_52_rear.png` is the hero and a traffic car from the
+chase camera, both showing plates; `iter_52_garage.png` is the roster.
+`npm run build` clean; `npm run probe` 253/253.

@@ -309,6 +309,25 @@ const INDICATOR = new THREE.MeshStandardMaterial({
   color: 0x6a3403, emissive: 0xff8c1a, emissiveIntensity: 0.5, roughness: 0.34,
 });
 
+/**
+ * A number plate, and the reason it is worth a material of its own.
+ *
+ * It is the single strongest "this is a car" cue available from directly
+ * behind, which is the only angle this game has. A small bright rectangle low
+ * on the tail is something the eye has seen on every vehicle it has ever
+ * looked at, and its absence is a large part of why these bodies read as
+ * coloured shapes. Faintly emissive so it still separates from the paint in
+ * the shadow a car casts on its own tail.
+ */
+const PLATE = new THREE.MeshStandardMaterial({
+  color: 0xf2efe2, emissive: 0xf2efe2, emissiveIntensity: 0.12, roughness: 0.5,
+});
+
+/** Panel gaps, shut lines and handles: near-black, barely reflective. */
+const SHUTLINE = new THREE.MeshStandardMaterial({
+  color: 0x0a0b0e, roughness: 0.85, metalness: 0, envMapIntensity: 0.15,
+});
+
 const paintCache = new Map<number, THREE.MeshPhysicalMaterial>();
 
 /**
@@ -804,6 +823,72 @@ export function buildCar(opts: {
     const lip = new THREE.Mesh(bevel(p.wid * 0.86, 0.06, 0.16, 0.025, 1), trimMat);
     lip.position.set(0, deckTop + 0.03, tailZ - 0.1);
     group.add(lip);
+  }
+
+  /*
+   * Surface detail: the things that make a panel a panel.
+   *
+   * Up to here a car has been a silhouette with lights on it. Every body in
+   * the game is one unbroken painted surface from nose to tail, and an
+   * unbroken surface has no scale — nothing on it tells you whether you are
+   * looking at a car or a large toy. What supplies that is the small stuff a
+   * real car is covered in: a plate, a gap where the boot lid meets the wing,
+   * a line under the bumper, a handle.
+   *
+   * All of it on the tail and the flanks, because those are the only surfaces
+   * a chase camera ever shows. Nothing is added to the bonnet, which the
+   * player has never once seen.
+   */
+  {
+    /** Half-width of the lofted body at a point along its length. */
+    const halfAt = (t: number): number => {
+      if (!st) return p.wid / 2;
+      let lo = st[0];
+      let hi = st[st.length - 1];
+      for (let i = 0; i < st.length - 1; i++) {
+        if (st[i].t <= t && st[i + 1].t >= t) { lo = st[i]; hi = st[i + 1]; }
+      }
+      const span = hi.t - lo.t || 1;
+      const k = THREE.MathUtils.clamp((t - lo.t) / span, 0, 1);
+      return (lo.halfWidth + (hi.halfWidth - lo.halfWidth) * k) * (p.wid / 2);
+    };
+    const tailLow = bodyLift + (st ? st[st.length - 1].yBottom : sill);
+    const tailHigh = deckTop;
+    const tailSpan = Math.max(0.2, tailHigh - tailLow);
+
+    // The plate, low and central on the tail, in a recessed surround.
+    const plateW = Math.min(p.wid * 0.3, halfAt(1) * 0.72);
+    const recess = new THREE.Mesh(bevel(plateW + 0.07, 0.19, 0.05, 0.02, 1), SHUTLINE);
+    recess.position.set(0, tailLow + tailSpan * 0.3, tailZ + 0.015);
+    group.add(recess);
+    const plate = new THREE.Mesh(box(plateW, 0.125, 0.03), PLATE);
+    plate.position.set(0, tailLow + tailSpan * 0.3, tailZ + 0.045);
+    group.add(plate);
+
+    // The line where the bumper meets the body, across the full tail.
+    const bumperLine = new THREE.Mesh(box(halfAt(1) * 1.75, 0.035, 0.03), SHUTLINE);
+    bumperLine.position.set(0, tailLow + tailSpan * 0.12, tailZ + 0.02);
+    group.add(bumperLine);
+
+    if (detail === 'high') {
+      // Boot shut: across the deck, a little forward of the tail.
+      const bootLine = new THREE.Mesh(box(halfAt(0.82) * 1.7, 0.03, 0.035), SHUTLINE);
+      bootLine.position.set(0, deckTop + 0.01, tailZ - p.len * 0.09);
+      group.add(bootLine);
+
+      /* No door shut lines and no handles, and that is a decision rather than
+       * an omission.
+       *
+       * Both were built and both were wrong: `halfAt` gives the half-width at
+       * the *waist*, but a section here is a superellipse that draws in above
+       * and below it, so a strip placed at the waist width stands off the
+       * bodywork everywhere else. The garage capture showed a black rod
+       * hanging in the air beside the car. Putting them on the surface
+       * properly means evaluating the section at the right height, not
+       * guessing at it — and the whole flank is invisible from a chase camera,
+       * so the correct version would cost real work to be seen by nobody. The
+       * tail detail above is where the player is actually looking. */
+    }
   }
 
   /*
