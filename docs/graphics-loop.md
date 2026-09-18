@@ -507,7 +507,9 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     thing you are about to measure.
 
     Honest reading at iteration 20's code state: **0.563**, against the 0.55
-    bound. The gate did not pass. It is close.
+    bound — confirmed on three runs, 0.563 each, no resample warning on any.
+    The gate did not pass. It is **0.013 away**, which is the closest this loop
+    has been, and close enough that the next art change could decide it.
 
 ### The measurement was noisier than it was — fixed at iteration 12
 
