@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { GameContext, Manager } from '@/core/Manager';
 import type { BiomeId, DayPhase, WeatherId } from '@/core/GameEvents';
 import { WORLD } from '@/game/config/Balance';
+import { setCoastLookup } from '@/game/world/RoadGeometry';
 import {
   BIOME_TINT, DAY_PALETTE, PHASE_ORDER, WEATHER, blendPalette, blendTint, mixHex,
   type BiomeTint, type Palette,
@@ -117,6 +118,7 @@ export class WorldManager implements Manager {
   ) {}
 
   init(): void {
+    this.installCoastLookup();
     this.buildRain();
     // The route is a function of the seed, so it has to be told the seed.
     this.ctx.bus.on('run:start', ({ seed }) => {
@@ -186,6 +188,17 @@ export class WorldManager implements Manager {
    * Public because the scenery needs to dress the road ahead of the car as the
    * road ahead rather than as where the car is standing.
    */
+  /**
+   * Hand the ground profile a way to ask where the coast is.
+   *
+   * Called from `init` rather than the constructor because the route seed is
+   * settled by then, and bound to this manager so a reseeded route reshapes the
+   * shoreline with it.
+   */
+  private installCoastLookup(): void {
+    setCoastLookup((distance) => this.biomeAtDistance(distance) === 'coast');
+  }
+
   biomeAtDistance(distance: number): BiomeId {
     if (this.pinned?.biome) return this.pinned.biome;
     return biomeAtIndex(this.routeSeed, Math.floor(distance / WORLD.biomeLength));
@@ -367,6 +380,14 @@ export class WorldManager implements Manager {
       mixHex(tint.ground, palette.fogColor, 0.28 + palette.stars * 0.4),
       tint.groundRoughness,
     );
+
+    /* Water only where there is a coast to have one.
+     *
+     * Keyed on the biome under the car rather than on the crossfade, because
+     * a sea that fades up as you approach a boundary would appear out of open
+     * desert. It arrives at the boundary the way the ground does, and the fog
+     * takes care of the far end. */
+    this.road.setSeaVisible(this.biomeAtDistance(distance) === 'coast');
 
     // Headlights come on for the dark and for bad weather, whichever is worse.
     const lights = Math.max(palette.headlights, weather.rain * intensity * 2.2, this.inTunnel ? 3 : 0);

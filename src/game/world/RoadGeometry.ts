@@ -58,7 +58,50 @@ export function hillAt(distance: number): number {
 const RELIEF_INNER = 96;
 const RELIEF_RAMP = 110;
 
+/**
+ * Whether the road at a given distance runs along a coast.
+ *
+ * Injected rather than imported: the ground profile has to know what biome it
+ * is in, and `WorldManager` already knows, but this module is underneath it and
+ * a cycle here would drag the whole world into the geometry. Set once at
+ * composition, the way the car factory takes its level of detail.
+ *
+ * Distance-keyed rather than a boolean flag, which is what makes the shoreline
+ * arrive at the boundary instead of under the camera: `setStart` re-samples
+ * relief at each row's own absolute distance every time a strip recycles, so a
+ * segment half in the desert and half on the coast gets both profiles and the
+ * beach begins exactly where the biome does.
+ */
+let coastAt: (distance: number) => boolean = () => false;
+
+export function setCoastLookup(fn: (distance: number) => boolean): void {
+  coastAt = fn;
+}
+
+/** How far the beach falls before it is safely under the water. */
+const SHORE_DROP = 9;
+const SHORE_RAMP = 130;
+
 export function groundReliefAt(lateral: number, distance: number): number {
+  /* Seaward of a coastal road the ground goes down, not up.
+   *
+   * The hills below are what a horizon needs everywhere else, and they are
+   * exactly wrong here — a sea laid over them is pierced by every ridge, which
+   * is what the first attempt at this looked like. One side only: water on
+   * both sides is a causeway, and the reference is a boulevard with a city
+   * behind it.
+   */
+  if (lateral > 0 && coastAt(distance)) {
+    const out = lateral - RELIEF_INNER;
+    if (out <= 0) return 0;
+    const t = Math.min(1, out / SHORE_RAMP);
+    // Eased, so the verge rolls into the beach rather than breaking at a line.
+    const ramp = t * t * (3 - 2 * t);
+    // A little swell near the waterline, fading out as the ground submerges.
+    const ripple = Math.sin(distance * 0.021 + lateral * 0.013) * 0.8 * (1 - ramp);
+    return -SHORE_DROP * ramp + ripple;
+  }
+
   const out = Math.abs(lateral) - RELIEF_INNER;
   if (out <= 0) return 0;
 

@@ -76,6 +76,7 @@ High tier, cruise row, unless stated.
 | 30 | `57726ae` | 0.531 | 1.03 | 0.77 | 0.06 | 246/246 |
 | 31 | `7775fe0` | 0.531 | 1.03 | 0.77 | 0.06 | 246/246 |
 | 32 | `dc3d4c8` | 0.531 | 1.03 | 0.77 | 0.06 | **247/247** |
+| 33 | `PENDING` | **0.517** | 1.06 | 0.78 | 0.06 | 247/247 |
 
 From iteration 25 the probe has **246** checks, not 245. The new one asserts
 that something beside the road darkens it.
@@ -888,6 +889,39 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     never been seen to fail is a hypothesis.** `roadside-casts-onto-road` at
     iteration 25 passed on first run too, and that told us something real. This
     one passing on first run told us nothing until it was deliberately broken.
+
+33. **The coast has a coast.** Sea strips on the seaward side of the road, and a
+    beach profile for the ground to meet them on. Histogram 0.531 -> 0.517, and
+    for once that is beside the point: this is the first iteration in
+    thirty-three to put something in the frame that was not there before.
+
+    Two pieces. `RoadManager` builds a flat water strip per segment out to 1900
+    units, one side only — water on both sides is a causeway, and the reference
+    is a boulevard with a city behind it. And `groundReliefAt` now takes a
+    beach: seaward of a coastal road the ground falls to -9 over 130 units
+    instead of rising into hills.
+
+    **The first attempt shipped nothing visible and the reason is worth
+    keeping.** A sea laid at -2.4 beyond ground that runs to 420 is simply
+    behind a hill — relief amplitude grows with distance from the road and is
+    already +/-32 out there, so every ridge pierced the water and the ground
+    hid the rest. Triangles and draw calls both went up and the frame was
+    identical. Water needs somewhere to *be*, and that is a ground profile, not
+    a plane laid on top of one.
+
+    The shoreline is keyed on distance rather than a flag. `RoadStrip.setStart`
+    re-samples relief at each row's own absolute distance every time a strip
+    recycles, so a segment straddling a boundary gets both profiles and the
+    beach begins exactly where the biome does — no pop, and nothing to
+    crossfade.
+
+    Cost: high tier 373923 -> 376731 tris, draws 963 -> 989. Low tier
+    136402 -> 139210 and 622 -> 648, no context loss. The water is one material
+    and the strips recycle with the road, so it allocates nothing per frame.
+
+    Still thin: the sea reads as a band on the right rather than the open water
+    the reference has, and there is no skyline or marina yet. Those are the
+    rest of operator item 0.
 
 ### The measurement was noisier than it was — fixed at iteration 12
 

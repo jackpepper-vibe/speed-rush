@@ -56,6 +56,32 @@ const GROUND_COLUMNS: readonly number[] = (() => {
   return [...half.slice(1).reverse().map((x) => -x), ...half];
 })();
 
+/**
+ * The sea, on the seaward side of a coastal road.
+ *
+ * Columns start where the ground ends and run far enough out that the water
+ * meets the sky rather than ending in a visible edge — at a chase camera's
+ * height the horizon is a long way off, and a sea that stops short reads as a
+ * swimming pool. Spacing widens with distance because nothing out there needs
+ * resolution; what it needs is to still be there.
+ *
+ * Flat, with no relief function, because that is what water is. The ground
+ * beside it keeps its relief, so the join reads as a shoreline rather than as
+ * two planes meeting.
+ */
+const SEA_COLUMNS: readonly number[] = [
+  150, 190, 240, 310, 420, 560, 760, 1050, 1450, 1900,
+];
+/**
+ * Sea level, against a beach that reaches -9 by the time it is 130 out.
+ *
+ * The waterline is wherever the two cross, which is a shoreline that bends
+ * with the road because the beach is sampled per vertex along it. Set this
+ * higher and the sea climbs the beach toward the barrier; lower and it
+ * retreats.
+ */
+const SEA_HEIGHT = -2.4;
+
 /** Height of the barrier post, and how many stand in one segment. */
 const BARRIER_TOP = 1.02;
 const POSTS_PER_SEGMENT = 8;
@@ -114,6 +140,16 @@ export class RoadManager implements Manager {
    * as correct as a narrow one and costs two triangles a row.
    */
   private groundMat!: THREE.MeshStandardMaterial;
+  /**
+   * The water, and every mesh of it so the biome can hide them together.
+   *
+   * Hidden rather than rebuilt when the road leaves the coast: a sea is a few
+   * hundred triangles and toggling `visible` costs nothing, where tearing the
+   * strips down and putting them back would mean a hitch at exactly the moment
+   * the player is crossing a boundary and looking at the scenery.
+   */
+  private seaMat!: THREE.MeshStandardMaterial;
+  private readonly seaMeshes: THREE.Mesh[] = [];
 
   constructor(private readonly ctx: GameContext) {}
 
@@ -172,10 +208,21 @@ export class RoadManager implements Manager {
     const groundTex = makeGroundTexture();
     this.textures.push(groundTex);
     // The map is greyscale and the biome sets the colour, which multiplies it.
+    /* Water is mostly a mirror, so almost all of what makes it read is the
+     * environment map — the sky it reflects rather than the colour it is. The
+     * low roughness is what gives the sun a specular track across it, which is
+     * also the first thing in this scene ever to reach the top of the
+     * histogram: the reference's blown pixels are sun on water, and iteration
+     * 27 closed that gap as unreachable through the sky precisely because the
+     * geometry to carry it did not exist yet. */
+    this.seaMat = new THREE.MeshStandardMaterial({
+      color: 0x1d6f8a, roughness: 0.14, metalness: 0.32, envMapIntensity: 1.8,
+    });
+
     this.groundMat = new THREE.MeshStandardMaterial({
       map: groundTex, color: 0x4a5240, roughness: 0.96,
     });
-    this.materials.push(roadMat, shoulderMat, barrierMat, postMat, this.groundMat);
+    this.materials.push(roadMat, shoulderMat, barrierMat, postMat, this.groundMat, this.seaMat);
 
     /* One post geometry, instanced per segment per side. */
     const postGeo = new THREE.BoxGeometry(0.12, BARRIER_TOP, 0.2);
@@ -193,6 +240,22 @@ export class RoadManager implements Manager {
       groundMesh.receiveShadow = true;
       group.add(groundMesh);
       strips.push(ground);
+
+      /* The sea, outboard of the ground on one side only.
+       *
+       * One side, because a road with water on both sides is a causeway and
+       * the reference is a boulevard with a city behind it. It receives no
+       * shadow — nothing stands over open water, and asking a plane that
+       * reaches two thousand units to sit inside the sun's shadow frustum
+       * would push that frustum wide enough to make every other shadow in the
+       * scene coarse.
+       */
+      const sea = RoadStrip.flat(SEA_COLUMNS, L, ROWS, SEA_HEIGHT);
+      const seaMesh = new THREE.Mesh(sea.geometry, this.seaMat);
+      seaMesh.receiveShadow = false;
+      group.add(seaMesh);
+      strips.push(sea);
+      this.seaMeshes.push(seaMesh);
 
       // Tarmac: columns at the lane boundaries so the texture stretches evenly.
       const laneCols: number[] = [];
@@ -286,6 +349,11 @@ export class RoadManager implements Manager {
   }
 
   /** Tint the ground to the biome it runs through. */
+  /** Show or hide the water. Driven by the biome. */
+  setSeaVisible(visible: boolean): void {
+    for (const mesh of this.seaMeshes) mesh.visible = visible;
+  }
+
   setGroundColour(hex: number, roughness: number): void {
     this.groundMat.color.setHex(hex);
     this.groundMat.roughness = roughness;
