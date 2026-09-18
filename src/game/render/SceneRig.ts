@@ -307,6 +307,23 @@ export class SceneRig {
     return this.scene.environment !== null;
   }
 
+  /**
+   * Turn shadow casting off and on, for the gate.
+   *
+   * The probe cannot assert that a palm darkens the road by looking at one
+   * frame — a dark band might be the prop's own geometry, a texture, or the
+   * contact decal under the hero. The only honest test is a difference: sample
+   * the same tarmac twice with nothing changed but this, and see whether the
+   * pixels move. Nothing in play calls it; the tier decides shadows and this
+   * does not overrule it on the way back up.
+   */
+  setShadowsEnabled(enabled: boolean): void {
+    const on = enabled && this.quality.shadows;
+    this.renderer.shadowMap.enabled = on;
+    this.sun.castShadow = on;
+    this.renderer.shadowMap.needsUpdate = true;
+  }
+
   setBloom(strength: number, radius: number, threshold: number): void {
     if (!this.quality.bloom) return;
     this.bloom.strength = strength;

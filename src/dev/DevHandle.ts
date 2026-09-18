@@ -162,6 +162,12 @@ export interface DevHandle {
    */
   sampleFrame(rects: Record<string, RegionRect>): Record<string, RegionSample>;
   /**
+   * Toggle shadow casting, so the gate can measure it by difference.
+   *
+   * Never re-enables shadows on a tier that does not have them.
+   */
+  setShadows(enabled: boolean): void;
+  /**
    * Show or hide the player's contact shadow.
    *
    * The gate needs this for the same reason it needs the effect toggles: where
@@ -362,6 +368,10 @@ export function installDevHandle(game: Game, version: string): DevHandle {
     setContactShadowVisible(visible) {
       const shadow = game.player.mesh.userData.contactShadow;
       if (shadow) shadow.visible = visible;
+    },
+
+    setShadows(enabled) {
+      game.rig.setShadowsEnabled(enabled);
     },
 
     sampleFrame(rects) {

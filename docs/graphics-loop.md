@@ -67,7 +67,11 @@ High tier, cruise row, unless stated.
 | 21 | `a538ecd` | 0.615 | 0.79 | 0.71 | 0.11 | 244/245 |
 | 22 | `dfb2c24` | **0.535** | 0.90 | 0.65 | 0.05 | **245/245** |
 | 23 | `7c7f5cd` | **0.534** | 0.90 | 0.66 | — | **245/245 x3** |
-| 24 | `ab8e7ca` | **0.532** | 0.91 | 0.66 | — | pending |
+| 24 | `ab8e7ca` | **0.532** | 0.91 | 0.66 | — | **245/245** |
+| 25 | `PENDING` | 0.532 | 0.91 | 0.66 | — | **246/246** |
+
+From iteration 25 the probe has **246** checks, not 245. The new one asserts
+that something beside the road darkens it.
 
 **Iteration 22 is the first time the histogram bound has been met on
 `compare.mjs`.** Cruise 0.535 and boost 0.506 against a bound of 0.55, with
@@ -631,6 +635,35 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     shadow onto the road**, which is how this survived 245 checks; adding one
     would have caught it and is the obvious companion fix.
 
+25. `render/roadside-casts-onto-road`, and a `setShadows` toggle for it to work
+    through. No art change.
+
+    **It passes, which means iteration 24 was wrong.** Shadows do reach the
+    road: turning the shadow map off raises the road's mean luminance by
+    **2.34** on the left strip and **4.89** on the right. They were there the
+    whole time and too faint to see, and "I cannot see it in the screenshot"
+    got written into this file as "nothing casts onto the road". That is the
+    lesson worth keeping — **a negative read off an image is a hypothesis, not
+    a measurement**, and this loop has a measuring tool for exactly this.
+
+    Measured by difference on purpose. One frame cannot distinguish a cast
+    shadow from the prop's own dark geometry, from a texture, or from the
+    contact decal under the hero; two frames with nothing changed but the
+    shadow map can. Threshold 1.5 luminance, comfortably under the 2.34 the
+    weaker strip actually delivers, so the check fails when the path breaks
+    rather than when the art is merely soft.
+
+    The real gap is strength, not existence. The reference throws hard dark
+    bands across the carriageway; 2 to 5 luminance is invisible. The fill light
+    is the obvious suspect — it casts no shadow by design, so it lights
+    shadowed tarmac at full strength — but it exists to stop the hero reading
+    as a black cut-out, which is a documented decision and not one to undo
+    casually. That is the next art item.
+
+    Iteration 24's `updateProjectionMatrix()` fix is also re-read by this: it
+    was inert because the frustum was never the blocker either. It stays,
+    still correct.
+
 ### The measurement was noisier than it was — fixed at iteration 12
 
 `makeRoadTexture` and `makeRoadWearTexture` both speckled with bare
@@ -764,13 +797,15 @@ threshold.
 8. **Traffic silhouettes.** Boxes at mid-distance beside a lofted hero. target2
    does **not** adjudicate this — its traffic is small and distant. Play
    evidence only. A middle detail tier for near traffic is the likely answer.
-9. **Nothing casts a shadow onto the road at all, and the cause is still
-   unfound.** Iteration 24 ruled out the obvious candidates — see entry 24 for
-   the full list of what is already known good, and for the one real bug it did
-   find and fix without effect. Start by asserting in the probe that the road
-   has a dark band under a prop at a known sun angle; a check that fails is
-   worth more here than another guess. Superseded note follows: **Roadside
-   props still do not shadow the road**, even after iteration 11
+9. **Roadside shadows are far too faint.** Not absent — iteration 25 measured
+   them at 2.34 and 4.89 luminance and added a check that holds the path
+   honest. The reference throws hard dark bands across the carriageway and
+   ours are invisible. First suspect is `fill`, the camera-side key light: it
+   casts no shadow, so it relights shadowed tarmac at full strength. Read its
+   comment in `SceneRig` before touching it — it exists because the hero is
+   permanently turned away from the sun and rendered as a black cut-out
+   without it. Deepening shadows also moves mid-tones, and iteration 23 showed
+   the histogram turns around before the contrast ratio does. Historic note:
    brought the sun down to 30 degrees. The barriers now rake across the
    carriageway, but the palms stand at roughly x=35 with the road edge near
    x=20, so a 1.7x-height shadow lands on the verge and stops. Either the palms

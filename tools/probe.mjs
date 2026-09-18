@@ -2432,6 +2432,40 @@ phase = 'render-quality';
       `of its edge energy with the blur on, want > 75% — the car must stay readable`);
   }
 
+  /* -- does anything cast onto the road ------------------------------------
+   * Measured by difference, because a single frame cannot tell a cast shadow
+   * from the prop's own dark geometry, from a texture, or from the contact
+   * decal under the hero. Sample the same tarmac twice with nothing changed
+   * but the shadow map, and the pixels either move or they do not.
+   *
+   * This check exists because they did not, and 245 others never noticed:
+   * iteration 11 lowered the sun to 30 degrees to get raking shadows,
+   * iteration 24 brought the palms to the kerb and repaired a shadow frustum
+   * that had been stuck at ten units, and the road stayed exactly as bright.
+   * A gate that cannot see its own blind spot keeps certifying it. */
+  {
+    const roadStrips = {
+      left: [0.10, 0.60, 0.40, 0.78],
+      right: [0.60, 0.60, 0.90, 0.78],
+    };
+    const cast = await hero.evaluate(async (rects) => {
+      const cr = window.carRacer;
+      cr.setShadows(true);
+      const withShadows = cr.sampleFrame(rects);
+      cr.setShadows(false);
+      const without = cr.sampleFrame(rects);
+      cr.setShadows(true);
+      return { withShadows, without };
+    }, roadStrips);
+
+    const delta = (k) => cast.without[k].mean - cast.withShadows[k].mean;
+    const best = Math.max(delta('left'), delta('right'));
+    check('render', 'roadside-casts-onto-road', best > 1.5,
+      `turning the shadow map off changes the road's mean luminance by at most ` +
+      `${best.toFixed(2)} (left ${delta('left').toFixed(2)}, right ${delta('right').toFixed(2)}), ` +
+      `want > 1.5 — below that nothing beside the road is darkening it`);
+  }
+
   /* -- the reference -------------------------------------------------------
    * Skipped, never passed, when the target image is absent. A comparative
    * score with nothing to compare against is not a pass, and treating it as
