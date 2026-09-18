@@ -61,7 +61,7 @@ High tier, cruise row, unless stated.
 
 | 16 | `069aefc` | 0.734 | 0.75 | 0.75 | 0.42 | 244/245 |
 | 17 | `7c413aa` | **0.703** | 0.73 | 0.73 | 0.37 | 244/245 |
-| 18 | `PENDING` | **0.690** | 0.72 | 0.74 | 0.37 | 244/245 |
+| 18 | `75d3f61` | **0.690** | 0.72 | 0.74 | 0.37 | 244/245 |
 
 From iteration 17 on, a single run is enough: both harnesses are exactly
 reproducible, and repeated runs return the same digits.
