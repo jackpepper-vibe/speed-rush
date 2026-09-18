@@ -296,6 +296,19 @@ const LAMP = new THREE.MeshStandardMaterial({
   color: 0xfff6e0, emissive: 0xfff0cc, emissiveIntensity: 2.2, roughness: 0.25,
 });
 
+/**
+ * The amber half of a rear light cluster.
+ *
+ * Lit far more gently than `LAMP` and never switched: it is not a signal here,
+ * it is the second colour that makes a cluster look like an assembly of parts
+ * rather than one red tile. Traffic spends most of its life not braking, so
+ * without it the back of a rig carries no lit detail at all for most of the
+ * time it is on screen.
+ */
+const INDICATOR = new THREE.MeshStandardMaterial({
+  color: 0x6a3403, emissive: 0xff8c1a, emissiveIntensity: 0.5, roughness: 0.34,
+});
+
 const paintCache = new Map<number, THREE.MeshPhysicalMaterial>();
 
 /**
@@ -774,6 +787,144 @@ export function buildPlayerCar(def: CarDef): CarMesh {
   }));
 }
 
+/**
+ * The back of a long vehicle.
+ *
+ * A truck or a bus is the one traffic model a player never sees any other part
+ * of. The chase camera sits behind and below; by the time a rig is close
+ * enough to read, its cab, its stacks, its grille and all three of its axles
+ * are hidden behind its own trailer, and what is actually on screen is the
+ * rear face and nothing else. Iteration 45 called item 5 finished on the
+ * strength of a sedan and a van seen from behind at an angle, and a capture of
+ * a truck settled it: a 2.7-by-3 slab of flat colour with two tail lights the
+ * size of a thumbnail at the bottom of it. That is the "placeholder coloured
+ * box" the backlog item exists to remove — it was merely a large one.
+ *
+ * Everything here is therefore spent on one plane. Door leaves with a sealed
+ * split, a light cluster big enough to have parts, an underrun bar standing
+ * off the floor on brackets, mudflaps and a row of marker lamps: each is a
+ * horizontal or vertical line across that slab, which is what a silhouette
+ * needs to stop being a rectangle. The trailer itself is untouched.
+ */
+function addRigRear(
+  group: CarMesh,
+  wid: number,
+  /** Z of the rear face, and the Y span of the body standing on it. */
+  rearZ: number,
+  floorY: number,
+  roofY: number,
+  isBus: boolean,
+  trimMat: THREE.Material,
+  brakeMat: THREE.Material,
+  detail: Detail,
+): void {
+  const hi = detail === 'high';
+  const height = roofY - floorY;
+  const midY = (floorY + roofY) / 2;
+
+  if (isBus) {
+    /* A rear screen and an engine hatch under it. Both are large and both run
+     * across the full width, which is what separates the back of a bus from
+     * the back of a box at forty metres. */
+    const screen = new THREE.Mesh(box(wid * 0.78, height * 0.34, 0.06), GLASS);
+    screen.position.set(0, roofY - height * 0.27, rearZ + 0.03);
+    group.add(screen);
+
+    const hatch = new THREE.Mesh(box(wid * 0.66, height * 0.22, 0.07), trimMat);
+    hatch.position.set(0, floorY + height * 0.33, rearZ + 0.035);
+    group.add(hatch);
+
+    // Louvres. A hatch with no openings is a panel; the slats say engine.
+    const slats = hi ? 4 : 2;
+    for (let i = 0; i < slats; i++) {
+      const slat = new THREE.Mesh(box(wid * 0.58, 0.05, 0.03), GRILLE);
+      slat.position.set(0, floorY + height * (0.26 + i * 0.045), rearZ + 0.075);
+      group.add(slat);
+    }
+  } else {
+    /* Two door leaves standing proud of the face, with the seal between them
+     * cut in cavity black. The split is the single most useful line on the
+     * whole vehicle: it halves the widest flat area in the frame. */
+    const doorW = wid / 2 - 0.06;
+    const doorH = height * 0.92;
+    for (const sx of [-1, 1]) {
+      const leaf = new THREE.Mesh(box(doorW, doorH, 0.05), trimMat);
+      leaf.position.set(sx * (doorW / 2 + 0.04), midY, rearZ + 0.03);
+      group.add(leaf);
+    }
+    const seal = new THREE.Mesh(box(0.08, doorH, 0.08), CAVITY);
+    seal.position.set(0, midY, rearZ + 0.02);
+    group.add(seal);
+
+    // Hinge columns down both outer edges, and the locking bars across.
+    for (const sx of [-1, 1]) {
+      const hinge = new THREE.Mesh(box(0.09, doorH * 0.98, 0.09), GRILLE);
+      hinge.position.set(sx * (wid / 2 - 0.06), midY, rearZ + 0.025);
+      group.add(hinge);
+    }
+    if (hi) {
+      for (const y of [midY - doorH * 0.28, midY + doorH * 0.28]) {
+        const bar = new THREE.Mesh(box(wid * 0.9, 0.06, 0.04), GRILLE);
+        bar.position.set(0, y, rearZ + 0.07);
+        group.add(bar);
+      }
+    }
+
+    /* Marker lamps along the top edge. Small, but a row of bright points on a
+     * dark edge survives fog and distance better than any amount of surface
+     * detail below it. */
+    const lamps = hi ? 5 : 3;
+    for (let i = 0; i < lamps; i++) {
+      const lamp = new THREE.Mesh(box(0.1, 0.07, 0.05), LAMP);
+      lamp.position.set((i / (lamps - 1) - 0.5) * wid * 0.72, roofY - 0.06, rearZ + 0.04);
+      group.add(lamp);
+    }
+  }
+
+  /* Light clusters, an order of magnitude bigger than the pair they replace
+   * and built as a housing with two lenses rather than one red tile. The lower
+   * amber is what makes the cluster read as a cluster when the brake lamp is
+   * not lit — which, on traffic that mostly is not braking, is most of the
+   * time. */
+  const clusterY = floorY + 0.28;
+  for (const sx of [-1, 1]) {
+    const housing = new THREE.Mesh(box(0.46, 0.5, 0.1), GRILLE);
+    housing.position.set(sx * wid * 0.34, clusterY, rearZ + 0.04);
+    group.add(housing);
+
+    const stop = new THREE.Mesh(box(0.34, 0.19, 0.06), brakeMat);
+    stop.position.set(sx * wid * 0.34, clusterY + 0.12, rearZ + 0.09);
+    group.add(stop);
+
+    const indicator = new THREE.Mesh(box(0.34, 0.15, 0.06), INDICATOR);
+    indicator.position.set(sx * wid * 0.34, clusterY - 0.13, rearZ + 0.09);
+    group.add(indicator);
+  }
+
+  /* The underrun bar, standing off the floor on two brackets.
+   *
+   * Structurally the most valuable thing on this list: it puts a horizontal
+   * line and a band of daylight *below* the body, so the vehicle stops meeting
+   * the road along one unbroken edge and starts standing on a chassis.
+   */
+  const barY = floorY - 0.22;
+  const bar = new THREE.Mesh(box(wid * 0.86, 0.14, 0.12), GRILLE);
+  bar.position.set(0, barY, rearZ - 0.04);
+  group.add(bar);
+  for (const sx of [-1, 1]) {
+    const bracket = new THREE.Mesh(box(0.1, 0.3, 0.1), GRILLE);
+    bracket.position.set(sx * wid * 0.3, barY + 0.2, rearZ - 0.04);
+    group.add(bracket);
+  }
+
+  // Mudflaps, hung behind the rearmost axle and clear of the bar.
+  for (const sx of [-1, 1]) {
+    const flap = new THREE.Mesh(box(0.52, 0.42, 0.03), RUBBER);
+    flap.position.set(sx * (wid / 2 - 0.34), floorY - 0.34, rearZ - 0.62);
+    group.add(flap);
+  }
+}
+
 /** Long vehicles: a cab plus a body, rather than a stretched car. */
 function buildRig(color: number, trim: number, isBus: boolean, detail: Detail): CarMesh {
   const group = new THREE.Group() as CarMesh;
@@ -785,11 +936,21 @@ function buildRig(color: number, trim: number, isBus: boolean, detail: Detail): 
   const wid = 2.66;
   const seg = detail === 'high' ? 2 : 1;
 
+  /* The rear face, and the vertical extent of whatever stands on it. Captured
+   * from the body that owns it rather than recomputed, so `addRigRear` cannot
+   * drift out of step with the shell it is dressing. */
+  let rearZ: number;
+  let floorY: number;
+  let roofY: number;
+
   if (isBus) {
     const shell = new THREE.Mesh(tapered(wid, 2.95, len, 0.96, 0.99, 0.16, seg), body);
     shell.position.y = 1.95;
     shell.castShadow = true;
     group.add(shell);
+    rearZ = len / 2;
+    floorY = shell.position.y - 2.95 / 2;
+    roofY = shell.position.y + 2.95 / 2;
 
     const band = new THREE.Mesh(bevel(wid * 1.004, 0.95, len * 0.86, 0.1, 1), GLASS);
     band.position.y = 2.55;
@@ -812,6 +973,9 @@ function buildRig(color: number, trim: number, isBus: boolean, detail: Detail): 
     trailer.position.set(0, 2.35, 1.5);
     trailer.castShadow = true;
     group.add(trailer);
+    rearZ = trailer.position.z + (len - 3.4) / 2;
+    floorY = trailer.position.y - 3 / 2;
+    roofY = trailer.position.y + 3 / 2;
 
     // Stacks and a grille, so the front of a truck is not a blank slab.
     for (const sx of [-1, 1]) {
@@ -829,11 +993,7 @@ function buildRig(color: number, trim: number, isBus: boolean, detail: Detail): 
     color: 0x3a0a0a, emissive: 0xff1a1a, emissiveIntensity: 0.32, roughness: 0.35,
   });
   group.userData.brakeLights = brakeMat;
-  for (const sx of [-1, 1]) {
-    const tail = new THREE.Mesh(bevel(0.36, 0.18, 0.1, 0.04, 1), brakeMat);
-    tail.position.set(sx * wid * 0.36, 0.95, len / 2 + 0.02);
-    group.add(tail);
-  }
+  addRigRear(group, wid, rearZ, floorY, roofY, isBus, trimMat, brakeMat, detail);
   for (const sx of [-1, 1]) {
     const lamp = new THREE.Mesh(box(0.32, 0.16, 0.08), LAMP);
     lamp.position.set(sx * wid * 0.34, 1, -len / 2 - 0.03);

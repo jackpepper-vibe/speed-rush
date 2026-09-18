@@ -91,6 +91,15 @@ export interface DevHandle {
   /** Lay one pickup of a named kind, so all five can be compared in one frame. */
   layPickup(kind: string, x: number, ahead: number): boolean;
 
+  /**
+   * Test seam: put one traffic vehicle of a named kind on the road.
+   *
+   * Kinds are weighted and a bus is five parts in a hundred, so looking at one
+   * otherwise means driving until the stream produces it. Same purpose as
+   * `layPickup`, and takes no values from the simulation's stream.
+   */
+  layTraffic(kind: string, lane: number, ahead: number, colorRoll?: number): boolean;
+
   /** Start a power-up directly, for tests about its effect rather than its pickup. */
   givePowerup(id: string): void;
 
@@ -304,6 +313,10 @@ export function installDevHandle(game: Game, version: string): DevHandle {
 
     traffic() {
       return game.traffic.snapshot();
+    },
+
+    layTraffic(kind, lane, ahead, colorRoll) {
+      return game.traffic.layTraffic(kind as never, lane, ahead, colorRoll);
     },
 
     layPickup(kind, x, ahead) {

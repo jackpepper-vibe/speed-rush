@@ -252,6 +252,48 @@ export class TrafficManager implements Manager {
     this.ctx.bus.emit('traffic:spawn', { kind, lane, speed: cruise, z: spawnDistance });
   }
 
+  /**
+   * Test seam: put one vehicle of a named kind on the road, where asked.
+   *
+   * The counterpart of `PickupManager.layPickup`, and needed for the same
+   * reason. Kinds are weighted — a bus is five parts in a hundred — so a
+   * harness that wants to look at one has to drive until the stream happens to
+   * produce it, which in practice means thousands of simulated seconds and a
+   * capture that may simply time out instead. Verifying the least common model
+   * should not be the slowest thing the loop does.
+   *
+   * Takes nothing from the simulation's random stream: the colour is a
+   * parameter, so laying a vehicle cannot shift the world a seed would
+   * otherwise produce.
+   *
+   * @returns false when the pool is full or the slot is occupied.
+   */
+  layTraffic(kind: TrafficKind, lane: number, ahead: number, colorRoll = 0.5): boolean {
+    const vehicle = this.pool.find((v) => !v.active);
+    if (!vehicle) return false;
+
+    const distance = this.road.travelled + ahead;
+    if (!this.laneClear(lane, distance, kind)) return false;
+
+    this.reskin(vehicle, kind, colorRoll);
+    vehicle.active = true;
+    vehicle.distance = distance;
+    vehicle.lane = lane;
+    vehicle.targetLane = lane;
+    vehicle.laneBlend = 1;
+    vehicle.verge = 0;
+    vehicle.x = ROAD.laneX(lane);
+    vehicle.speed = SPEED.baseMax * TRAFFIC.speedFractionMin;
+    vehicle.cruiseSpeed = vehicle.speed;
+    vehicle.braking = false;
+    vehicle.decisionTimer = Number.POSITIVE_INFINITY;
+    vehicle.hornTimer = 0;
+    vehicle.passed = false;
+    vehicle.nearMissed = false;
+    vehicle.mesh.visible = true;
+    return true;
+  }
+
   private pickKind(): TrafficKind {
     const total = KINDS.reduce((n, k) => n + KIND_WEIGHT[k], 0);
     let roll = this.ctx.rng.next() * total;

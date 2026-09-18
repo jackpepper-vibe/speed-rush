@@ -151,3 +151,64 @@ blinking at a boundary, and the biome light turning too late.
 **Backlog state: items 1–8 all built and visibly rendering.** There is no top
 unfinished item left in Section 2. Further passes need new entries before they
 can do anything but polish, so the loop stops here rather than inventing scope.
+
+> **Corrected at iteration 46.** The operator rejected the claim above for
+> items 5 and 6, and was right. Both were checked from the wrong angle: item 5
+> on a sedan and a van seen three-quarter-on, when the model that matters is a
+> truck seen square from behind, and item 6 on a 30-unit-distant zoom too
+> coarse to show whether a power-up was a mesh or a speck. Having code that
+> builds a thing is not evidence the player ever sees it — which is the same
+> mistake iteration 44 was written up for, made again two entries later.
+
+### Iteration 46 — Traffic Vehicles (backlog item 5)
+
+**Reopened.** Iteration 45 passed this item on a sedan and a van. The kind that
+decides it is the truck, and `iter_46_truck_before.png` is what one actually
+looks like: a 2.7-by-3 slab of flat colour with two tail lights the size of a
+thumbnail along the bottom edge. The backlog calls that a "placeholder coloured
+box", and it is one — it is merely a large one. Trucks and buses were also the
+*least* detailed traffic in the game at 1554 and 1478 triangles against a
+sedan's 2230, while being the biggest things on screen.
+
+**Why the rear face is the whole job.** The chase camera sits behind and below.
+By the time a rig is close enough to read, its cab, its stacks, its grille and
+all three of its axles are behind its own trailer. The only surface a player
+ever sees is the back, so that is where the budget went; the trailer, cab and
+running gear are untouched.
+
+**Built this pass — `addRigRear`.**
+
+- **Truck**: two door leaves standing proud of the face with the seal between
+  them cut in cavity black, hinge columns down both outer edges, locking bars
+  across at the high detail tier, and a row of marker lamps along the top edge.
+  The door split is the single most valuable line on the vehicle — it halves
+  the widest flat area in the frame.
+- **Bus**: a full-width rear screen, an engine hatch under it, and louvres
+  across the hatch. A hatch with no openings is a panel; the slats say engine.
+- **Both**: light clusters an order of magnitude larger than the pair they
+  replace, built as a housing with a red stop lamp and an amber below it. The
+  amber is new (`INDICATOR`) and never switches — traffic spends most of its
+  life not braking, and without it the back of a rig carries no lit detail at
+  all for most of the time it is on screen. Plus an underrun bar on brackets,
+  which puts a horizontal line and a band of daylight *below* the body so the
+  vehicle stands on a chassis instead of meeting the road along one edge, and
+  mudflaps behind the rear axle.
+
+**Cost.** Truck 1554 → 1566 triangles, bus 1478 → 1442 (the two thumbnail tail
+lights it replaced were bevelled). Ceiling is 6000. The gain is all silhouette,
+not density.
+
+**New test seam.** `layTraffic(kind, lane, ahead, colorRoll)`, the counterpart
+of `layPickup`. A bus is five parts in a hundred by weight, so looking at one
+meant driving until the stream produced it — two capture attempts timed out
+before this existed. It takes nothing from the simulation's random stream, so
+laying a vehicle cannot shift the world a seed would otherwise produce.
+
+**Verification.** `iter_46_truck_before.png` and `iter_46_truck_after.png` are
+the same seed, distance and vehicle either side of the change;
+`iter_46_bus.png` is a bus at play distance. `npm run build` clean;
+`npm run probe` 247/247 checks, 34/34 cues.
+
+**Next:** item 6, Pickups & Collectibles — the power-up meshes are distinct
+lathed shapes but measure roughly 30 px across at eleven units ahead, which is
+point blank. They are objects in the code and specks in the frame.
