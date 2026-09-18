@@ -142,6 +142,44 @@ export const BEACH_DRY_LIMIT = (() => {
   return SHORE_SPAN[1];
 })();
 
+/**
+ * Per-vertex colour across the sea, shallow inshore to deep offshore.
+ *
+ * The single flat teal the water used to be is the colour of *deep* water, and
+ * the reference's sea is not deep — the thing that makes it read as a tropical
+ * coast is the band of bright turquoise in the shallows, where the bottom is
+ * close enough to throw light back up. One colour cannot say that, and it was
+ * the largest area of the frame saying the wrong thing.
+ *
+ * Keyed on the column's lateral offset and nothing else, so the attribute is
+ * built once and survives every recycle: a strip rewrites its positions when it
+ * moves to a new stretch of road, and its columns never change.
+ */
+function seaDepthColours(columns: readonly number[], rows: number): THREE.BufferAttribute {
+  // Shallows over pale sand, and open water well out.
+  const shallow = new THREE.Color(0x3fd0c4);
+  const mid = new THREE.Color(0x1f9fb8);
+  const deep = new THREE.Color(0x14607f);
+  const c = new THREE.Color();
+
+  const data = new Float32Array(columns.length * (rows + 1) * 3);
+  let i = 0;
+  for (let r = 0; r <= rows; r++) {
+    for (const lateral of columns) {
+      /* Two stops rather than one ramp. Shallow water shelves quickly and then
+       * the floor drops away, so a single linear fade across nineteen hundred
+       * units puts the turquoise nowhere near the beach where it belongs. */
+      const near = THREE.MathUtils.clamp((lateral - 20) / 70, 0, 1);
+      const far = THREE.MathUtils.clamp((lateral - 90) / 320, 0, 1);
+      c.copy(shallow).lerp(mid, near).lerp(deep, far);
+      data[i++] = c.r;
+      data[i++] = c.g;
+      data[i++] = c.b;
+    }
+  }
+  return new THREE.BufferAttribute(data, 3);
+}
+
 /** Height of the barrier post, and how many stand in one segment. */
 const BARRIER_TOP = 1.02;
 const POSTS_PER_SEGMENT = 8;
@@ -275,8 +313,10 @@ export class RoadManager implements Manager {
      * histogram: the reference's blown pixels are sun on water, and iteration
      * 27 closed that gap as unreachable through the sky precisely because the
      * geometry to carry it did not exist yet. */
+    /* Vertex-coloured, so the water has a depth gradient rather than one flat
+     * tone. See `seaDepthColours`. */
     this.seaMat = new THREE.MeshStandardMaterial({
-      color: 0x1d6f8a, roughness: 0.14, metalness: 0.32, envMapIntensity: 1.8,
+      vertexColors: true, roughness: 0.13, metalness: 0.34, envMapIntensity: 2.0,
     });
 
     this.groundMat = new THREE.MeshStandardMaterial({
@@ -311,6 +351,7 @@ export class RoadManager implements Manager {
        * scene coarse.
        */
       const sea = RoadStrip.flat(SEA_COLUMNS, L, ROWS, SEA_HEIGHT);
+      sea.geometry.setAttribute('color', seaDepthColours(SEA_COLUMNS, ROWS));
       const seaMesh = new THREE.Mesh(sea.geometry, this.seaMat);
       seaMesh.receiveShadow = false;
       group.add(seaMesh);

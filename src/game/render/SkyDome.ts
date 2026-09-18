@@ -127,15 +127,25 @@ export class SkyDome {
           #if CLOUD_DETAIL > 0
           if (uClouds > 0.01 && dir.y > 0.0) {
             vec2 plane = dir.xz / max(dir.y, 0.06);
-            vec2 p = plane * 1.45 + vec2(uCloudDrift, uCloudDrift * 0.35);
+            /* Cell size. Dropped from 1.45: at that frequency the deck came
+             * out as an even ripple from horizon to zenith — a blanket of
+             * identical tufts, which reads as texture. Cumulus is a few large
+             * bodies with real sky between, so the cells have to be big enough
+             * that only a handful fit across the view. */
+            vec2 p = plane * 0.78 + vec2(uCloudDrift, uCloudDrift * 0.35);
             #if CLOUD_DETAIL > 1
               /* Domain warp: the noise field displaced by another sample of
                * itself. Without it the cells are round and evenly spaced, which
                * from the ground reads as a texture rather than as weather — a
                * cloud gets its shape from being sheared by the wind it is in.
                * Three fbm evaluations a pixel, which only the top tier pays. */
+              /* Warp reduced from 1.6. At that strength the field was sheared
+               * so hard that every bank came out as a long thin streak lying
+               * across the sky — weather in a gale, not the compact cumulus the
+               * reference has sitting over a calm coast. Enough warp to break
+               * the roundness of the noise, not enough to smear it. */
               vec2 warp = vec2(fbm(p * 0.55 + 4.7), fbm(p * 0.55 - 2.3)) - 0.5;
-              float n = fbm(p + warp * 1.6);
+              float n = fbm(p + warp * 0.65);
             #else
               // One octave, unwarped. Softer and rounder, but it is cloud, and
               // it costs a ninth of what the full version does.
@@ -151,7 +161,9 @@ export class SkyDome {
              * anything — and that wash was the single largest block of pixels
              * in the frame. Narrow it and the same noise field gives discrete
              * banks with sky between them. */
-            float cover = smoothstep(0.64 - uClouds * 0.30, 0.74 - uClouds * 0.16, n);
+            /* A tighter window than before: the edge of a cumulus is nearly
+             * hard, and a wide ramp is what turns a bank into a smudge. */
+            float cover = smoothstep(0.60 - uClouds * 0.26, 0.66 - uClouds * 0.14, n);
             // Gone by the horizon: at a grazing angle the projection stretches
             // to infinity and every cloud smears into a band.
             cover *= smoothstep(0.02, 0.26, dir.y);

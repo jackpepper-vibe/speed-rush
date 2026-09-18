@@ -100,7 +100,14 @@ export const DAY_PALETTE: Record<DayPhase, Palette> = {
      * block of the residual. The reference is clear blue broken by one bank.
      * Taking cover down trades that excess for deep blue at 160-175, which is
      * a band we are short in — the rare lever that pays on both sides. */
-    stars: 0, clouds: 0.07, headlights: 0,
+    /* Raised from 0.07. That figure was chosen to move a histogram — pale
+     * cloud was the bulk of an excess in the 184-231 band — and it optimised
+     * the number at the cost of the picture: the reference plainly has cumulus
+     * over most of its sky, in discrete banks with blue between them, and 0.07
+     * is a clear day with a few wisps. The shape fix above is what makes this
+     * affordable; banks that are compact do not wash the dome the way smeared
+     * ones did. */
+    stars: 0, clouds: 0.26, headlights: 0,
   },
   dusk: {
     sunColor: 0xff8a4c, sunIntensity: 2.0,

@@ -202,32 +202,56 @@ function broadleafGeo(): THREE.BufferGeometry {
  * from any distance is a spike.
  */
 function frondGeo(length: number, width: number, droop: number): THREE.BufferGeometry {
-  const SEGMENTS = 7;
+  const LEAFLETS = 13;
   const positions: number[] = [];
   const uvs: number[] = [];
 
-  const point = (t: number, side: number): [number, number, number] => {
-    // Narrow toward the tip, and lift the leading edge into a shallow V.
-    const taper = Math.sin(Math.min(1, t * 1.15) * Math.PI * 0.82) ** 0.7;
-    const w = width * taper * side;
-    const y = -droop * t * t;
-    const rib = -Math.abs(side) * width * taper * 0.28;
-    return [w, y + rib, t * length];
+  /** A point on the drooping mid-rib. */
+  const rib = (t: number): [number, number, number] => [0, -droop * t * t, t * length];
+
+  const push = (v: [number, number, number][]): void => {
+    for (const q of v) positions.push(q[0], q[1], q[2]);
+    for (let k = 0; k < v.length; k++) uvs.push(0, 0);
   };
 
-  for (let i = 0; i < SEGMENTS; i++) {
-    const t0 = i / SEGMENTS;
-    const t1 = (i + 1) / SEGMENTS;
+  // The rib itself, as a narrow strip, so the frond has a spine holding the
+  // leaflets rather than a gap down the middle where they meet.
+  for (let i = 0; i < LEAFLETS; i++) {
+    const t0 = i / LEAFLETS;
+    const t1 = (i + 1) / LEAFLETS;
+    const a = rib(t0);
+    const b = rib(t1);
+    const h = width * 0.06;
+    push([[-h, a[1], a[2]], [h, a[1], a[2]], [h, b[1], b[2]]]);
+    push([[-h, a[1], a[2]], [h, b[1], b[2]], [-h, b[1], b[2]]]);
+  }
+
+  /* Leaflets, one pair per station, each a blade off the rib.
+   *
+   * This is the whole change. A frond built as one continuous tapering strip
+   * has a smooth outline, and a smooth green outline at any distance is a
+   * leaf — the shape says "banana", not "palm". What identifies a palm is that
+   * its edge is *serrated*: a row of separate blades with sky between them.
+   * Thirteen pairs of triangles cost about what the strip did and read as a
+   * palm from the far end of the road.
+   */
+  for (let i = 0; i < LEAFLETS; i++) {
+    const t0 = 0.06 + (i / LEAFLETS) * 0.94;
+    const t1 = Math.min(1, t0 + 1.35 / LEAFLETS);
+    // Short at the base, longest at two-thirds, tapering to the tip.
+    const taper = Math.sin(Math.min(1, t0 * 1.08) * Math.PI * 0.86) ** 0.62;
+    const w = width * taper;
+    const a = rib(t0);
+    const b = rib(t1);
     for (const side of [-1, 1]) {
-      // Each half of the frond is its own strip, meeting at the mid-rib.
-      const a = point(t0, 0);
-      const b = point(t0, side);
-      const cc = point(t1, side);
-      const d = point(t1, 0);
-      // Wound so both halves face upward.
-      const tri = side < 0 ? [a, b, cc, a, cc, d] : [a, cc, b, a, d, cc];
-      for (const v of tri) positions.push(v[0], v[1], v[2]);
-      for (let k = 0; k < 6; k++) uvs.push(0, 0);
+      // Swept back along the frond and hanging below it, which is what stops
+      // the crown reading as a flat wheel of spokes.
+      const tip: [number, number, number] = [
+        side * w,
+        a[1] - droop * 0.26 * taper - w * 0.18,
+        a[2] + w * 0.62,
+      ];
+      push(side < 0 ? [a, b, tip] : [a, tip, b]);
     }
   }
 
@@ -273,20 +297,38 @@ function palmGeo(): THREE.BufferGeometry {
   const crownX = lean * 1.5;
   const crownY = HEIGHT + 0.1;
 
-  // Nine fronds around the crown at three different pitches, so the silhouette
-  // has depth instead of being a flat wheel of spokes.
-  const frondLong = frondGeo(3.4, 0.46, 1.7);
-  const frondShort = frondGeo(2.5, 0.38, 1.1);
-  for (let i = 0; i < 9; i++) {
-    const a = (i / 9) * Math.PI * 2 + 0.4;
-    const pitch = i % 3 === 0 ? 0.55 : i % 3 === 1 ? 0.18 : -0.12;
+  /* Fifteen fronds across four pitches.
+   *
+   * Nine was a wheel: at three pitches the gaps between them were as wide as
+   * the fronds, and a crown you can see through is a shrub. A real palm crown
+   * is nearly a sphere of overlapping leaves, and the count is what buys the
+   * overlap — the reference's palms are the densest thing in its frame and
+   * ours were the sparsest in ours.
+   */
+  const frondLong = frondGeo(4.4, 0.62, 2.2);
+  const frondMid = frondGeo(3.6, 0.54, 1.8);
+  const frondShort = frondGeo(2.7, 0.44, 1.2);
+  const CROWN = 15;
+  for (let i = 0; i < CROWN; i++) {
+    // Golden-angle spacing rather than even: an even ring at any count leaves
+    // a visible rotational symmetry, and a plant does not have one.
+    const a = i * 2.39996 + 0.4;
+    const tier = i % 4;
+    const pitch = tier === 0 ? 0.72 : tier === 1 ? 0.42 : tier === 2 ? 0.1 : -0.2;
+    const geo = tier === 3 ? frondShort : tier === 2 ? frondMid : frondLong;
     parts.push({
-      geo: i % 3 === 2 ? frondShort : frondLong,
+      geo,
       matrix: new THREE.Matrix4()
         .makeTranslation(crownX, crownY, 0)
         .multiply(new THREE.Matrix4().makeRotationY(a))
         .multiply(new THREE.Matrix4().makeRotationX(-pitch)),
-      colour: i % 3 === 2 ? 0x2f6f42 : 0x3f8a4e,
+      // Darker underneath, brighter on the upper tiers: a crown lit from above
+      // is not one flat green, and the two-tone is most of its depth.
+      /* Lifted, because a crown this dense shades itself. Nine sparse fronds
+       * each caught the sun; fifteen overlapping ones spend most of their area
+       * in each other's shadow, and at the old values the tree went from a
+       * green asterisk to a black one. */
+      colour: tier === 3 ? 0x3c8a52 : tier === 2 ? 0x489a58 : 0x5cb264,
     });
   }
 
@@ -546,7 +588,7 @@ export function propsForBiome(biome: BiomeId): PropKind[] {
       ];
     case 'coast':
       return [
-        { id: 'palm', geometry: palmGeo(), material: FOLIAGE, count: 84, radius: 1.2, scale: [0.75, 1.35], offset: [1, 16], sink: 0.2 },
+        { id: 'palm', geometry: palmGeo(), material: FOLIAGE, count: 84, radius: 1.2, scale: [1.15, 2.15], offset: [1, 16], sink: 0.2 },
         // Held close to the barrier with a shallow spread: a lamp standard that
         // wanders into the scrub reads as litter, and the whole point of the
         // kind is the near band between barrier and scenery being empty.
