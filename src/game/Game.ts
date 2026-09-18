@@ -17,6 +17,7 @@ import { WorldManager } from '@/game/managers/WorldManager';
 import { GarageManager } from '@/game/managers/GarageManager';
 import { AudioManager } from '@/game/managers/AudioManager';
 import { SceneryManager } from '@/game/managers/SceneryManager';
+import { SkylineManager } from '@/game/managers/SkylineManager';
 import { EffectsManager } from '@/game/managers/EffectsManager';
 import { SaveManager } from '@/game/SaveManager';
 import { SPEED } from '@/game/config/Balance';
@@ -50,6 +51,7 @@ export class Game {
   readonly garage: GarageManager;
   readonly audio: AudioManager;
   readonly scenery: SceneryManager;
+  readonly skyline: SkylineManager;
   readonly effects: EffectsManager;
 
   private readonly managers = new ManagerRegistry();
@@ -98,6 +100,10 @@ export class Game {
     // After the world manager, so a biome change has already been announced by
     // the time the scenery is asked to dress that stretch of road.
     this.scenery = this.managers.add(new SceneryManager(ctx, this.road, this.rig, this.world));
+    // Beside the scenery rather than inside it: the skyline stands hundreds of
+    // units out, against the far ground's relief, and is keyed to the world
+    // rather than to the scenery's recycled bands so that it cannot re-roll.
+    this.skyline = this.managers.add(new SkylineManager(ctx, this.road, this.rig, this.world));
     // After the player, whose exhaust anchors the flame hangs off, and after
     // the rig, which it asks to shake on a crash.
     this.effects = this.managers.add(new EffectsManager(ctx, this.player, this.rig));

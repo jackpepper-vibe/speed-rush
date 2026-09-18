@@ -77,6 +77,7 @@ High tier, cruise row, unless stated.
 | 31 | `7775fe0` | 0.531 | 1.03 | 0.77 | 0.06 | 246/246 |
 | 32 | `dc3d4c8` | 0.531 | 1.03 | 0.77 | 0.06 | **247/247** |
 | 33 | `2852c63` | **0.517** | 1.06 | 0.78 | 0.06 | 247/247 |
+| 34 | `PENDING` | **0.485** | 1.05 | 0.82 | 0.06 | 247/247 |
 
 From iteration 25 the probe has **246** checks, not 245. The new one asserts
 that something beside the road darkens it.
@@ -922,6 +923,48 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     Still thin: the sea reads as a band on the right rather than the open water
     the reference has, and there is no skyline or marina yet. Those are the
     rest of operator item 0.
+
+34. **The coast has a city.** `SkylineManager`: one instanced draw of stepped
+    tower blocks massing 225-400 units landward, standing on the far ground's
+    own relief. Histogram 0.517 -> **0.485** cruise, 0.493 -> **0.453** boost,
+    contrast 0.78 -> 0.82, verge 1.06 -> 1.05.
+
+    Deliberately not a `SceneryManager` prop kind, and the reason is queue item
+    2 rather than tidiness. `repopulate()` rewrites **every** instance when the
+    car crosses a 120-unit band, which is invisible for scrub and fatal for a
+    skyline — a city that re-rolls twice a second is exactly the pop the
+    operator reported. Here every building's transform is a pure function of its
+    **absolute cell index**, so advancing the anchor shifts the pool by one slot
+    and changes nothing already on screen: one building leaves at the back, one
+    arrives in the haze, the rest are bit-identical. That is the pattern the
+    scattered prop kinds still need.
+
+    Cells are filtered by the biome of the ground *they* stand on, not the
+    ground under the car, so the city comes over the horizon and the boundary
+    passes through it — the same rule the props follow, and a down payment on
+    queue item 5.
+
+    **Landed by measurement, and the two landings disagree in a way worth
+    recording.** At 165-340 lateral the towers loom over the left verge as dark
+    slabs: cruise 0.490 and **boost 0.421**, the best boost row this loop has
+    seen, because a large dark mass is exactly what the frame is short of at the
+    dark end. Pushed out to 225-400 it reads as the reference's hazy mid-distance
+    skyline and measures cruise 0.485, boost 0.453. **The nearer version scores
+    better on boost and the further one looks right**; cruise is the fair row
+    for an unboosted target and it prefers the further one too, so the conflict
+    is only on the row the target cannot adjudicate. Taken on the target.
+
+    Cost: high tier 376731 -> 377451 tris and 963 -> **990 draws**, the +1 being
+    the whole city. Casts no shadow and receives none — a building at three
+    hundred out is outside the sun's +/-90 frustum, so asking for one would
+    either produce nothing or coarsen every shadow that matters. Pool follows
+    `sceneryDensity`, so the bottom rung pays less vertex and fill for the same
+    single draw.
+
+    Still to do in operator item 0: the marina and the cruise ship, which are
+    the reference's only bright-and-small geometry and therefore the standing
+    candidate for the 224+ deficit iteration 27 closed as unreachable through
+    the sky.
 
 ### The measurement was noisier than it was — fixed at iteration 12
 
