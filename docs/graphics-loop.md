@@ -931,6 +931,48 @@ threshold.
 
 ## Queue
 
+### Raised by the operator after iteration 32
+
+These came from watching the game rather than the scorecard, and they outrank
+everything below. The verdict that prompted them is worth keeping verbatim:
+after twelve hours and thirty-two iterations, **"I really don't notice much
+difference."** That was correct. Every art change to that point was tonal — sky,
+fog, asphalt, sun angle, cloud cover, smoke colour — and none of them put
+anything new in the frame. About a third of the iterations were measurement
+plumbing. The histogram fell 1.192 -> 0.531 and both bounds were met while the
+world stayed the same empty highway. **A metric that can improve by half while
+the content is untouched is not a plan; it is a thermometer.** Work these first.
+
+0. **Build the coast.** The standing scope question at the bottom of this file,
+   now answered by the operator: yes. Sea to the seaward side with a real
+   horizon line, city skyline massing in the mid-distance, marina between. This
+   is the largest divergence from the standard and the only remaining change
+   that is obvious in motion rather than in a histogram. Tiered like everything
+   else.
+
+1. **Traffic vehicles are not good enough.** Iteration 28 tiered their detail;
+   it did not make them better models. Boxy silhouettes, flat paint.
+
+2. **City buildings pop in.** They arrive in a block every couple of seconds
+   rather than coming over the horizon. Almost certainly `SceneryManager`:
+   `BAND_LENGTH` is 120 units, which at speed is about that interval, and
+   `repopulate()` rewrites every instance on a band crossing — so the whole
+   visible set re-rolls at once. Note iteration 13 made cadence kinds
+   world-anchored, which is exactly the fix pattern; the scattered kinds still
+   re-roll.
+
+3. **The gutter is a free lane.** You can drive the shoulder or chicane and miss
+   every obstacle. Gameplay, not graphics, but it is in the loop now.
+
+4. **Pickups are plain coloured boxes.**
+
+5. **Biome transitions are abrupt.** City to desert to city with no blending of
+   what is actually standing beside the road. The palette crossfades; the props
+   do not, beyond the boundary rule added earlier.
+
+### Earlier queue, from the fidelity work
+
+
 1. ~~**Decouple the cloud's rendered value from its env-map contribution.**~~
    **Done and reverted at iteration 11. Do not retry it as stated.** The
    decoupling was built — `SkyDome` holding two materials that agree on every
