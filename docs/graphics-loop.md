@@ -60,6 +60,10 @@ High tier, cruise row, unless stated.
 | 15 | `165f73a` | 0.734 | 0.75 | — | — | 244/245 |
 
 | 16 | `069aefc` | 0.734 | 0.75 | 0.75 | 0.42 | 244/245 |
+| 17 | `PENDING` | **0.703** | 0.73 | 0.73 | 0.37 | 244/245 |
+
+From iteration 17 on, a single run is enough: both harnesses are exactly
+reproducible, and repeated runs return the same digits.
 
 **Iteration 15 did not achieve what it claimed, and the claim was published
 before the evidence was in.** Three probe runs at `165f73a` returned 0.662,
@@ -367,6 +371,36 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     swing is larger than the art changes you have been booking, suspect the
     instrument before the art.
 
+17. Day `clouds` `0.28` -> `0.07`. Histogram **0.734 -> 0.703**, the first art
+    gain since the measurement work began at iteration 12.
+
+    Iteration 10 narrowed the coverage *window* so the cloud that remained read
+    as discrete banks rather than a veil. That was the right shape at the wrong
+    quantity — cover still ran across most of the dome. The reference is clear
+    blue broken by one bank. Lowering cover trades the 184-231 excess, which is
+    the largest single block of the residual at 28% against the reference's 7%,
+    for deep blue at 160-175, a band we are short in: the rare lever that pays
+    on both sides rather than moving mass from one error to another.
+
+    Stopped at 0.07 rather than going lower on purpose. 0.03 measures 0.698, a
+    further 0.005, and it thins the sky past what the target holds. **The
+    target has a cumulus bank and so should we**; 0.005 is not worth buying
+    with a sky the standard does not have.
+
+    **A wrong turn first, kept here because it corrects a belief this file had
+    been carrying.** The coast ground was darkened `0xd8c898` -> `0xa29672` on
+    the reasoning that a large pale verge was feeding the bright excess. It
+    measured 0.770, much worse, and the band dump said why: **the verge was
+    never in the bright bands at all.** It sits at 160-175, which is a band the
+    reference wants *more* of, and darkening pushed it into 128-143 where we
+    already hold 17% against the reference's 10%. The bright pile is sky and
+    fog haze, not ground. Reverted.
+
+    That also answers queue item 5's caution: the ground is **not** stretched
+    flat. `repeat.set(38, 5)` across 840 units is one 256px tile per 22 units.
+    Whatever is wrong with the verge, it is not texel density, and it is not
+    tone either.
+
 ### The measurement was noisier than it was — fixed at iteration 12
 
 `makeRoadTexture` and `makeRoadWearTexture` both speckled with bare
@@ -453,9 +487,13 @@ threshold.
    from 0.76 at iteration 10. The lower sun is what recovered it — raking light
    is what puts a light and a dark side on the same object. Still flatter than
    the reference. Do not chase it with the grade, which is a shipping feature.
-5. **Verge ground.** Uniform sand where the target has textured green.
-   `GROUND_HALF_WIDTH` is 420 and `makeGroundTexture` repeats 38x5, so measure
-   the texel density before assuming it is stretched flat.
+5. **Verge ground — but not its tone, and not its texel density.** Iteration 17
+   measured both and both are already right: the ground renders at 160-175,
+   which is a band the reference wants more of, not less, and `repeat.set(38, 5)`
+   across 840 units is one tile per 22 units. Darkening it measured 0.770
+   against 0.734. What is left of this item is *species* — the target's verge is
+   textured green, ours is smooth sand — and that is a texture and prop
+   question, not a colour one. Do not darken it.
 6. **Traffic silhouettes.** Boxes at mid-distance beside a lofted hero. target2
    does **not** adjudicate this — its traffic is small and distant. Play
    evidence only. A middle detail tier for near traffic is the likely answer.

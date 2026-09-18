@@ -67,7 +67,15 @@ export const DAY_PALETTE: Record<DayPhase, Palette> = {
     // keeps its noon colour and its noon exposure, and only the light's angle
     // moves.
     fogColor: 0x9fc4e8, fogDensity: 0.0017, sunElevation: 0.30, exposure: 1.05,
-    stars: 0, clouds: 0.28, headlights: 0,
+    /* Cloud cover, and it is an area decision rather than a weather one.
+     * Iteration 10 narrowed the coverage window so the cloud that remained
+     * read as discrete banks instead of a veil, which was the right shape at
+     * the wrong quantity: cover still ran across most of the dome, and pale
+     * cloud is the bulk of the 184-231 excess that is the largest single
+     * block of the residual. The reference is clear blue broken by one bank.
+     * Taking cover down trades that excess for deep blue at 160-175, which is
+     * a band we are short in — the rare lever that pays on both sides. */
+    stars: 0, clouds: 0.07, headlights: 0,
   },
   dusk: {
     sunColor: 0xff8a4c, sunIntensity: 2.0,
