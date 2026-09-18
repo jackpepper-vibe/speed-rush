@@ -770,6 +770,40 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     the others. If traffic count ever rises, this is the first thing to
     reconsider.
 
+29. `setDriftIntensity` on the dev handle. **No art change, and the art that
+    was written for this iteration was reverted for being unverifiable.**
+
+    Queue item 10 asked for tyre smoke as volume rather than a sprite sheet, and
+    a layered-puff emitter was written for it: three billboards per emission
+    spread in depth, longer lives, thinner per-particle opacity, the rate
+    dropped to keep the pool population level. Then it would not render.
+
+    The smoke could not be provoked. The drift cue fires only on the
+    *transition* into a slip and `driftIntensity` decays at 3.2 a second, so the
+    plume lives about a third of a second after an event the harness has no
+    reliable way to cause. Driving lock-to-lock and sweeping twelve frames for
+    the brightest tail measured **152.51 before the change and 152.54 after** —
+    the effect never appeared in either build, and the two captures are the same
+    image.
+
+    So the handle went in, the same shape as `setShadows` at iteration 25, and
+    with the drift pinned at 1 something finally shows behind the car. **It is
+    still not the smoke.** Single-billboard and three-billboard captures come
+    back at 149.18 and 149.25 and are again indistinguishable, which means the
+    dark smear under the tail is the car's own cast shadow and the plume is
+    still not reaching the frame. Something beyond `driftIntensity` gates it.
+
+    The art was reverted. This loop's standard, learned the hard way at
+    iterations 24 and 25, is that a read off an image is not a measurement; the
+    same standard says an art change that cannot be shown to render is not one
+    to ship. **What ships is the handle and the finding.**
+
+    Also worth recording against the reference: target2 has a large tyre-smoke
+    plume, and it is **not** a fidelity target. The doc's own standard section
+    excludes the driving state in the reference from being a spec, and a
+    burnout is a driving state. Tyre smoke is a play-evidence item and always
+    was.
+
 ### The measurement was noisier than it was — fixed at iteration 12
 
 `makeRoadTexture` and `makeRoadWearTexture` both speckled with bare
@@ -904,7 +938,14 @@ threshold.
    x=20, so a 1.7x-height shadow lands on the verge and stops. Either the palms
    move in or the sun's azimuth swings to throw along the road rather than
    across it. `quality.shadows` already gates the tier.
-10. **Tyre smoke** as volume rather than a sprite sheet.
+10. **Tyre smoke does not render, and that is the item now** — not its volume.
+    Iteration 29 added `setDriftIntensity` so it can be addressed at all, and
+    with drift pinned at 1 the plume still does not appear: one billboard and
+    three measure 149.18 and 149.25 and produce the same image. Find what else
+    gates `emitDrift` before writing any more art for it. A check in the probe
+    — smoke visible with drift pinned, measured by difference the way
+    `roadside-casts-onto-road` is — would have caught this and is the obvious
+    companion. Only then is volume worth doing.
 11. **Hero tail crease** and **nitro bloom haze**. No support from target2 — its
    hero is a matte classic coupe under no boost. Play observations only.
 

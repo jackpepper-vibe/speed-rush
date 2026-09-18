@@ -61,6 +61,18 @@ export class EffectsManager implements Manager {
   private sparkDebt = 0;
   /** Drift intensity from the most recent cue, decayed when the cue stops. */
   private driftIntensity = 0;
+  /**
+   * Overrides `driftIntensity` for the gate. Null means "follow the cue".
+   *
+   * The drift cue fires on the transition into a slip and the intensity then
+   * decays at 3.2 a second, so the plume exists for roughly a third of a second
+   * after an event a harness cannot reliably provoke. That made the tyre smoke
+   * unobservable: iteration 29 drove lock-to-lock, swept twelve frames hunting
+   * for it, and measured the tail of the car at 152.51 against 152.54 — the
+   * effect never appeared. An art change nobody can see render cannot be
+   * evaluated, so this exists for the same reason `setShadows` does.
+   */
+  private driftOverride: number | null = null;
   private sinceDriftCue = 0;
 
   private speed = 0;
@@ -140,7 +152,7 @@ export class EffectsManager implements Manager {
       if (id === 'nitro') this.flameTarget = 0;
     });
     bus.on('player:drift', ({ intensity }) => {
-      this.driftIntensity = Math.min(1, Math.abs(intensity));
+      if (this.driftOverride === null) this.driftIntensity = Math.min(1, Math.abs(intensity));
       this.sinceDriftCue = 0;
     });
     bus.on('player:land', ({ impact }) => this.burstLanding(impact));
@@ -187,6 +199,12 @@ export class EffectsManager implements Manager {
     this.attachFlames();
   }
 
+  /** Pin the drift intensity, or pass null to hand it back to the cue. */
+  setDriftIntensity(value: number | null): void {
+    this.driftOverride = value;
+    if (value !== null) this.driftIntensity = Math.min(1, Math.max(0, value));
+  }
+
   update(dt: number, speed: number): void {
     this.speed = speed;
 
@@ -195,7 +213,7 @@ export class EffectsManager implements Manager {
      * event that never comes. */
     this.sinceDriftCue += dt;
     if (this.sinceDriftCue > 0.25) {
-      this.driftIntensity = Math.max(0, this.driftIntensity - dt * 3.2);
+      if (this.driftOverride === null) this.driftIntensity = Math.max(0, this.driftIntensity - dt * 3.2);
     }
 
     this.updateFlame(dt);

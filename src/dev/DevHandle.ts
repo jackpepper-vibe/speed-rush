@@ -168,6 +168,11 @@ export interface DevHandle {
    */
   setShadows(enabled: boolean): void;
   /**
+   * Pin the drift intensity so tyre smoke can be seen at all, or null to
+   * restore cue-driven behaviour. See EffectsManager for why this is needed.
+   */
+  setDriftIntensity(value: number | null): void;
+  /**
    * Show or hide the player's contact shadow.
    *
    * The gate needs this for the same reason it needs the effect toggles: where
@@ -372,6 +377,10 @@ export function installDevHandle(game: Game, version: string): DevHandle {
 
     setShadows(enabled) {
       game.rig.setShadowsEnabled(enabled);
+    },
+
+    setDriftIntensity(value) {
+      game.effects.setDriftIntensity(value);
     },
 
     sampleFrame(rects) {
