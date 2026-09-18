@@ -61,6 +61,7 @@ High tier, cruise row, unless stated.
 
 | 16 | `069aefc` | 0.734 | 0.75 | 0.75 | 0.42 | 244/245 |
 | 17 | `7c413aa` | **0.703** | 0.73 | 0.73 | 0.37 | 244/245 |
+| 18 | `PENDING` | **0.690** | 0.72 | 0.74 | 0.37 | 244/245 |
 
 From iteration 17 on, a single run is enough: both harnesses are exactly
 reproducible, and repeated runs return the same digits.
@@ -401,6 +402,23 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     Whatever is wrong with the verge, it is not texel density, and it is not
     tone either.
 
+18. Day `fogColor` `0x9fc4e8` -> `0x7d9cc0`. Histogram 0.703 -> 0.690.
+
+    Fog colour is not a mood setting: it is the luminance every distant pixel
+    converges to, and a road game looking down a long straight puts a great
+    many pixels there. At 0x9fc4e8 that was 191, inside the 184-231 block that
+    is over half the remaining error. Moved into the reference's own peak at
+    144-159, which is also the band we are shortest in, so the same pixels stop
+    being wrong twice. Landed by measurement: 0x6a88ae (luminance 133) went
+    back the other way to 0.693, so 152 is about the floor.
+
+    **It only took 2pp off that block — 25.9 -> 23.8 — and the shortfall is the
+    useful part of this iteration.** Fog was not the bulk of it. Reading the
+    frame back shows what is: a very large pale wash across the upper left and
+    along the whole horizon, which is the sun's glow halo and the bloom built
+    on top of it. `target2` has no sun in frame and no flare. That is now the
+    top queue item, with numbers.
+
 ### The measurement was noisier than it was — fixed at iteration 12
 
 `makeRoadTexture` and `makeRoadWearTexture` both speckled with bare
@@ -483,28 +501,43 @@ threshold.
 3. ~~**Cadence props scatter rather than placing sequentially.**~~ **Done at
    iteration 13.** They are laid on a world-anchored grid facing the road, and
    the railing is continuous to the vanishing point.
-4. **Contrast is 0.82**, having crossed from 1.30 at iteration 7 and recovered
+4. **The sun's glow halo is the largest single thing left.** After iteration 18
+   the 184-231 block still holds 23.8pp of excess against a total residual of
+   about 35pp, and it is not cloud (iteration 17) and not fog (iteration 18).
+   It is the halo: `SkyDome` adds `uHorizon * pow(max(sun, 0), 26.0) * 0.3` for
+   a roughly 25-degree corona, and `uHorizon * smoothstep(uSunSize, 1.0, sun) *
+   2.4` for the disc — which is bright enough that `UnrealBloomPass` at
+   threshold 0.82 then spreads it across a quarter of the frame.
+
+   **The target settles this one: `target2` has no sun in frame and no flare.**
+   Ours has a wash covering the upper left and the whole horizon band. Treat
+   the corona exponent and the 0.3 as the dial, and watch the disc's 2.4
+   separately since that is what feeds bloom. Not the same call as the speed
+   grade — that is a shipping feature the brief protects, and this is art in
+   the dome.
+
+5. **Contrast is 0.82**, having crossed from 1.30 at iteration 7 and recovered
    from 0.76 at iteration 10. The lower sun is what recovered it — raking light
    is what puts a light and a dark side on the same object. Still flatter than
    the reference. Do not chase it with the grade, which is a shipping feature.
-5. **Verge ground — but not its tone, and not its texel density.** Iteration 17
+6. **Verge ground — but not its tone, and not its texel density.** Iteration 17
    measured both and both are already right: the ground renders at 160-175,
    which is a band the reference wants more of, not less, and `repeat.set(38, 5)`
    across 840 units is one tile per 22 units. Darkening it measured 0.770
    against 0.734. What is left of this item is *species* — the target's verge is
    textured green, ours is smooth sand — and that is a texture and prop
    question, not a colour one. Do not darken it.
-6. **Traffic silhouettes.** Boxes at mid-distance beside a lofted hero. target2
+7. **Traffic silhouettes.** Boxes at mid-distance beside a lofted hero. target2
    does **not** adjudicate this — its traffic is small and distant. Play
    evidence only. A middle detail tier for near traffic is the likely answer.
-7. **Roadside props still do not shadow the road**, even after iteration 11
+8. **Roadside props still do not shadow the road**, even after iteration 11
    brought the sun down to 30 degrees. The barriers now rake across the
    carriageway, but the palms stand at roughly x=35 with the road edge near
    x=20, so a 1.7x-height shadow lands on the verge and stops. Either the palms
    move in or the sun's azimuth swings to throw along the road rather than
    across it. `quality.shadows` already gates the tier.
-8. **Tyre smoke** as volume rather than a sprite sheet.
-9. **Hero tail crease** and **nitro bloom haze**. No support from target2 — its
+9. **Tyre smoke** as volume rather than a sprite sheet.
+10. **Hero tail crease** and **nitro bloom haze**. No support from target2 — its
    hero is a matte classic coupe under no boost. Play observations only.
 
 ## Our coast has no coast

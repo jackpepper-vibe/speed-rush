@@ -66,7 +66,14 @@ export const DAY_PALETTE: Record<DayPhase, Palette> = {
     // takes a sun around 30 degrees. Nothing warm about it: the day palette
     // keeps its noon colour and its noon exposure, and only the light's angle
     // moves.
-    fogColor: 0x9fc4e8, fogDensity: 0.0017, sunElevation: 0.30, exposure: 1.05,
+    /* Fog is where the far half of the frame ends up, so its colour is not a
+     * mood setting — it is the luminance that every distant pixel converges
+     * to. At 0x9fc4e8 that was 191, sitting inside the 184-231 block that is
+     * over half the remaining histogram error, and a road game looking down a
+     * long straight puts a great many pixels there. Taken down into the
+     * reference's own peak at 144-159, which is also the band we are shortest
+     * in, so the same pixels stop being wrong twice. */
+    fogColor: 0x7d9cc0, fogDensity: 0.0017, sunElevation: 0.30, exposure: 1.05,
     /* Cloud cover, and it is an area decision rather than a weather one.
      * Iteration 10 narrowed the coverage window so the cloud that remained
      * read as discrete banks instead of a veil, which was the right shape at
