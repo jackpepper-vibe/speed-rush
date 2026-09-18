@@ -82,6 +82,7 @@ High tier, cruise row, unless stated.
 | 36 | `4f58222` | 0.486 | 1.07 | 0.81 | 0.07 | 247/247 |
 | 37 | `c8825e1` | 0.485 | 1.07 | 0.81 | 0.08 | 247/247 |
 | 38 | `e907f6f` | 0.484 | 1.07 | 0.82 | 0.08 | 247/247 |
+| 39 | `PENDING` | 0.484 | 1.07 | 0.82 | 0.08 | 247/247 |
 
 From iteration 25 the probe has **246** checks, not 245. The new one asserts
 that something beside the road darkens it.
@@ -1169,6 +1170,41 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     Cost: 362985 tris and **865 draws**, down from 975, because verge vehicles
     are slow and more of the pool sits behind the camera.
 
+39. **A body per power-up.** Buckler, gas bottle, horseshoe, bell-shaped ghost,
+    hourglass, replacing one rounded cube in five colours. No scored pose moves
+    — pickups appear in neither capture — and triangles went **362985 ->
+    362053**, because five lathes are cheaper than the bevelled cube they
+    replace.
+
+    The coins and gems were never the problem: both were already lathed, with a
+    domed face and a milled rim on one and real facets on the other, and the
+    comments above them say why. The power-ups were a `RoundedBoxGeometry`
+    tinted from `POWERUP_COLOR`, which puts the entire message in the colour —
+    a player who has not memorised the palette finds out what they collected by
+    collecting it, and a colour-blind one never finds out at all.
+
+    Four of the five are solids of revolution, and that is not laziness. A
+    pickup spins about its vertical axis, so a lathed body presents the same
+    outline from every angle and never turns edge-on and disappears. The magnet
+    is the deliberate exception: a horseshoe swinging through its own profile is
+    the whole read of it.
+
+    Sizes held near the 1.05 cube they replace, because `collectRadius` and the
+    magnet's reach are tuned against that and a pickup that looks larger than
+    its trigger feels like it was missed unfairly.
+
+    New seam: `layPickup(kind, x, ahead)`. Power-ups arrive once every 240 units
+    in a random lane in a random kind, so comparing five silhouettes otherwise
+    means five screenshots taken minutes apart under different light. It lays
+    them side by side in one frame. Note the trap it walked into first: the pool
+    is 64 entries and a driven road fills all of them with coins, so every lay
+    silently returned false — `take` finds no free entry and returns null. The
+    harness now turns spawning off *before* the drive rather than after.
+
+    Weakest of the five is the shield, which is a flat lens and reads thinner
+    than the rest. Left as it is: it is still unmistakable against a bottle, a
+    horseshoe, a bell and an hourglass, which is what the item asked for.
+
 ### The measurement was noisier than it was — fixed at iteration 12
 
 `makeRoadTexture` and `makeRoadWearTexture` both speckled with bare
@@ -1267,7 +1303,9 @@ the content is untouched is not a plan; it is a thermometer.** Work these first.
    behind, or a floor that rises with distance, and it is a design decision
    rather than a bug fix.
 
-4. **Pickups are plain coloured boxes.**
+4. ~~**Pickups are plain coloured boxes.**~~ **Done at iteration 39.** Only the
+   power-ups ever were — coins and gems were already lathed. Each of the five
+   now has its own silhouette, and it cost nothing: triangles fell slightly.
 
 5. **Biome transitions are abrupt.** City to desert to city with no blending of
    what is actually standing beside the road. The palette crossfades; the props

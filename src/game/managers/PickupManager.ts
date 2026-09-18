@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import type { GameContext, Manager } from '@/core/Manager';
 import type { PickupId, PowerupId } from '@/core/GameEvents';
 import { PICKUPS, ROAD } from '@/game/config/Balance';
@@ -41,6 +40,71 @@ const POWERUP_COLOR: Record<PowerupId, number> = {
   ghost: 0xb98cff,
   slowmo: 0x6cf0a8,
 };
+
+
+/**
+ * A body per power-up, instead of one cube in five colours.
+ *
+ * The crate was a rounded box tinted by `POWERUP_COLOR`, which makes the colour
+ * carry the entire message: a player who has not memorised the palette has to
+ * pick the thing up to find out what it was, and a colour-blind one never finds
+ * out at all. A silhouette reads at distance, reads in a mirror, reads under the
+ * speed grade's vignette, and survives being half behind another car.
+ *
+ * Four of the five are solids of revolution, which is not a coincidence — a
+ * pickup spins about its vertical axis, so a lathed body presents the same
+ * outline from every angle and never turns edge-on and vanishes. The magnet is
+ * the exception because a horseshoe is the whole point of it, and it is the one
+ * shape here that is *supposed* to swing through its own profile as it turns.
+ *
+ * Sizes are held near the 1.05 cube these replace: the collect radius and the
+ * magnet's reach are tuned against that, and a pickup that looks bigger than its
+ * trigger is a pickup that feels like it was missed unfairly.
+ */
+function makePowerupGeometry(id: PowerupId): THREE.BufferGeometry {
+  const lathe = (profile: readonly [number, number][], segments: number): THREE.BufferGeometry => {
+    const g = new THREE.LatheGeometry(profile.map(([x, y]) => new THREE.Vector2(x, y)), segments);
+    g.computeVertexNormals();
+    return g;
+  };
+
+  switch (id) {
+    /* A buckler: domed face, thick rolled rim, seen edge-on as a lens. */
+    case 'shield':
+      return lathe([
+        [0.00, -0.17], [0.30, -0.15], [0.50, -0.09], [0.58, 0.00],
+        [0.50, 0.12], [0.30, 0.21], [0.00, 0.25],
+      ], 22);
+
+    /* A gas bottle: cylindrical body, domed shoulder, a stub of a valve. */
+    case 'nitro':
+      return lathe([
+        [0.00, -0.52], [0.30, -0.52], [0.34, -0.46], [0.34, 0.22],
+        [0.30, 0.38], [0.20, 0.46], [0.09, 0.50], [0.09, 0.62], [0.00, 0.62],
+      ], 18);
+
+    /* A horseshoe magnet. Half a torus, and the only shape here that is meant
+     * to change outline as it spins. */
+    case 'magnet':
+      return new THREE.TorusGeometry(0.40, 0.15, 10, 20, Math.PI);
+
+    /* A bed-sheet ghost: round head, a skirt that flares and stops open, so the
+     * hollow underside is part of the read. */
+    case 'ghost':
+      return lathe([
+        [0.00, 0.52], [0.22, 0.48], [0.34, 0.34], [0.38, 0.10],
+        [0.40, -0.14], [0.46, -0.34], [0.42, -0.40], [0.30, -0.36], [0.00, -0.34],
+      ], 18);
+
+    /* An hourglass, which is the one object that means "time" at any size. */
+    case 'slowmo':
+    default:
+      return lathe([
+        [0.00, -0.50], [0.38, -0.50], [0.38, -0.42], [0.14, -0.30],
+        [0.05, 0.00], [0.14, 0.30], [0.38, 0.42], [0.38, 0.50], [0.00, 0.50],
+      ], 16);
+  }
+}
 
 /**
  * A struck coin: domed faces, a rounded rim, standing on edge.
@@ -124,8 +188,7 @@ export class PickupManager implements Manager {
 
     const coinGeo = makeCoinGeometry();
     const gemGeo = makeGemGeometry();
-    const crateGeo = new RoundedBoxGeometry(1.05, 1.05, 1.05, 3, 0.16);
-    this.geometries.push(coinGeo, gemGeo, crateGeo);
+    this.geometries.push(coinGeo, gemGeo);
 
     /*
      * Struck gold, not a glowing sticker.
@@ -171,8 +234,10 @@ export class PickupManager implements Manager {
     this.coinMat = coinMat;
     this.gemGeo = gemGeo;
     this.gemMat = gemMat;
-    this.crateGeo = crateGeo;
     for (const id of POWERUP_IDS) {
+      const geo = makePowerupGeometry(id);
+      this.crateGeo.set(id, geo);
+      this.geometries.push(geo);
       const mat = new THREE.MeshStandardMaterial({
         color: POWERUP_COLOR[id],
         emissive: POWERUP_COLOR[id],
@@ -192,7 +257,7 @@ export class PickupManager implements Manager {
   private coinMat!: THREE.Material;
   private gemGeo!: THREE.BufferGeometry;
   private gemMat!: THREE.Material;
-  private crateGeo!: THREE.BufferGeometry;
+  private readonly crateGeo = new Map<PowerupId, THREE.BufferGeometry>();
   private readonly crateMat = new Map<PowerupId, THREE.Material>();
 
   /** Live pickups in road space, for assertions and for the HUD. */
@@ -251,6 +316,24 @@ export class PickupManager implements Manager {
     this.take(id, this.nextPowerupDistance, ROAD.laneX(lane));
   }
 
+  /**
+   * Test seam: lay one pickup of a named kind at a chosen place.
+   *
+   * Power-ups arrive once every 240 units at a random lane in a random kind, so
+   * looking at all five means a long drive and a lot of luck — and comparing
+   * one silhouette against another means comparing two screenshots taken
+   * minutes apart under different light. This lays them side by side in one
+   * frame. Never used in play; `spawningEnabled` governs what the road hands
+   * out.
+   *
+   * @param kind which pickup to place
+   * @param x road-space lateral position
+   * @param ahead distance in front of the car
+   */
+  layPickup(kind: PickupId, x: number, ahead: number): boolean {
+    return this.take(kind, this.road.travelled + ahead, x) !== null;
+  }
+
   /** Claim a pooled entry and dress it as `kind`. */
   private take(kind: PickupId, distance: number, x: number): Pickup | null {
     const p = this.pool.find((e) => !e.active);
@@ -271,7 +354,7 @@ export class PickupManager implements Manager {
       p.mesh.geometry = this.gemGeo;
       p.mesh.material = this.gemMat;
     } else {
-      p.mesh.geometry = this.crateGeo;
+      p.mesh.geometry = this.crateGeo.get(kind)!;
       p.mesh.material = this.crateMat.get(kind)!;
     }
     return p;

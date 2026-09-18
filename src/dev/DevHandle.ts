@@ -88,6 +88,8 @@ export interface DevHandle {
 
   /** Live pickups in road space. */
   pickups(): { kind: string; x: number; ahead: number; magnetised: boolean }[];
+  /** Lay one pickup of a named kind, so all five can be compared in one frame. */
+  layPickup(kind: string, x: number, ahead: number): boolean;
 
   /** Start a power-up directly, for tests about its effect rather than its pickup. */
   givePowerup(id: string): void;
@@ -292,6 +294,10 @@ export function installDevHandle(game: Game, version: string): DevHandle {
 
     traffic() {
       return game.traffic.snapshot();
+    },
+
+    layPickup(kind, x, ahead) {
+      return game.pickups.layPickup(kind as never, x, ahead);
     },
 
     pickups() {
