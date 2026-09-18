@@ -79,6 +79,7 @@ High tier, cruise row, unless stated.
 | 33 | `2852c63` | **0.517** | 1.06 | 0.78 | 0.06 | 247/247 |
 | 34 | `52d5546` | **0.485** | 1.05 | 0.82 | 0.06 | 247/247 |
 | 35 | `591aeb5` | 0.486 | 1.07 | 0.81 | 0.07 | 247/247 |
+| 36 | `PENDING` | 0.486 | 1.07 | 0.81 | 0.07 | 247/247 |
 
 From iteration 25 the probe has **246** checks, not 245. The new one asserts
 that something beside the road darkens it.
@@ -1017,6 +1018,55 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     Cost: high tier 377451 -> 378531 tris, 990 -> **991 draws**. The whole
     harbour is one draw call, as the whole city is.
 
+36. **Traffic sedans, SUVs and vans had no body.** Station sets for the three
+    traffic-only profiles, and a `TRAFFIC_LOFT` resolution so they do not
+    inherit the hero's. No score change at all — 0.486 cruise and 0.453 boost
+    before and after — and the cost went **down**: 378531 -> 369925 triangles,
+    991 -> **975 draws**, because one lofted shell replaces four stacked boxes.
+
+    `buildCar` lofts a body when `BODY_STATIONS` has the profile and falls back
+    to stacked bevelled boxes when it does not. `sedan`, `suv` and `van` were
+    never in that table, so they took the fallback **on every tier, at every
+    detail level**. Iteration 28 tiered traffic's fittings and could not have
+    helped: the boxes were not a low rung of a ladder, they were the absence of
+    a model. That is the operator's "boxy silhouettes", and the fix is three
+    table entries.
+
+    **`squareness` does the opposite of what it is called, and that is the
+    finding.** `sectionPoint` raises the parametric cosine to `2/squareness`,
+    so values **below 1** give an exponent above one and pull the outline in
+    towards the axes — a pinched, diamond-ish section with a ridge along the
+    spine. Values **above 1** push it out towards the bounding box, which is a
+    rounded rectangle and is what a saloon is. Every profile in the file sat
+    between 0.26 and 0.66 because every profile was a sports car, and
+    `resample` clamped at **0.98** — so a boxy section was not merely
+    unauthored, it was *unreachable*. The first attempt authored the traffic
+    bodies in the sports range and shipped a white lump on a black chassis.
+    Ceiling raised to 3.6; nothing authored before this sits above 0.98, so no
+    existing body can move.
+
+    **A false lead, recorded because it was measured and cleared rather than
+    assumed.** The white lump was blamed on the glass shell — it is a closed
+    pod spanning the middle of the body rather than a fitted windscreen, which
+    looked like an obvious culprit. Gating it off changed the capture not at
+    all. The pod was innocent; the section was the fault. The comment now says
+    so, rather than a silent `if (opts.isPlayer)` left in place for someone to
+    rediscover.
+
+    **The honest result is a trade, not a win.** The sedan now reads as one
+    continuous surface instead of a stack, which is what the loft system exists
+    for — but **the box build had a legible window band and the loft does
+    not**. Glass that hugs the body at 1.004 disappears into it once the
+    section is smooth, where a tapered glass box inside a box cabin read as a
+    glasshouse. Queued below rather than papered over.
+
+    Landed by looking at the right thing, eventually. The first before/after
+    pair was captured with a **coupe** nearest the camera — a profile that
+    already had stations and therefore could not have changed. Two captures
+    were spent comparing a car against itself before the harness was pointed at
+    a sedan. *Check that the thing you are differencing is the thing you
+    changed.*
+
 ### The measurement was noisier than it was — fixed at iteration 12
 
 `makeRoadTexture` and `makeRoadWearTexture` both speckled with bare
@@ -1080,6 +1130,16 @@ the content is untouched is not a plan; it is a thermometer.** Work these first.
 
 1. **Traffic vehicles are not good enough.** Iteration 28 tiered their detail;
    it did not make them better models. Boxy silhouettes, flat paint.
+
+   **Half done at iteration 36.** The boxes are gone: `sedan`, `suv` and `van`
+   now have loft stations, where before they had none and silently fell back to
+   stacked boxes on every tier. What is left is the **greenhouse**. The glass
+   pod hugs the body at 1.004, which was invisible against a box cabin and is
+   still invisible against a smooth one — so a traffic car now has a good
+   silhouette and no window band, where the box build had a worse silhouette
+   and a clear one. The fix is glass that is inset and darker rather than laid
+   on the surface, not more loft resolution. Flat paint is untouched and is
+   still open.
 
 2. **City buildings pop in.** They arrive in a block every couple of seconds
    rather than coming over the horizon. Almost certainly `SceneryManager`:

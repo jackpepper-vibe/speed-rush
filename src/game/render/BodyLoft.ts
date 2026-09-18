@@ -32,9 +32,21 @@ export interface Station {
    */
   roofRatio: number;
   /**
-   * Section cornering. Low values give a soft, almost elliptical section; high
-   * values a squarer one with tight corner radii. Real cars run soft at the
-   * nose and squarer through the cabin.
+   * Section cornering, as the reciprocal of a superellipse exponent.
+   *
+   * The useful range is wider than it looks and the middle of it is the
+   * boundary, not the default. At **1** the section is a plain ellipse. **Below
+   * 1** the exponent rises above one and the outline is drawn in towards the
+   * axes — a pinched, diamond-ish section with a ridge along the spine, which
+   * is what every sports profile in this file wants and uses. **Above 1** it
+   * falls below one and the outline pushes out towards its bounding box: a
+   * rounded rectangle, which is what a saloon, an estate or a van is.
+   *
+   * The name is honest about intent and misleading about direction, and that
+   * cost an iteration. Until the traffic profiles were authored, every body
+   * here was a sports car sitting between 0.26 and 0.66, so the half of the
+   * range that makes a box had never been used — and the resample clamp
+   * stopped at 0.98, which made it unreachable as well as unused.
    */
   squareness: number;
 }
@@ -107,7 +119,10 @@ function resample(stations: Station[], count: number): Station[] {
       yBottom: bottom.getPoint(u, point).y,
       yTop: top.getPoint(u, point).y,
       roofRatio: THREE.MathUtils.clamp(roof.getPoint(u, point).y, 0.2, 1),
-      squareness: THREE.MathUtils.clamp(square.getPoint(u, point).y, 0.15, 0.98),
+      // Ceiling raised from 0.98 so a rounded-rectangle section is reachable at
+      // all. Every profile authored before the traffic bodies sits below 0.98,
+      // so nothing that existed then can be moved by this.
+      squareness: THREE.MathUtils.clamp(square.getPoint(u, point).y, 0.15, 3.6),
     });
   }
   // Guard against the spline overshooting into a reversed body.
@@ -245,6 +260,59 @@ export const BODY_STATIONS: Record<string, Station[]> = {
     { t: 0.42, halfWidth: 1.07, yBottom: 0.16, yTop: 1.26, roofRatio: 0.62, squareness: 0.64 },
     { t: 0.76, halfWidth: 1.06, yBottom: 0.18, yTop: 0.96, roofRatio: 0.76, squareness: 0.56 },
     { t: 1.00, halfWidth: 0.94, yBottom: 0.26, yTop: 0.86, roofRatio: 0.86, squareness: 0.46 },
+  ],
+  /*
+   * The three below are traffic-only profiles, and until now they had no
+   * entry here at all.
+   *
+   * `buildCar` lofts a body when the profile has stations and falls back to
+   * stacked bevelled boxes when it does not — so `sedan`, `suv` and `van` took
+   * the fallback on every tier, whatever detail was asked for. Iteration 28
+   * tiered traffic's *fittings* and could not touch this, because the boxes
+   * were not a level of detail; they were the absence of a model. That is the
+   * "boxy silhouettes" in the operator's list, and it is three table entries.
+   *
+   * Authored flatter and squarer than the player bodies on purpose. A saloon
+   * is not a supercar with the roof raised: it has a shallower screen rake, far
+   * less tumblehome, and a boot deck rather than a fastback. The parameters
+   * that carry that are `roofRatio` near 0.8 and up, and `squareness` well
+   * above the sports profiles'.
+   */
+  sedan: [
+    { t: -1.00, halfWidth: 0.62, yBottom: 0.26, yTop: 0.56, roofRatio: 0.88, squareness: 1.45 },
+    { t: -0.80, halfWidth: 0.88, yBottom: 0.19, yTop: 0.72, roofRatio: 0.86, squareness: 1.90 },
+    { t: -0.52, halfWidth: 0.95, yBottom: 0.17, yTop: 0.82, roofRatio: 0.84, squareness: 2.25 },
+    { t: -0.22, halfWidth: 0.97, yBottom: 0.16, yTop: 1.12, roofRatio: 0.80, squareness: 2.45 },
+    { t: 0.08, halfWidth: 0.98, yBottom: 0.16, yTop: 1.30, roofRatio: 0.84, squareness: 2.55 },
+    { t: 0.40, halfWidth: 0.98, yBottom: 0.17, yTop: 1.28, roofRatio: 0.84, squareness: 2.55 },
+    // The boot: the deck drops away from the roof and then runs level to the
+    // tail, which is the one line that distinguishes a saloon from a hatch.
+    { t: 0.70, halfWidth: 0.96, yBottom: 0.18, yTop: 0.98, roofRatio: 0.82, squareness: 2.30 },
+    { t: 1.00, halfWidth: 0.88, yBottom: 0.26, yTop: 0.92, roofRatio: 0.88, squareness: 1.75 },
+  ],
+  suv: [
+    { t: -1.00, halfWidth: 0.68, yBottom: 0.24, yTop: 0.72, roofRatio: 0.90, squareness: 1.70 },
+    { t: -0.80, halfWidth: 0.92, yBottom: 0.16, yTop: 0.92, roofRatio: 0.88, squareness: 2.20 },
+    { t: -0.54, halfWidth: 0.98, yBottom: 0.14, yTop: 1.06, roofRatio: 0.86, squareness: 2.60 },
+    { t: -0.26, halfWidth: 1.00, yBottom: 0.13, yTop: 1.50, roofRatio: 0.86, squareness: 2.85 },
+    { t: 0.06, halfWidth: 1.00, yBottom: 0.13, yTop: 1.72, roofRatio: 0.90, squareness: 2.95 },
+    { t: 0.44, halfWidth: 1.00, yBottom: 0.14, yTop: 1.74, roofRatio: 0.90, squareness: 2.95 },
+    { t: 0.80, halfWidth: 0.98, yBottom: 0.16, yTop: 1.70, roofRatio: 0.82, squareness: 2.75 },
+    // Cut off square: an estate back, not a fastback. The tail stays nearly as
+    // tall as the roof, which is most of what reads as "a big one" at range.
+    { t: 1.00, halfWidth: 0.92, yBottom: 0.24, yTop: 1.56, roofRatio: 0.88, squareness: 2.20 },
+  ],
+  van: [
+    { t: -1.00, halfWidth: 0.70, yBottom: 0.22, yTop: 0.84, roofRatio: 0.92, squareness: 1.95 },
+    { t: -0.84, halfWidth: 0.94, yBottom: 0.15, yTop: 1.10, roofRatio: 0.90, squareness: 2.55 },
+    { t: -0.62, halfWidth: 1.00, yBottom: 0.13, yTop: 1.46, roofRatio: 0.88, squareness: 2.95 },
+    // The screen goes up almost where the nose ends: a van is a cab with a box
+    // behind it, and the short bonnet is the whole silhouette.
+    { t: -0.34, halfWidth: 1.01, yBottom: 0.12, yTop: 2.00, roofRatio: 0.86, squareness: 3.20 },
+    { t: 0.02, halfWidth: 1.01, yBottom: 0.12, yTop: 2.12, roofRatio: 0.88, squareness: 3.35 },
+    { t: 0.44, halfWidth: 1.01, yBottom: 0.13, yTop: 2.12, roofRatio: 0.88, squareness: 3.35 },
+    { t: 0.82, halfWidth: 1.00, yBottom: 0.15, yTop: 2.08, roofRatio: 0.90, squareness: 3.20 },
+    { t: 1.00, halfWidth: 0.94, yBottom: 0.22, yTop: 1.96, roofRatio: 0.92, squareness: 2.60 },
   ],
   hatch: [
     { t: -1.00, halfWidth: 0.60, yBottom: 0.26, yTop: 0.54, roofRatio: 0.88, squareness: 0.38 },

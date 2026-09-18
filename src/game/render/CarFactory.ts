@@ -40,6 +40,27 @@ export function setTrafficDetail(detail: Detail): void {
 }
 
 /**
+ * Loft resolution for a piece of traffic, which is not the hero's.
+ *
+ * Separate from `heroLod` because the two answer different questions, the same
+ * distinction `trafficDetail` already draws against the hero's detail level.
+ * The hero is one body a couple of metres from the camera and its budget is
+ * about how round a single silhouette needs to be; traffic is a poolful of
+ * bodies mostly seen from behind at range, and its budget is about how many.
+ *
+ * Getting this wrong is not a small overspend. `buildCar` falls back to
+ * `heroLod` when no override is given, so the moment traffic gained lofted
+ * bodies it would have taken 76 rings by 132 sections **each** — more than two
+ * hundred times the geometry these need, on twenty vehicles, for a shape that
+ * is forty pixels tall.
+ *
+ * Fixed rather than tiered: the tier that lofts traffic at all is chosen by
+ * `trafficDetail`, and a second dial underneath it would be two ways of saying
+ * the same thing.
+ */
+const TRAFFIC_LOFT = { rings: 24, length: 16 };
+
+/**
  * Procedural car meshes.
  *
  * Everything is built from bevelled boxes and lathed tyres rather than plain
@@ -455,7 +476,7 @@ export function buildCar(opts: {
      * a seam is what the eye reads as "made of boxes" however well each
      * individual volume is rounded.
      */
-    const lod = opts.loft ?? heroLod;
+    const lod = opts.loft ?? (opts.isPlayer ? heroLod : TRAFFIC_LOFT);
     const geometry = loftBody(stations, {
       length: p.len,
       ringSegments: lod.rings,
@@ -468,8 +489,14 @@ export function buildCar(opts: {
     shell.receiveShadow = true;
     group.add(shell);
 
-    // Glass laid over the greenhouse region of the same loft, pushed out a
-    // hair so it sits on the surface rather than fighting it.
+    /* Glass laid over the greenhouse region of the same loft, pushed out a
+     * hair so it sits on the surface rather than fighting it.
+     *
+     * It is a closed pod spanning the middle of the body rather than a fitted
+     * windscreen, and that is fine: scaled 1.004 it hugs whatever section the
+     * body has, so it reads as the glasshouse band. Suspected and cleared when
+     * the first traffic loft came out as a white lump — the pod was not the
+     * fault, the section was. */
     const glassGeo = loftBody(
       stations.filter((s) => s.t > -0.45 && s.t < 0.6),
       {
