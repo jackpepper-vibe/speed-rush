@@ -66,17 +66,30 @@ High tier, cruise row, unless stated.
 | 20 | `a6b888e` | **0.615** | 0.79 | 0.71 | 0.11 | 244/245* |
 | 21 | `a538ecd` | 0.615 | 0.79 | 0.71 | 0.11 | 244/245 |
 | 22 | `dfb2c24` | **0.535** | 0.90 | 0.65 | 0.05 | **245/245** |
-| 23 | `7c7f5cd` | **0.534** | 0.90 | 0.66 | — | pending |
+| 23 | `7c7f5cd` | **0.534** | 0.90 | 0.66 | — | **245/245 x3** |
 
 **Iteration 22 is the first time the histogram bound has been met on
 `compare.mjs`.** Cruise 0.535 and boost 0.506 against a bound of 0.55, with
 roadside density 0.90 cruise and 1.00 boost, both inside 0.6-1.7. Frame mean
 150.4 against the reference's 150.5.
 
-**The probe passed too: 245/245 at iteration 22, with no resample warning** —
-the first legitimate pass of the histogram gate, as distinct from iteration 20's
-false one. Treat it as provisional until three runs agree; the confirmation runs
-launched for it were void (see entry 23) and have to be redone.
+### Both bounds are met, confirmed
+
+At `7c7f5cd` the probe returns **245/245 on three consecutive runs**, on a
+frozen tree, with no resample warning and no capture failure on any of them.
+
+- histogram **0.534** cruise, **0.512** boost, against `<= 0.55`
+- roadside density **0.90** cruise, **1.01** boost, against `0.6 - 1.7`
+
+Neither threshold was ever moved. The licence to re-derive them was declined at
+iteration 1 and never used; the gap closed from 1.192 to 0.534 by art.
+
+Worth being exact about what this is not. It is a **luminance-distribution**
+match, not a match of content. The frame still has no water, no marina and no
+skyline, and it still holds 0.0% of its pixels above luminance 224 where the
+reference holds 10.5% — two large errors that happen to sit either side of the
+L1 and partly cancel. The bound being met is a floor on fidelity, not a
+ceiling, and the queue below is not finished.
 
 \* Iteration 20's probe actually printed **245/245**, and it was a false pass.
 See entry 21. The probe's honest reading at that code state is 0.563.
