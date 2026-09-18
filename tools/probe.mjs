@@ -2471,23 +2471,71 @@ phase = 'render-quality';
        */
       const heroView = hero.viewportSize();
       const analysisHeight = Math.round(ANALYSIS_WIDTH / (heroView.width / heroView.height));
+
+      /* Wait on the drawing buffer, which only `renderer.setSize` writes.
+       *
+       * Iteration 16 waited on `canvas.clientWidth` and on `canvas.width > 0`.
+       * Neither proves anything: `clientWidth` is CSS layout and updates the
+       * moment the viewport changes, and a canvas always has a width above
+       * zero. So the wait returned before `SceneRig.onResize` had run, and
+       * iteration 20 duly captured the full 960-wide hero frame, scored it
+       * against a 620-wide reference, and **passed the histogram gate at
+       * 245/245 on a downsample**. The resample report added at iteration 16 is
+       * what caught it. Comparing the buffer against its own previous value is
+       * the honest test — it changes only when the handler has actually run.
+       */
       const settleTo = async (width, height) => {
+        const before = await hero.evaluate(() => document.querySelector('canvas').width);
         await hero.setViewportSize({ width, height });
         await hero.waitForFunction(
-          (w) => {
+          ({ w, was }) => {
             const canvas = document.querySelector('canvas');
-            return canvas !== null && canvas.clientWidth === w && canvas.width > 0;
+            return canvas !== null && canvas.clientWidth === w && canvas.width !== was;
           },
-          width,
+          { w: width, was: before },
           { timeout: 10000 },
         );
         // The handler has run; this draws the first frame at the new size.
         await hero.evaluate(() => window.carRacer.drive(0.05, 0));
       };
 
+      /* And then check the frame rather than trusting the wait.
+       *
+       * A capture at the wrong size does not fail loudly — it scores *better*,
+       * because downsampling is a low-pass and a blurred frame sits closer to
+       * any histogram than a sharp one. A silent false pass is the worst
+       * failure mode this harness has, so the width of the actual image is
+       * asserted before anything is measured from it.
+       */
+      const captureAtAnalysisWidth = async () => {
+        for (let attempt = 0; attempt < 4; attempt++) {
+          const shot = await hero.evaluate(() => window.carRacer.snapshot());
+          const got = await hero.evaluate(
+            (src) => new Promise((resolve) => {
+              const img = new Image();
+              img.onload = () => resolve(img.width);
+              img.onerror = () => resolve(-1);
+              img.src = src;
+            }),
+            shot,
+          );
+          if (got === ANALYSIS_WIDTH) return shot;
+          await hero.evaluate(() => window.carRacer.drive(0.05, 0));
+        }
+        return null;
+      };
+
       await settleTo(ANALYSIS_WIDTH, analysisHeight);
-      const analysisShot = await hero.evaluate(() => window.carRacer.snapshot());
+      const analysisShot = await captureAtAnalysisWidth();
       await settleTo(heroView.width, heroView.height);
+
+      if (analysisShot === null) {
+        environment.push(
+          'render/reference-distance could not obtain a capture at the analysis width after four ' +
+          'attempts — the renderer never resized. The two checks below are scoring a frame of the ' +
+          'wrong size.',
+        );
+      }
 
       const profiled = await hero.evaluate(profilePair, {
         shot: analysisShot,

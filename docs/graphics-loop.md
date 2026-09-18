@@ -63,7 +63,11 @@ High tier, cruise row, unless stated.
 | 17 | `7c413aa` | **0.703** | 0.73 | 0.73 | 0.37 | 244/245 |
 | 18 | `75d3f61` | **0.690** | 0.72 | 0.74 | 0.37 | 244/245 |
 | 19 | `93f1997` | **0.634** | 0.79 | 0.72 | 0.11 | 244/245 |
-| 20 | `a6b888e` | **0.615** | 0.79 | 0.71 | 0.11 | 244/245 |
+| 20 | `a6b888e` | **0.615** | 0.79 | 0.71 | 0.11 | 244/245* |
+| 21 | `PENDING` | 0.615 | 0.79 | 0.71 | 0.11 | 244/245 |
+
+\* Iteration 20's probe actually printed **245/245**, and it was a false pass.
+See entry 21. The probe's honest reading at that code state is 0.563.
 
 The probe's own reading of the same bound is now **0.579** and falling with it.
 The boost row at iteration 20 reads **0.564**. The 0.55 bound has stopped being
@@ -476,6 +480,34 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
 
     So the dome route to highlights is now falsified at both high and low
     cover. Reverted. See queue item 5, rewritten.
+
+21. The probe waits on the canvas's **drawing buffer**, not on its CSS width,
+    and then asserts the width of the frame it captured. No art change.
+
+    **Iteration 20's probe reported 245/245 — the histogram gate passing — and
+    it was false.** The resample line added at iteration 16 caught it: `1.55x
+    capture`, which is 960/620. The frame scored was the full hero viewport
+    downsampled onto the analysis canvas.
+
+    That failure mode is the dangerous one and is worth stating in full. **A
+    capture at the wrong size does not fail loudly; it scores better.**
+    Downsampling is a low-pass, and a blurred frame sits closer to any
+    histogram than a sharp one. A harness fault therefore arrives disguised as
+    an art result, in the flattering direction, on the one check that decides
+    whether this whole loop is finished.
+
+    The wait was wrong in a way worth remembering: it polled
+    `canvas.clientWidth`, which is CSS layout and updates the instant the
+    viewport changes, and `canvas.width > 0`, which is true of every canvas
+    ever made. Neither has anything to do with whether `SceneRig.onResize` ran.
+    Only `renderer.setSize` writes the drawing buffer, so comparing that buffer
+    against its own previous value is the test that means something. The
+    capture's decoded width is then asserted directly, with retries, because a
+    wait that proves a precondition is still not the same as checking the
+    thing you are about to measure.
+
+    Honest reading at iteration 20's code state: **0.563**, against the 0.55
+    bound. The gate did not pass. It is close.
 
 ### The measurement was noisier than it was — fixed at iteration 12
 
