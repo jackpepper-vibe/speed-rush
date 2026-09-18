@@ -546,7 +546,7 @@ export function propsForBiome(biome: BiomeId): PropKind[] {
       ];
     case 'coast':
       return [
-        { id: 'palm', geometry: palmGeo(), material: FOLIAGE, count: 84, radius: 1.2, scale: [0.75, 1.35], offset: [3, 34], sink: 0.2 },
+        { id: 'palm', geometry: palmGeo(), material: FOLIAGE, count: 84, radius: 1.2, scale: [0.75, 1.35], offset: [1, 16], sink: 0.2 },
         // Held close to the barrier with a shallow spread: a lamp standard that
         // wanders into the scrub reads as litter, and the whole point of the
         // kind is the near band between barrier and scenery being empty.

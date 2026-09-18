@@ -67,6 +67,7 @@ High tier, cruise row, unless stated.
 | 21 | `a538ecd` | 0.615 | 0.79 | 0.71 | 0.11 | 244/245 |
 | 22 | `dfb2c24` | **0.535** | 0.90 | 0.65 | 0.05 | **245/245** |
 | 23 | `7c7f5cd` | **0.534** | 0.90 | 0.66 | — | **245/245 x3** |
+| 24 | `PENDING` | **0.532** | 0.91 | 0.66 | — | pending |
 
 **Iteration 22 is the first time the histogram bound has been met on
 `compare.mjs`.** Cruise 0.535 and boost 0.506 against a bound of 0.55, with
@@ -597,6 +598,39 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     moving target; they returned nothing and exited non-zero. **Do not edit
     source while a probe is running.** Commit the state first, then measure it.
 
+24. Palms brought to the kerb, `offset` `[3, 34]` -> `[1, 16]`, and the sun's
+    shadow camera given the `updateProjectionMatrix()` it never had. Histogram
+    0.534 -> 0.532, verge 0.90 -> 0.91.
+
+    The palms now form an avenue along the road the way the reference's do
+    instead of standing back across the verge. Small gain, and it reads much
+    closer.
+
+    **The shadow bug is the finding, and it is not fixed.** Chasing why no
+    roadside prop has ever shadowed the road turned up a real one:
+    `SceneRig` sets the sun's shadow frustum to +/-90 with near 1 and far 320,
+    and never calls `updateProjectionMatrix()` on it. An `OrthographicCamera`
+    bakes its projection in its constructor and three.js builds that one as
+    (-5, 5, 5, -5); assigning the fields afterwards changes the fields and
+    nothing else. So the sun has been casting into a ten-unit box around the
+    car for the whole life of this file.
+
+    **Fixing it changed nothing — the frame is byte-identical.** So that was a
+    real latent bug sitting behind a second one, and the second is still
+    unfound. Kept anyway: it is correct, it is free, and leaving a known-broken
+    frustum in place to be rediscovered later is worse.
+
+    What is now established, so the next attempt does not re-walk it: shadows
+    are enabled at the high tier (`shadows: true`, 2048 map), the renderer's
+    `shadowMap.enabled` follows it, scenery meshes set `castShadow` at creation,
+    and the road and ground both set `receiveShadow`. The palms are now within
+    a couple of units of the tarmac and the sun is at 30 degrees, so geometry
+    and angle are not the obstacle either. The dark patch under the hero is
+    `contactShadow`, a decal, not a cast shadow — do not read it as evidence
+    the shadow path works. **The probe has no check that anything casts a
+    shadow onto the road**, which is how this survived 245 checks; adding one
+    would have caught it and is the obvious companion fix.
+
 ### The measurement was noisier than it was — fixed at iteration 12
 
 `makeRoadTexture` and `makeRoadWearTexture` both speckled with bare
@@ -730,7 +764,13 @@ threshold.
 8. **Traffic silhouettes.** Boxes at mid-distance beside a lofted hero. target2
    does **not** adjudicate this — its traffic is small and distant. Play
    evidence only. A middle detail tier for near traffic is the likely answer.
-9. **Roadside props still do not shadow the road**, even after iteration 11
+9. **Nothing casts a shadow onto the road at all, and the cause is still
+   unfound.** Iteration 24 ruled out the obvious candidates — see entry 24 for
+   the full list of what is already known good, and for the one real bug it did
+   find and fix without effect. Start by asserting in the probe that the road
+   has a dark band under a prop at a known sun angle; a check that fails is
+   worth more here than another guess. Superseded note follows: **Roadside
+   props still do not shadow the road**, even after iteration 11
    brought the sun down to 30 degrees. The barriers now rake across the
    carriageway, but the palms stand at roughly x=35 with the road edge near
    x=20, so a 1.7x-height shadow lands on the verge and stops. Either the palms

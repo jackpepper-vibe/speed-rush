@@ -168,6 +168,18 @@ export class SceneRig {
     cam.bottom = -90;
     this.sun.shadow.bias = -0.0006;
     this.sun.shadow.normalBias = 0.035;
+    /* Without this the six lines above are decoration.
+     *
+     * An OrthographicCamera builds its projection in its constructor, and
+     * three.js builds the shadow's as (-5, 5, 5, -5). Assigning left, right,
+     * top, bottom, near and far afterwards changes the fields and nothing
+     * else until the matrix is rebuilt — so the sun has been casting into a
+     * ten-unit box around the car since the frustum was first written, which
+     * is why no roadside prop has ever shadowed the road however the sun was
+     * angled. Iteration 11 lowered the sun to 30 degrees specifically to get
+     * long shadows and got none, and the failure was here rather than in the
+     * light. */
+    cam.updateProjectionMatrix();
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
 
