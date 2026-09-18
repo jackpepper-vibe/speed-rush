@@ -69,7 +69,8 @@ High tier, cruise row, unless stated.
 | 23 | `7c7f5cd` | **0.534** | 0.90 | 0.66 | — | **245/245 x3** |
 | 24 | `ab8e7ca` | **0.532** | 0.91 | 0.66 | — | **245/245** |
 | 25 | `258623c` | 0.532 | 0.91 | 0.66 | — | **246/246** |
-| 26 | `00cde83` | **0.531** | 1.03 | **0.77** | — | pending |
+| 26 | `00cde83` | **0.531** | 1.03 | **0.77** | — | **246/246** |
+| 27 | `PENDING` | 0.531 | 1.03 | 0.77 | 0.06 | 246/246 |
 
 From iteration 25 the probe has **246** checks, not 245. The new one asserts
 that something beside the road darkens it.
@@ -699,6 +700,49 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     claimed no prop had ever shadowed the road. Iteration 25 disproved that and
     the comment was still asserting it.
 
+27. No art change. Queue item 5 — the highlight deficit — **closed as
+    unreachable through the sky**, with the fourth and fifth mechanisms
+    measured and the reason finally isolated.
+
+    Two things were tried, both on the reasoning that the previous failures had
+    been about *how* the crown was lifted rather than whether it could be.
+
+    **A plateau instead of a ramp.** Iterations 11 and 20 both scaled the crown
+    colour and both piled cloud into 200-223 on the way up. A linear
+    interpolant from shadow to crown spends most of its range in the middle, so
+    lifting the top drags a broad smear of mid-values with it; a real
+    overexposed cumulus is a flat sheet of white with the shading confined to
+    the underside. Compressing the interpolant to `smoothstep(0.30, 0.62, …)`
+    gives that shape. With the gain it measured **0.751**. Without the gain,
+    the shape alone measured **0.541** — worse on L1 than 0.531, better on
+    contrast (0.77 -> 0.79), brightness (0.06 -> 0.13) and std (41.4 -> 42.2),
+    and it **did not fill 224+**. Not taken: it trades the bound for character
+    and does not buy the thing it was for.
+
+    **The environment split, reinstated.** Iteration 11 built it and reverted
+    it as an abstraction justified only by a false hypothesis. By this point
+    the coupling had looked like the binding constraint four times over, which
+    seemed to change the case. It does not. With `envMesh` carrying gain 1 and
+    the visible dome carrying 1.34, the result is **0.751 and mean 165.73 — the
+    same to the digit as the coupled version.** The environment map was never
+    the cause. Reverted again, and this time the conclusion is not "unproven"
+    but "measured twice, false twice."
+
+    **What is actually in the way is framing, and it is the same wall the file
+    has flagged since iteration 9.** Our cloud is a large fraction of the frame,
+    so brightening it moves the frame's mean and fills 200-223 long before
+    anything reaches 224. The reference affords 10.5% of blown pixels because
+    its bank is bright *and small relative to its frame* — its frame is mostly
+    road. Ours is 1.78:1 with sky across the top; theirs is 1.55:1 with a low
+    camera. No change to the sky's colour or shading can produce a small bright
+    region in a frame where the sky is large.
+
+    So: **the honest answer is the one queue item 5 asked for in advance.** The
+    blown highlights need geometry that is bright and small — sun on water, sun
+    on chrome — and two of the three the reference uses are things this biome
+    does not have. That is the scope question at the end of this file, not an
+    art lever. Stop spending iterations on the sky.
+
 ### The measurement was noisier than it was — fixed at iteration 12
 
 `makeRoadTexture` and `makeRoadWearTexture` both speckled with bare
@@ -797,27 +841,17 @@ threshold.
    grade — that is a shipping feature the brief protects, and this is art in
    the dome.
 
-5. **Nothing in frame reaches 224, and the sky cannot supply it.** The
-   reference holds 9.4% of its pixels above that; we hold 0.0%. This is the
-   largest single deficit left.
-
-   **Three routes are now closed by measurement, so do not re-open them
-   casually:** lifting the cloud crown at high cover (iteration 11, 0.684 ->
-   0.715); the sun's flare, which did reach those bands and cost far more
-   elsewhere (iteration 19, removing it gained 0.056); and lifting the cloud
-   crown at low cover, re-tested on purpose at iteration 20 because the
-   conditions had changed, which failed the same way (0.634 -> 0.668).
-
-   The through-line in all three is one fact: **248-255 never moves off 0.0%
-   whatever the dome does.** ACES asymptotes there. Anything that clips has to
-   arrive after the tone map or be a small enough area that its own bloom
-   carries it, and the dome is neither.
-
-   What the reference's blown pixels actually are: sun on water, sun on a
-   cumulus edge, sun on chrome. Two of those three we do not have the geometry
-   for — see the scope question below — and that may be the honest answer here.
-   If it is, say so rather than spending more iterations on the sky.
-
+5. ~~**Nothing in frame reaches 224.**~~ **Closed at iteration 27 as
+   unreachable through the sky.** Five mechanisms measured and failed: crown
+   lift at high cover (11), the sun's flare (19, removing it *gained* 0.056),
+   crown lift at low cover (20), a flattened plateau (27), and the environment
+   split reinstated (27, identical to the digit — the env map was never the
+   cause). The wall is framing: our cloud is a large fraction of the frame, so
+   brightening it fills 200-223 and moves the mean long before anything reaches
+   224, where the reference's bank is bright *and small* because its frame is
+   mostly road. The blown pixels need geometry that is bright and small — sun
+   on water, sun on chrome — which is the scope question at the end of this
+   file, not an art lever.
 6. **Contrast is 0.82**, having crossed from 1.30 at iteration 7 and recovered
    from 0.76 at iteration 10. The lower sun is what recovered it — raking light
    is what puts a light and a dark side on the same object. Still flatter than
