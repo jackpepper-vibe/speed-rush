@@ -39,7 +39,8 @@ export class SkyDome {
         uHorizon: { value: new THREE.Color(0xfff2d0) },
         uSunDir: { value: new THREE.Vector3(-0.5, 0.5, -0.7).normalize() },
         uStars: { value: 0 },
-        uSunSize: { value: 0.996 },
+        /** cos of the disc's angular radius. 0.9991 is about 2.4 degrees. */
+        uSunSize: { value: 0.9991 },
         /** Cloud cover, 0 clear to 1 overcast, and how far they have drifted. */
         uClouds: { value: 0.45 },
         uCloudDrift: { value: 0 },
@@ -176,8 +177,24 @@ export class SkyDome {
           }
           #endif
 
+          /* A sun, not a flare.
+           *
+           * The disc was five degrees across — ten times the real thing — at
+           * 2.4x the horizon colour, which is well over the bloom threshold,
+           * so UnrealBloomPass took that area and spread it across a quarter
+           * of the frame. The corona beside it fell off as pow(sun, 26), half
+           * strength still thirteen degrees out. Together they put a white
+           * wash over the upper sky and the whole horizon band, and that wash
+           * was the largest single block of the histogram residual once cloud
+           * and fog had been dealt with at iterations 17 and 18.
+           *
+           * The target settles it: target2 has no sun in frame and no flare.
+           * Keeping a bright disc is right for a game, but it has to be the
+           * size of a sun — bloom then has a small bright thing to work from
+           * rather than a large one, which is the difference between a glint
+           * and a fogged lens. */
           col += uHorizon * smoothstep(uSunSize, 1.0, sun) * 2.4;
-          col += uHorizon * pow(max(sun, 0.0), 26.0) * 0.3;
+          col += uHorizon * pow(max(sun, 0.0), 80.0) * 0.22;
 
           if (uStars > 0.001) {
             vec3 cell = floor(dir * 260.0);

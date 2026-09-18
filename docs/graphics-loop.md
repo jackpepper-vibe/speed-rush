@@ -62,6 +62,7 @@ High tier, cruise row, unless stated.
 | 16 | `069aefc` | 0.734 | 0.75 | 0.75 | 0.42 | 244/245 |
 | 17 | `7c413aa` | **0.703** | 0.73 | 0.73 | 0.37 | 244/245 |
 | 18 | `75d3f61` | **0.690** | 0.72 | 0.74 | 0.37 | 244/245 |
+| 19 | `PENDING` | **0.634** | 0.79 | 0.72 | 0.11 | 244/245 |
 
 From iteration 17 on, a single run is enough: both harnesses are exactly
 reproducible, and repeated runs return the same digits.
@@ -419,6 +420,30 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     on top of it. `target2` has no sun in frame and no flare. That is now the
     top queue item, with numbers.
 
+19. The sun became a sun instead of a flare. `uSunSize` `0.996` -> `0.9991`
+    (five degrees across down to about two and a half) and the corona
+    `pow(sun, 26) * 0.3` -> `pow(sun, 80) * 0.22`. Histogram **0.690 -> 0.634**,
+    the largest art gain since iteration 7, and verge came with it, 0.72 -> 0.79.
+
+    The disc was ten times the angular size of the real sun at 2.4x the horizon
+    colour — far over the bloom threshold — so `UnrealBloomPass` had a large
+    bright area to spread rather than a small one, and it put a white wash over
+    the upper sky and the whole horizon band. The corona beside it was still at
+    half strength thirteen degrees out. Bloom is not the problem; what you feed
+    it is. A small bright thing blooms as a glint, a large one as a fogged lens.
+
+    The 184-239 excess went 23.5 -> 16.5pp, and 168-175 landed exactly on the
+    reference at 5.6%. Landed by measurement: `pow(sun, 160) * 0.18` scores
+    0.632, two thousandths better, and was **not** taken — it buys that by
+    removing more of the brightness the reference genuinely has.
+
+    **The cost is real and is now the clearest thing in the residual.** Bright
+    pixels went 0.37 -> 0.11 against the reference's 1.0, and bands 224-255 are
+    now flat zero against its 9.4%. We removed the only thing in frame that was
+    reaching them. That is the right trade — the flare was wrong and was
+    costing far more at 184-223 than it paid above 224 — but it means the
+    highlight problem is no longer disguised.
+
 ### The measurement was noisier than it was — fixed at iteration 12
 
 `makeRoadTexture` and `makeRoadWearTexture` both speckled with bare
@@ -501,7 +526,8 @@ threshold.
 3. ~~**Cadence props scatter rather than placing sequentially.**~~ **Done at
    iteration 13.** They are laid on a world-anchored grid facing the road, and
    the railing is continuous to the vanishing point.
-4. **The sun's glow halo is the largest single thing left.** After iteration 18
+4. ~~**The sun's glow halo.**~~ **Done at iteration 19**, histogram 0.690 ->
+   0.634. What follows is the record of what it was. After iteration 18
    the 184-231 block still holds 23.8pp of excess against a total residual of
    about 35pp, and it is not cloud (iteration 17) and not fog (iteration 18).
    It is the halo: `SkyDome` adds `uHorizon * pow(max(sun, 0), 26.0) * 0.3` for
@@ -516,28 +542,46 @@ threshold.
    grade — that is a shipping feature the brief protects, and this is art in
    the dome.
 
-5. **Contrast is 0.82**, having crossed from 1.30 at iteration 7 and recovered
+5. **Nothing in frame reaches 224 any more.** The reference holds 9.4% of its
+   pixels above that and we hold 0.0% — after iteration 19 this is the single
+   largest *deficit* in the residual, and unlike the dark end it is not obviously
+   geometry we lack.
+
+   Read iteration 11's finding before trying anything: brightening the sky dome
+   does not work, because the dome is the env-map source and a brighter cloud is
+   a brighter everything, and ACES asymptotes short of clipping whatever the
+   dome does. Iteration 19 then removed the one thing that *was* reaching those
+   bands, for a large net gain, so the flare is not the answer either.
+
+   What has never been tried is a **small, local** highlight — a specular glint
+   rather than a field. The reference's own blown pixels are exactly that: sun
+   on water, sun on a cloud edge, sun on chrome. Candidates are the sea we do
+   not have (see the scope question below), the hero's own bodywork, and the
+   cloud bank's lit edge as a rim term rather than a fill. Measure 144-151 and
+   224-255 together, as iteration 11 had to.
+
+6. **Contrast is 0.82**, having crossed from 1.30 at iteration 7 and recovered
    from 0.76 at iteration 10. The lower sun is what recovered it — raking light
    is what puts a light and a dark side on the same object. Still flatter than
    the reference. Do not chase it with the grade, which is a shipping feature.
-6. **Verge ground — but not its tone, and not its texel density.** Iteration 17
+7. **Verge ground — but not its tone, and not its texel density.** Iteration 17
    measured both and both are already right: the ground renders at 160-175,
    which is a band the reference wants more of, not less, and `repeat.set(38, 5)`
    across 840 units is one tile per 22 units. Darkening it measured 0.770
    against 0.734. What is left of this item is *species* — the target's verge is
    textured green, ours is smooth sand — and that is a texture and prop
    question, not a colour one. Do not darken it.
-7. **Traffic silhouettes.** Boxes at mid-distance beside a lofted hero. target2
+8. **Traffic silhouettes.** Boxes at mid-distance beside a lofted hero. target2
    does **not** adjudicate this — its traffic is small and distant. Play
    evidence only. A middle detail tier for near traffic is the likely answer.
-8. **Roadside props still do not shadow the road**, even after iteration 11
+9. **Roadside props still do not shadow the road**, even after iteration 11
    brought the sun down to 30 degrees. The barriers now rake across the
    carriageway, but the palms stand at roughly x=35 with the road edge near
    x=20, so a 1.7x-height shadow lands on the verge and stops. Either the palms
    move in or the sun's azimuth swings to throw along the road rather than
    across it. `quality.shadows` already gates the tier.
-9. **Tyre smoke** as volume rather than a sprite sheet.
-10. **Hero tail crease** and **nitro bloom haze**. No support from target2 — its
+10. **Tyre smoke** as volume rather than a sprite sheet.
+11. **Hero tail crease** and **nitro bloom haze**. No support from target2 — its
    hero is a matte classic coupe under no boost. Play observations only.
 
 ## Our coast has no coast
