@@ -85,6 +85,7 @@ High tier, cruise row, unless stated.
 | 39 | `21b1b08` | 0.484 | 1.07 | 0.82 | 0.08 | 247/247 |
 | 40 | `b967d15` | 0.484 | 1.07 | 0.82 | 0.08 | 247/247 |
 | 41 | `093809b` | 0.483 | 1.07 | 0.82 | 0.08 | 247/247 |
+| 42 | `PENDING` | 0.483 | 1.07 | 0.82 | 0.08 | 247/247 |
 
 From iteration 25 the probe has **246** checks, not 245. The new one asserts
 that something beside the road darkens it.
@@ -1293,6 +1294,49 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     units/sec looking for a near vehicle, and at that speed it never closes on
     anything — every car sat 600 to 2400 units ahead. Slow is safe, and slow is
     also blind.
+
+42. **The biome light turns over most of a biome instead of a fifth of it.**
+    `WORLD.biomeBlend` 220 -> 600, and `WorldManager` now reads it instead of
+    carrying a private `BIOME_BLEND = 320` that had shadowed it. No score
+    change, and none was possible: the scored pose pins the biome, and
+    `blendedTint` returns the unblended palette whenever a biome is pinned.
+
+    The crossfade is symmetric, so the light now turns over 1200 units of a
+    1750-unit biome rather than 640. The mechanism is arithmetic — the same
+    tint delta spread over more road halves the peak rate — and is not in
+    question.
+
+    **What is in question is whether it can be seen, and this iteration failed
+    to find out.** Four harness attempts, each ruled out by the next:
+
+    | attempt | result | what it was really measuring |
+    |---|---|---|
+    | whole-frame sky mean | largest step 39.51, 935u from the boundary | the skyline entering the rectangle |
+    | scenery, skyline and marina hidden | largest step 45.14, still 935u out | dusk |
+    | pin phase and weather | **zero boundaries found** | nothing — see below |
+    | unpinned, confounded windows filtered | **all four boundaries skipped** | weather and the day cycle |
+
+    Two findings fall out of the failures, and they are worth more than the
+    measurement would have been.
+
+    **A pin freezes the biome.** `WorldManager.update` skips `updateBiome`,
+    `updateWeather` and `updateDayPhase` together whenever *anything* is pinned,
+    so pinning the phase to isolate it also stopped the reported biome ever
+    changing. `blendedTint` went on blending — `pinned.biome` was undefined —
+    but no boundary could be detected. Any harness that pins one condition to
+    hold it still is silently pinning all of them.
+
+    **The biome palette is a minor contributor to the sky.** Weather rolls every
+    2400 units and the day phase turns harder than any biome palette does, so at
+    the window a 600-unit half-blend needs — plus or minus 1360 units — not one
+    of four boundaries was free of them. That casts real doubt on whether the
+    operator's "abrupt biome transitions" was ever about the light at all.
+    Iteration 40 already found the props were not the cause and the sea was;
+    this makes the light an unlikely third.
+
+    Shipped on the arithmetic, with the look unverified and said so. It is one
+    constant, it costs nothing, and it moves in the direction the queue asked
+    for.
 
 ### The measurement was noisier than it was — fixed at iteration 12
 

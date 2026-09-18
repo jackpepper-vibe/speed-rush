@@ -33,7 +33,13 @@ const BIOMES: readonly BiomeId[] = ['coast', 'city', 'desert', 'forest'];
  * Matched roughly to how far ahead the props become visible, so the colour of
  * the light and the things standing in it arrive together.
  */
-const BIOME_BLEND = 320;
+/* The palette crossfade half-width, from `WORLD` rather than from here.
+ *
+ * It was a private 320 that silently shadowed `WORLD.biomeBlend`, so the one
+ * documented home for the number was read by nothing and the two disagreed.
+ * Aliased rather than inlined at the four use sites below so the arithmetic
+ * stays readable. */
+const BIOME_BLEND = WORLD.biomeBlend;
 
 /**
  * Which biome the road is in at a given stretch, as a pure function.
