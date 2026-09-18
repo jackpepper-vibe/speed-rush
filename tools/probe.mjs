@@ -361,6 +361,31 @@ check('boot', 'triangles-submitted', booted.triangles > 500,
 check('boot', 'state-finite', finite(booted.x, booted.vx, booted.speed, booted.distance),
   `x=${booted.x} vx=${booted.vx} speed=${booted.speed} distance=${booted.distance}`);
 
+/* The menu has to be showing the road it is about to hand over.
+ *
+ * `routeSeed` was left at zero until `run:start`, and the manager registry only
+ * ticks while driving — so the front screen drew seed 0's route under whatever
+ * lighting `SceneRig` was constructed with, and pressing Drive changed the
+ * street, the sky and the weather in a single frame. Measured here rather than
+ * looked at: the biome under the camera, and the biome a good way down the
+ * road, must both survive the transition unchanged.
+ */
+{
+  const menuRoute = await page.evaluate(() => {
+    const cr = window.carRacer;
+    return { here: cr.scenery().biome, state: cr.state().runState };
+  });
+  const runRoute = await page.evaluate(() => {
+    const cr = window.carRacer;
+    cr.startRun();
+    cr.step(2);
+    return { here: cr.scenery().biome };
+  });
+  check('boot', 'menu-shows-the-route-it-hands-over',
+    menuRoute.state === 'menu' && menuRoute.here === runRoute.here,
+    `biome on the menu "${menuRoute.here}" -> after Drive "${runRoute.here}"`);
+}
+
 /* -- road geometry ----------------------------------------------------------- */
 
 check('road', 'five-lanes', config.laneCount === 5, `laneCount: ${config.laneCount}`);

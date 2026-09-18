@@ -140,6 +140,33 @@ export class Game {
 
     this.managers.initAll();
 
+    /* Settle the world before anything renders, so the menu shows the run.
+     *
+     * Two faults met on the front screen and produced one symptom: the game
+     * always opened on the same street, and changed to a different one the
+     * instant you pressed Drive.
+     *
+     * The route was seeded only by `run:start`, so until a run began
+     * `routeSeed` was its initialiser — zero. Whatever seed the game had been
+     * given, the menu drew seed 0's road.
+     *
+     * And `tick` only runs the manager registry while driving, by design: a
+     * paused world should not advance. But `applyLook` lives in that registry,
+     * so the sky, the fog, the sun and the whole biome palette were never
+     * applied at all until the first driving tick — the menu was lit by
+     * whatever `SceneRig` happened to construct itself with. Pressing Drive
+     * then re-seeded the route and applied the look in the same frame, and the
+     * street, the light and the weather all changed at once.
+     *
+     * Seeding, resetting and advancing zero seconds here puts the world in
+     * exactly the state the first driving frame will find it in. `resetAll` is
+     * between the two because the far fields filled themselves during `init`,
+     * against the route this call is about to replace.
+     */
+    this.world.setRoute(this.seed);
+    this.managers.resetAll();
+    this.world.update(0, 0, 0);
+
     // Hitting traffic ends the run; scraping a barrier only costs speed, which
     // the player manager has already applied by the time this is delivered.
     this.bus.on('player:crash', ({ with: what }) => {

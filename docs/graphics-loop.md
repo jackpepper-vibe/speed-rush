@@ -307,3 +307,44 @@ shadow and by scanning every mesh's material. It predates this pass.
 `iter_48_ingame.png` is all six from the chase camera at the same road position.
 `npm run build` clean; `npm run probe` 252/252, including the silhouette
 smoothness gate and the player triangle floor and ceiling.
+
+### Iteration 49 — The menu showed a different world than the run (operator report)
+
+**The report.** "The game always starts with the same image but immediately on
+commencing driving jumps to another streetscape." Both halves are exactly right
+and they are two separate faults meeting on one screen.
+
+**Fault one: the route.** `WorldManager.routeSeed` was set only by the
+`run:start` cue, so before the first run it sat at its initialiser — zero.
+`Game` seeds itself randomly at construction, so however the game had been
+seeded, the menu drew *seed 0's* route: the same street on every launch, which
+is the "always the same image" half.
+
+**Fault two: the look.** `Game.tick` runs the manager registry only while
+driving, which is correct — a paused world should not advance. But `applyLook`
+lives in that registry, so the biome's sky, fog, sun and palette were never
+applied at all until the first driving tick. The menu was lit by whatever
+`SceneRig` happened to construct itself with. Pressing Drive re-seeded the route
+*and* applied the look in the same frame, so the street, the light and the
+weather all changed at once.
+
+**Fixed** by settling the world at composition: seed the route, reset the
+managers — the far fields had already filled themselves during `init` against
+the route about to be replaced — then advance zero seconds, which puts the
+world in exactly the state the first driving frame will find it in.
+
+**Measured against a control, which is the only way this number means
+anything.** Mean per-channel difference across the Drive transition, menu panel
+hidden so only the world is compared: **63.0 before**. After the fix: **13.2**.
+The control — two ordinary driving frames the same 0.57 units of travel apart —
+is **10.6**. So what remains is the car moving, not the world changing.
+
+An earlier reading of the same pair was misread off a contact sheet as the car
+jumping half the screen sideways; it was centred in both panels and the panel
+origin was the error. `state()` reported `x: 0` on both sides throughout.
+
+**New gate.** `boot/menu-shows-the-route-it-hands-over` asserts the biome under
+the camera survives `startRun` unchanged.
+
+**Verification.** `iter_49_menu.png` and `iter_49_run.png` are the world either
+side of Drive. `npm run build` clean; `npm run probe` 253/253, 34/34 cues.

@@ -127,10 +127,29 @@ export class WorldManager implements Manager {
     this.installCoastLookup();
     this.buildRain();
     // The route is a function of the seed, so it has to be told the seed.
-    this.ctx.bus.on('run:start', ({ seed }) => {
-      this.routeSeed = seed >>> 0;
-      this.biomeIndex = -1;
-    });
+    this.ctx.bus.on('run:start', ({ seed }) => this.setRoute(seed));
+  }
+
+  /**
+   * Point the route at a seed.
+   *
+   * Called once at composition as well as on every `run:start`, and the first
+   * of those is the whole reason this is a method.
+   *
+   * `routeSeed` used to be left at its initialiser — zero — until a run began.
+   * The menu renders the live world behind its panel, so the front screen
+   * showed the route for seed 0 on every launch: the same street every time,
+   * however the game had actually been seeded. Pressing Drive then emitted
+   * `run:start` with the real seed and the entire route changed under the
+   * camera in one frame — a different biome sequence, different scenery,
+   * different skyline, at a standstill. The backdrop has to be the road you
+   * are about to be given, or it is an advertisement for a different game.
+   */
+  setRoute(seed: number): void {
+    this.routeSeed = seed >>> 0;
+    // Force the next update to re-derive the biome rather than believing the
+    // index it cached against the old route.
+    this.biomeIndex = -1;
   }
 
   /* -------------------------------------------------------------- accessors */
