@@ -41,6 +41,17 @@ export interface QualitySettings {
    * does not. It still has to come down at the bottom of the ladder — the fix
    * for a weak GPU is a cheaper hero, not a cheaper top tier.
    */
+  /**
+   * How much car a piece of traffic is worth.
+   *
+   * Separate from the hero's LOD because the two answer different questions.
+   * The hero is one mesh a metre from the camera and its budget is about how
+   * round a single silhouette needs to be; traffic is a poolful of vehicles
+   * that are mostly small and distant, and its budget is about how many.
+   * Rounder wheels and brake calipers on twenty cars is a real cost, so only
+   * the tier that has already paid for shadows and bloom takes it.
+   */
+  readonly trafficDetail: 'high' | 'low';
   readonly heroLoftRings: number;
   readonly heroLoftLength: number;
   /**
@@ -69,6 +80,7 @@ const TIERS: Record<QualityTier, QualitySettings> = {
     sceneryDensity: 0.45,
     drawDistanceScale: 0.7,
     motionBlur: false,
+    trafficDetail: 'low',
     heroLoftRings: 18,
     heroLoftLength: 28,
     skyDetail: 0,
@@ -84,6 +96,7 @@ const TIERS: Record<QualityTier, QualitySettings> = {
     sceneryDensity: 0.75,
     drawDistanceScale: 0.88,
     motionBlur: true,
+    trafficDetail: 'low',
     heroLoftRings: 34,
     heroLoftLength: 56,
     skyDetail: 1,
@@ -99,6 +112,7 @@ const TIERS: Record<QualityTier, QualitySettings> = {
     sceneryDensity: 1,
     drawDistanceScale: 1,
     motionBlur: true,
+    trafficDetail: 'high',
     heroLoftRings: 76,
     heroLoftLength: 132,
     skyDetail: 2,

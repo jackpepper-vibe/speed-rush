@@ -71,6 +71,7 @@ High tier, cruise row, unless stated.
 | 25 | `258623c` | 0.532 | 0.91 | 0.66 | — | **246/246** |
 | 26 | `00cde83` | **0.531** | 1.03 | **0.77** | — | **246/246** |
 | 27 | `ff85bdc` | 0.531 | 1.03 | 0.77 | 0.06 | 246/246 |
+| 28 | `PENDING` | 0.531 | 1.03 | 0.77 | 0.06 | pending |
 
 From iteration 25 the probe has **246** checks, not 245. The new one asserts
 that something beside the road darkens it.
@@ -743,6 +744,32 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     does not have. That is the scope question at the end of this file, not an
     art lever. Stop spending iterations on the sky.
 
+28. Traffic detail joins the quality ladder. `QualitySettings.trafficDetail`,
+    `'low'` at the low and medium rungs and `'high'` at the top, set once at
+    composition through `setTrafficDetail` the same way `setHeroLod` already
+    works. **No histogram change at all: 0.531 before and after.**
+
+    Worth being straight about what this is. `buildTrafficCar` defaulted to
+    `'low'` and nothing ever passed anything else, so traffic was not a low
+    rung of a ladder — it was outside the ladder entirely, identical on a phone
+    and on a workstation. The constraint has always been "traffic stays cheap
+    and tiered"; it was cheap and it was not tiered. Now it is both.
+
+    The gain is silhouette on near traffic — wheel segments 11 -> 20, brake
+    calipers, arch liners, an extra loft ring — and **target2 cannot adjudicate
+    it**, exactly as queue item 8 said: its traffic is small and distant. So
+    this is play evidence, and the score confirms it by not moving.
+
+    Cost, all of it on the top rung: triangles 349083 -> 373923 (+7%), draw
+    calls 723 -> **963 (+33%)**, which is the calipers arriving as separate
+    meshes. The low tier is byte-identical — 136402 tris, 622 draws, no context
+    loss — measured rather than assumed.
+
+    That draw-call jump is the thing to watch. It is affordable on the tier
+    that already pays for shadows and bloom, and it would not be on either of
+    the others. If traffic count ever rises, this is the first thing to
+    reconsider.
+
 ### The measurement was noisier than it was — fixed at iteration 12
 
 `makeRoadTexture` and `makeRoadWearTexture` both speckled with bare
@@ -852,7 +879,8 @@ threshold.
    mostly road. The blown pixels need geometry that is bright and small — sun
    on water, sun on chrome — which is the scope question at the end of this
    file, not an art lever.
-6. **Contrast is 0.82**, having crossed from 1.30 at iteration 7 and recovered
+6. **Contrast is 0.77**, having crossed from 1.30 at iteration 7, bottomed at
+   0.65 and recovered
    from 0.76 at iteration 10. The lower sun is what recovered it — raking light
    is what puts a light and a dark side on the same object. Still flatter than
    the reference. Do not chase it with the grade, which is a shipping feature.
@@ -863,7 +891,9 @@ threshold.
    against 0.734. What is left of this item is *species* — the target's verge is
    textured green, ours is smooth sand — and that is a texture and prop
    question, not a colour one. Do not darken it.
-8. **Traffic silhouettes.** Boxes at mid-distance beside a lofted hero. target2
+8. ~~**Traffic silhouettes.**~~ **Done at iteration 28** — traffic now follows
+   the quality ladder instead of sitting outside it. No score change; target2
+   cannot adjudicate it. Historic note: Boxes at mid-distance beside a lofted hero. target2
    does **not** adjudicate this — its traffic is small and distant. Play
    evidence only. A middle detail tier for near traffic is the likely answer.
 9. ~~**Roadside shadows are far too faint.**~~ **Done at iteration 26** — the

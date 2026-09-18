@@ -26,6 +26,20 @@ export function setHeroLod(rings: number, length: number): void {
 }
 
 /**
+ * Detail level every piece of traffic is built at.
+ *
+ * Module state for the same reason `heroLod` is: the factory is called from
+ * managers that have no business knowing about the quality ladder, and
+ * threading a tier through every call site to reach two integers deep inside a
+ * wheel would be worse than this. Set once, at composition, from the rig.
+ */
+let trafficDetail: Detail = 'low';
+
+export function setTrafficDetail(detail: Detail): void {
+  trafficDetail = detail;
+}
+
+/**
  * Procedural car meshes.
  *
  * Everything is built from bevelled boxes and lathed tyres rather than plain
@@ -794,7 +808,7 @@ const TRAFFIC_PALETTE = [
  * on whether a pooled vehicle happened to need rebuilding, which silently made
  * the same seed produce a different world.
  */
-export function buildTrafficCar(kind: TrafficKind, colorRoll: number, detail: Detail = 'low'): CarMesh {
+export function buildTrafficCar(kind: TrafficKind, colorRoll: number, detail: Detail = trafficDetail): CarMesh {
   const color = TRAFFIC_PALETTE[Math.min(
     TRAFFIC_PALETTE.length - 1,
     Math.floor(colorRoll * TRAFFIC_PALETTE.length),
