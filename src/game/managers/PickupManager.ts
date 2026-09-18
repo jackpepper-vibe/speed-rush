@@ -57,11 +57,10 @@ const POWERUP_COLOR: Record<PowerupId, number> = {
  * the exception because a horseshoe is the whole point of it, and it is the one
  * shape here that is *supposed* to swing through its own profile as it turns.
  *
- * Sizes are held near the 1.05 cube these replace: the collect radius and the
- * magnet's reach are tuned against that, and a pickup that looks bigger than its
- * trigger is a pickup that feels like it was missed unfairly.
+ * Authored at whatever size reads best as a profile; `makePowerupGeometry`
+ * normalises the result. Nothing here should be tuned for scale.
  */
-function makePowerupGeometry(id: PowerupId): THREE.BufferGeometry {
+function powerupProfile(id: PowerupId): THREE.BufferGeometry {
   const lathe = (profile: readonly [number, number][], segments: number): THREE.BufferGeometry => {
     const g = new THREE.LatheGeometry(profile.map(([x, y]) => new THREE.Vector2(x, y)), segments);
     g.computeVertexNormals();
@@ -104,6 +103,54 @@ function makePowerupGeometry(id: PowerupId): THREE.BufferGeometry {
         [0.05, 0.00], [0.14, 0.30], [0.38, 0.42], [0.38, 0.50], [0.00, 0.50],
       ], 16);
   }
+}
+
+/**
+ * How wide a pickup stands, and why it is allowed to be this wide.
+ *
+ * The bound is the trigger, and the trigger is lateral: `testCollect` compares
+ * `|pickup.x - player.x|` against `PICKUPS.collectRadius`, so a pickup is
+ * collected anywhere within 1.9 units either side of its centre. The rule the
+ * previous pass wrote down — never look bigger than the thing that catches you,
+ * or a miss feels stolen — is right, and it was being kept by a margin of
+ * nearly four. Every power-up was authored around a one-unit span inside a
+ * 3.8-unit trigger, in a lane 4.2 wide.
+ *
+ * Measured rather than argued: laid eleven units ahead, which is point blank,
+ * a magnet came out roughly thirty pixels across in a 1280-wide frame. At the
+ * distance you actually decide whether to take one it is a coloured speck, so
+ * the shield, the bottle, the horseshoe and the hourglass — all of them real
+ * lathed bodies — were doing no work whatsoever. Two units of span is still
+ * comfortably inside the trigger and nearly four times the screen area.
+ *
+ * Normalising every power-up to the same figure is deliberate. They are read at
+ * a glance and chosen against each other, so one being half the size of another
+ * is a readability difference the player has to pay for, not a character note.
+ */
+const POWERUP_SPAN = 2.0;
+
+/** The gem sits between a coin and a power-up, and is sized between them. */
+const GEM_SPAN = 1.5;
+
+/**
+ * Scale a geometry so its largest dimension is exactly `span`.
+ *
+ * Applied to the geometry rather than to the mesh so the pool can keep swapping
+ * a single shared body in without also having to remember a per-kind scale —
+ * the swap in `take` sets `geometry` and nothing else, and that is worth
+ * keeping true.
+ */
+function fitSpan(geo: THREE.BufferGeometry, span: number): THREE.BufferGeometry {
+  geo.computeBoundingBox();
+  const b = geo.boundingBox!;
+  const widest = Math.max(b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z);
+  if (widest > 0) geo.scale(span / widest, span / widest, span / widest);
+  geo.computeBoundingSphere();
+  return geo;
+}
+
+function makePowerupGeometry(id: PowerupId): THREE.BufferGeometry {
+  return fitSpan(powerupProfile(id), POWERUP_SPAN);
 }
 
 /**
@@ -152,7 +199,7 @@ function makeGemGeometry(): THREE.BufferGeometry {
     new THREE.Vector2(0.0, -0.44),
   ];
   // Eight segments: few enough that every facet is a facet.
-  return new THREE.LatheGeometry(profile, 8);
+  return fitSpan(new THREE.LatheGeometry(profile, 8), GEM_SPAN);
 }
 
 export class PickupManager implements Manager {
@@ -389,7 +436,15 @@ export class PickupManager implements Manager {
   private place(p: Pickup, dt: number): void {
     const ahead = p.distance - this.road.travelled;
     this.road.worldOffset(ahead, this.scratch);
-    const hover = p.kind === 'coin' || p.kind === 'gem' ? 1.15 : 1.0;
+    /* High enough that the body clears the tarmac.
+     *
+     * This is a consequence of `POWERUP_SPAN`, not a taste call: a two-unit
+     * body centred at 1.0 has its underside exactly on the road, where it
+     * z-fights the surface and loses its lower half to the contact. Half the
+     * span plus a little daylight is the floor, and a power-up sitting at
+     * roughly windscreen height is also the one a driver is looking at.
+     */
+    const hover = p.kind === 'coin' ? 1.15 : p.kind === 'gem' ? 1.2 : 1.35;
     p.spin += dt * (p.kind === 'coin' ? 3.4 : 1.6);
     p.mesh.position.set(this.scratch.x + p.x, this.scratch.y + hover, this.scratch.z);
     p.mesh.rotation.y = p.spin;

@@ -210,5 +210,49 @@ the same seed, distance and vehicle either side of the change;
 `npm run probe` 247/247 checks, 34/34 cues.
 
 **Next:** item 6, Pickups & Collectibles — the power-up meshes are distinct
-lathed shapes but measure roughly 30 px across at eleven units ahead, which is
-point blank. They are objects in the code and specks in the frame.
+lathed shapes, and every one of them is authored around a one-unit span inside
+a 3.8-unit trigger. They are objects in the code and specks in the frame.
+
+### Iteration 47 — Pickups & Collectibles (backlog item 6)
+
+**Reopened with item 5, and a subtler miss.** Nothing here was a coloured box:
+iteration 39 gave every power-up a real lathed body — a buckler, a gas bottle,
+a horseshoe magnet, a bed-sheet ghost, an hourglass — and they spin about the
+vertical and tumble about X. Item 6 asks for "animated, rotating 3D pickup
+meshes" and on a code reading it was satisfied, which is exactly why iteration
+45 waved it through. What it could not survive was a capture.
+
+**The finding.** Every power-up was authored around a one-unit span. The thing
+that collects it is `|pickup.x - player.x| < PICKUPS.collectRadius`, which is
+1.9 either side — a 3.8-unit trigger, in a lane 4.2 wide. So the bodies were
+being kept under their trigger by a margin of nearly four, and at the distance
+a player actually decides whether to take one they were coloured specks. The
+rule the previous pass wrote down — never look bigger than the thing that
+catches you, or a miss feels stolen — was right and was never in danger.
+
+**Built this pass.** `fitSpan` normalises a pickup's largest dimension to a
+named span: `POWERUP_SPAN` 2.0, `GEM_SPAN` 1.5. Still comfortably inside the
+trigger. Normalising rather than scaling each shape is deliberate — power-ups
+are read at a glance and chosen against each other, so one being half the size
+of another is a readability cost the player pays, not a character note. The
+scale goes on the geometry rather than the mesh so the pool's body swap stays a
+single `geometry` assignment. Hover rose with it: a two-unit body centred at
+1.0 has its underside on the tarmac, z-fighting the road and losing its lower
+half to the contact.
+
+**Measured, not asserted.** The magnet laid eleven units ahead went from 349 to
+1150 lit pixels in a 1280-wide frame — 3.3x the screen area, which is the 1.82x
+linear scale squared, as it should be. An earlier eyeball of "about thirty
+pixels across" was wrong and is struck from iteration 46's closing note; the
+bounding box that suggested it was picking up magenta from the hero car's
+tail lights.
+
+**Verification.** `iter_47_pickups.png` is a contact sheet of six kinds at a
+fixed close range — bottle, horseshoe, hourglass, ghost, gem and buckler all
+read as themselves. `iter_47.png` is four of them laid across the road at 30 to
+66 units, which is the range they are actually judged at. `npm run build`
+clean; `npm run probe` 247/247 checks, 34/34 cues.
+
+**Backlog state: items 1–8 built and confirmed from a capture, at the angle and
+distance each is actually seen.** Items 5 and 6 were closed twice — once wrongly
+at iteration 45 on a code reading, and once here on a picture.
