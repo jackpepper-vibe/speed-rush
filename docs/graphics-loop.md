@@ -118,3 +118,36 @@ and `iter_44_ship.png` a closeup of the hull. `npm run build` clean;
 `npm run probe` 247/247 checks, 34/34 cues.
 
 **Next:** item 4, Hero Car Fidelity.
+
+### Iteration 45 — Hero Car Fidelity (backlog item 4): verification, no build
+
+Item 4 named three things. All three were already built and all three are
+visible in a capture, so this pass built nothing and is logged as a
+verification rather than a feature.
+
+- **Detailed LOD geometry** — `setHeroLod` feeds ring and length counts from
+  the quality tier into `BodyLoft`, and the body is a lofted shell with a
+  greenhouse, sills, arch liners and lathed tyres, not a box.
+  `iter_45_hero_body.png` is the equipped car at the garage's angle.
+- **Tyre smoke particle trails** — `EffectsManager` emits from both rear
+  wheels on drift. `iter_45_hero_smoke.png` is the car under
+  `setDriftIntensity(1)` with two plumes trailing back and outward.
+- **Glossy reflection passes** — car paint carries `envMapIntensity` 2.2–2.6
+  against the sky dome's PMREM; the specular runs along the rear haunch and
+  roof in both captures.
+
+**The rest of the backlog, checked the same way rather than assumed.** Item 5,
+traffic: sedans, SUVs and vans render with bodies, glass and wheels. Item 6,
+pickups: seven kinds live — coin, magnet, gem, ghost, shield, nitro, slowmo —
+and the non-coin ones carry their own coloured bodies. Items 7 and 8: guardrail
+runs, lamp standards and red-and-white rumble striping are all in frame in
+`iter_44.png`.
+
+**Not confirmed by screenshot:** item 7's "clean biome transitions". It is a
+property of change over time, which a still cannot show; it rests on the probe
+and on iterations 36, 40 and 42, which fixed scenery re-rolling, the sea
+blinking at a boundary, and the biome light turning too late.
+
+**Backlog state: items 1–8 all built and visibly rendering.** There is no top
+unfinished item left in Section 2. Further passes need new entries before they
+can do anything but polish, so the loop stops here rather than inventing scope.
