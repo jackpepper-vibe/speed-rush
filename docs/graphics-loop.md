@@ -86,6 +86,7 @@ High tier, cruise row, unless stated.
 | 40 | `b967d15` | 0.484 | 1.07 | 0.82 | 0.08 | 247/247 |
 | 41 | `093809b` | 0.483 | 1.07 | 0.82 | 0.08 | 247/247 |
 | 42 | `c091c64` | 0.483 | 1.07 | 0.82 | 0.08 | 247/247 |
+| 43 | `PENDING` | **0.463** | 1.04 | **0.87** | 0.08 | 247/247 |
 
 From iteration 25 the probe has **246** checks, not 245. The new one asserts
 that something beside the road darkens it.
@@ -1338,6 +1339,48 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     constant, it costs nothing, and it moves in the direction the queue asked
     for.
 
+43. **The low town between the road and the skyline.** `DistrictManager`, a
+    third `CellField`. Histogram **0.483 -> 0.463** cruise and 0.452 -> 0.442
+    boost, contrast **0.82 -> 0.87**, roadside density 1.07 -> 1.04. The largest
+    histogram move since iteration 33, and everything moved together — which
+    this file has learned is the signature of a real fix rather than a traded
+    error.
+
+    Iteration 34 put towers at 225 to 400 and iteration 33 put water on the
+    other side, and between the last palm at about 45 and the first tower there
+    was a third of the landward frame with nothing in it. **A gap like that is
+    not a missing prop, it is a missing rank.** Depth in a frame comes from
+    overlap: the towers only read as far away because something nearer partly
+    hides them. Across clear sand they read as a painted backdrop, which is
+    exactly how they looked.
+
+    Low stucco blocks, 58 to 196 lateral, with a parapet and a stair head. The
+    parapet is the whole trick at this range — a flat-topped box meets the sky
+    along one hard line and reads as a shipping container, where a lip standing
+    proud of the wall gives the roofline a second edge and a band of shadow
+    under it. Gapped at 26%, because a town has streets and the streets are what
+    the towers show through.
+
+    Two rules deliberately inverted from the skyline's. The skyline is **tall at
+    the front, low behind**; this rank is **low at the front, taller behind**,
+    so it steps up into the towers rather than competing with them. And these
+    **cast shadows** where the towers do not: at 58 out the nearest are inside
+    the sun's +/-90 frustum, so they can put something on the ground, where
+    asking the towers to would only have coarsened every other shadow in the
+    scene.
+
+    Cost: 362053 -> 363493 triangles and 865 -> **867 draws**. The +2 is the
+    mesh and its shadow-map pass; at the low tier shadows are off, so it is +1
+    there.
+
+    **A type error the dev server transpiled straight past.** `castsShadow`
+    needed an `override` modifier, `tsc` said so, and `compare.mjs` had already
+    rendered a perfectly good frame from it — vite strips types without checking
+    them. The scores in this entry were first produced by a build that would not
+    have compiled. They were re-confirmed after the fix, but the lesson stands:
+    **a comparison run is not a build.** Run `tsc --noEmit` before believing a
+    number, not after.
+
 ### The measurement was noisier than it was — fixed at iteration 12
 
 `makeRoadTexture` and `makeRoadWearTexture` both speckled with bare
@@ -1392,12 +1435,16 @@ plumbing. The histogram fell 1.192 -> 0.531 and both bounds were met while the
 world stayed the same empty highway. **A metric that can improve by half while
 the content is untouched is not a plan; it is a thermometer.** Work these first.
 
-0. ~~**Build the coast.**~~ **Done across iterations 33, 34 and 35**: sea
-   (33), city skyline (34), marina and ships (35). All three are tiered, and
-   the three of them together cost two draw calls. What is left is quality
-   rather than existence — the water is a flat plane with no surf line at the
+0. ~~**Build the coast.**~~ **Done across iterations 33, 34, 35 and 43**: sea
+   (33), city skyline (34), marina and ships (35), and the low town between road
+   and skyline (43). Four draw calls for the lot.
+
+   What is left is quality rather than existence, and iteration 43 shortened the
+   list by supplying the missing **rank** — the towers now stand behind
+   something. Still open: the water is a flat plane with no surf line at the
    shore, and the vessels have no moorings, jetties or harbour wall to belong
-   to. Requeue that as its own item rather than reopening this one.
+   to. The district is the natural place to hang a harbour wall off, since it
+   already reaches to within 58 units of the road.
 
 1. **Traffic vehicles are not good enough.** Iteration 28 tiered their detail;
    it did not make them better models. Boxy silhouettes, flat paint.

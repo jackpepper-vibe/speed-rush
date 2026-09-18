@@ -421,12 +421,14 @@ export function installDevHandle(game: Game, version: string): DevHandle {
       return [
         { id: 'skyline', ...game.skyline.snapshot() },
         { id: 'marina', ...game.marina.snapshot() },
+        { id: 'district', ...game.district.snapshot() },
       ];
     },
 
     setCellFieldVisible(id, visible) {
       if (id === 'skyline') game.skyline.setVisible(visible);
       if (id === 'marina') game.marina.setVisible(visible);
+      if (id === 'district') game.district.setVisible(visible);
     },
 
     uiElements() {
