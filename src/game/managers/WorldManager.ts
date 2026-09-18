@@ -387,7 +387,12 @@ export class WorldManager implements Manager {
      * a sea that fades up as you approach a boundary would appear out of open
      * desert. It arrives at the boundary the way the ground does, and the fog
      * takes care of the far end. */
-    this.road.setSeaVisible(this.biomeAtDistance(distance) === 'coast');
+    /* The sea is no longer switched from here.
+     *
+     * `RoadManager` decides it per segment from the biome of that segment's own
+     * road, so the water ends where the coast ends rather than where the camera
+     * is. Driving it from this manager meant the whole sea blinked at a
+     * boundary crossing. */
 
     // Headlights come on for the dark and for bad weather, whichever is worse.
     const lights = Math.max(palette.headlights, weather.rain * intensity * 2.2, this.inTunnel ? 3 : 0);

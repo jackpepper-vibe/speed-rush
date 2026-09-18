@@ -78,6 +78,19 @@ export function setCoastLookup(fn: (distance: number) => boolean): void {
   coastAt = fn;
 }
 
+/**
+ * Whether the road at this distance runs along a coast.
+ *
+ * The same lookup the ground profile uses, exposed so that anything which has
+ * to appear only on the coast can be keyed on **its own** stretch of road
+ * rather than on the car's. That distinction is the whole reason this exists:
+ * a thing switched on by where the camera is arrives all at once, and a thing
+ * switched on by where it stands arrives at the boundary and comes to meet you.
+ */
+export function isCoastAt(distance: number): boolean {
+  return coastAt(distance);
+}
+
 /** How far the beach falls before it is safely under the water. */
 const SHORE_DROP = 9;
 const SHORE_RAMP = 130;

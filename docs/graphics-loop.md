@@ -83,6 +83,7 @@ High tier, cruise row, unless stated.
 | 37 | `c8825e1` | 0.485 | 1.07 | 0.81 | 0.08 | 247/247 |
 | 38 | `e907f6f` | 0.484 | 1.07 | 0.82 | 0.08 | 247/247 |
 | 39 | `21b1b08` | 0.484 | 1.07 | 0.82 | 0.08 | 247/247 |
+| 40 | `PENDING` | 0.484 | 1.07 | 0.82 | 0.08 | 247/247 |
 
 From iteration 25 the probe has **246** checks, not 245. The new one asserts
 that something beside the road darkens it.
@@ -1205,6 +1206,52 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     than the rest. Left as it is: it is still unmistakable against a bottle, a
     horseshoe, a bell and an hourglass, which is what the item asked for.
 
+40. **The sea stops where the coast stops, not where the camera is.** Sea
+    visibility is decided per segment from the biome of that segment's own road.
+    No score change.
+
+    `WorldManager` called `setSeaVisible(biomeAtDistance(distance) === 'coast')`
+    every frame, and that set one flag across every segment at once. So the
+    entire body of water, out to nineteen hundred units, blinked on and off as
+    the player crossed a boundary: the most abrupt thing in the world, happening
+    to the largest object in it. Now each segment asks about its own stretch of
+    road when it recycles — the rule iteration 33 already used for the beach
+    profile, and the reason the shoreline arrives at the boundary instead of
+    under the car. `setSeaVisible` survives as a master switch and no longer
+    decides *where*.
+
+    **The obvious hypothesis measured false and was reverted, which is most of
+    what this iteration is worth.** The queue item said "the palette crossfades;
+    the props do not", so the first change made prop membership interleave
+    across a boundary — an instance within `biomeBlend` of the line taking a
+    stable coin on being judged against the far side instead. Measured either
+    side of three real boundaries, by counting live instances of kinds that
+    belong to exactly one biome:
+
+    | | before | after |
+    |---|---|---|
+    | city -> forest, over ~550u | 109/0 · 88/48 · 60/102 · 36/156 · 9/210 · 0/229 | 99/0 · 86/57 · 65/108 · 41/159 · 21/200 · 0/224 |
+
+    **The props were already gradual.** Each instance tests its own world
+    position and instances are spread across the whole draw distance, so the
+    counts ramp over about five hundred units with no blending code at all. The
+    interleave moved 9/210 to 21/200 — inside the noise of a scatter. Reverted
+    under this file's own rule from iteration 11: an abstraction whose only
+    justification is a hypothesis that measured false is dead weight.
+
+    **Recorded and deliberately not fixed:** `WORLD.biomeBlend` is 220 and is
+    read by nothing, because `WorldManager` carries a private `BIOME_BLEND =
+    320` for the palette crossfade that has shadowed it since it was written.
+    Unifying them changes how far out the light starts turning, which is an art
+    change and belongs in an iteration of its own.
+
+    **What is not proven.** The route sampled (seed 2024, first 5000 units) has
+    no coast boundary in it, so the sea change is structurally the same keying
+    that was proven at iteration 33 but **has not been measured at a real coast
+    edge**. The seaward-region frame mean is also too noisy for the job —
+    palms, sky and scenery all cross that rectangle. A proper check counts
+    visible sea segments across a coast boundary and wants a seam to do it.
+
 ### The measurement was noisier than it was — fixed at iteration 12
 
 `makeRoadTexture` and `makeRoadWearTexture` both speckled with bare
@@ -1307,9 +1354,26 @@ the content is untouched is not a plan; it is a thermometer.** Work these first.
    power-ups ever were — coins and gems were already lathed. Each of the five
    now has its own silhouette, and it cost nothing: triangles fell slightly.
 
-5. **Biome transitions are abrupt.** City to desert to city with no blending of
-   what is actually standing beside the road. The palette crossfades; the props
-   do not, beyond the boundary rule added earlier.
+5. **Biome transitions are abrupt.** Partly addressed at iteration 40, and the
+   item's own diagnosis measured **false**: the props were already gradual over
+   about five hundred units, because each instance tests its own world position
+   across the whole draw distance. An explicit interleave moved 9/210 to 21/200
+   and was reverted.
+
+   What was genuinely abrupt and is now fixed is the **sea**, which was one flag
+   over every segment driven from the biome under the camera, so all nineteen
+   hundred units of water blinked at a crossing.
+
+   Still open, and now the most likely remaining cause: the **ground colour and
+   the light**. `blendedTint` crossfades over a private `BIOME_BLEND = 320`
+   inside `WorldManager` — which shadows the unused `WORLD.biomeBlend = 220` —
+   against a biome length of 1750, so the light turns over less than a fifth of
+   a biome. Widening it is a one-line art change with a measurable before and
+   after, and nobody has tried it.
+
+   Also open: a check that the sea change works. It has not been measured at a
+   real coast boundary — the sampled route had none — and the seaward frame mean
+   is too noisy to serve. Count visible sea segments instead.
 
 ### Earlier queue, from the fidelity work
 

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { GameContext, Manager } from '@/core/Manager';
 import { ROAD } from '@/game/config/Balance';
-import { curveAt, groundReliefAt, hillAt } from '@/game/world/RoadGeometry';
+import { curveAt, groundReliefAt, hillAt, isCoastAt } from '@/game/world/RoadGeometry';
 import { RoadStrip, type SectionPoint } from '@/game/world/RoadStrip';
 import {
   makeGroundTexture, makeRoadTexture, makeRoadWearTexture, makeShoulderTexture,
@@ -31,6 +31,8 @@ interface Segment {
   /** The tarmac specifically, named rather than found by position in `strips`. */
   road: RoadStrip;
   readonly posts: SegmentPosts[];
+  /** This segment's own water, shown only where its own road is coastal. */
+  readonly sea: THREE.Mesh;
   startDistance: number;
 }
 
@@ -308,7 +310,9 @@ export class RoadManager implements Manager {
       }
 
       this.root.add(group);
-      this.segments.push({ group, strips, road, posts: segmentPosts, startDistance: Number.NaN });
+      this.segments.push({
+        group, strips, road, posts: segmentPosts, sea: seaMesh, startDistance: Number.NaN,
+      });
     }
 
     this.layout();
@@ -359,11 +363,21 @@ export class RoadManager implements Manager {
     return GROUND_HALF_WIDTH;
   }
 
-  /** Tint the ground to the biome it runs through. */
-  /** Show or hide the water. Driven by the biome. */
+  /**
+   * Master switch for the water, independent of where the coast is.
+   *
+   * Kept as a seam rather than as the mechanism. Which *segments* carry water
+   * is decided per segment in `layout`, from the biome of that segment's own
+   * road — this only says whether any of it is drawn at all.
+   */
   setSeaVisible(visible: boolean): void {
-    for (const mesh of this.seaMeshes) mesh.visible = visible;
+    this.seaShown = visible;
+    for (const seg of this.segments) {
+      seg.sea.visible = visible && isCoastAt(seg.startDistance + ROAD.segmentLength * 0.5);
+    }
   }
+
+  private seaShown = true;
 
   setGroundColour(hex: number, roughness: number): void {
     this.groundMat.color.setHex(hex);
@@ -398,6 +412,17 @@ export class RoadManager implements Manager {
         seg.startDistance = start;
         for (const strip of seg.strips) strip.setStart(start);
         this.placePosts(seg, start);
+        /* Water is a property of this segment's road, not of the car's.
+         *
+         * It used to be one flag over every segment at once, set from the biome
+         * under the camera — so the entire sea, out to nineteen hundred units,
+         * blinked on and off as the player crossed a boundary. That is the most
+         * abrupt thing in the world and it happened to the largest object in
+         * it. Sampled at the segment's midpoint, and only when the segment
+         * recycles, which is the same rule the beach profile has followed since
+         * it was built. */
+        seg.sea.visible = this.seaShown
+          && isCoastAt(start + ROAD.segmentLength * 0.5);
       }
 
       // Everything player-relative lives here, so the vertices above stay put.
