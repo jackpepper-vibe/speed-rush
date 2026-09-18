@@ -65,6 +65,15 @@ High tier, cruise row, unless stated.
 | 19 | `93f1997` | **0.634** | 0.79 | 0.72 | 0.11 | 244/245 |
 | 20 | `a6b888e` | **0.615** | 0.79 | 0.71 | 0.11 | 244/245* |
 | 21 | `a538ecd` | 0.615 | 0.79 | 0.71 | 0.11 | 244/245 |
+| 22 | `PENDING` | **0.535** | 0.90 | 0.65 | 0.05 | see below |
+
+**Iteration 22 is the first time the histogram bound has been met on
+`compare.mjs`.** Cruise 0.535 and boost 0.506 against a bound of 0.55, with
+roadside density 0.90 cruise and 1.00 boost, both inside 0.6-1.7. Frame mean
+150.4 against the reference's 150.5.
+
+The bound that matters is the probe's, and it is reported separately below —
+`compare.mjs` meeting it is not the same as the gate passing.
 
 \* Iteration 20's probe actually printed **245/245**, and it was a false pass.
 See entry 21. The probe's honest reading at that code state is 0.563.
@@ -510,6 +519,37 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     bound — confirmed on three runs, 0.563 each, no resample warning on any.
     The gate did not pass. It is **0.013 away**, which is the closest this loop
     has been, and close enough that the next art change could decide it.
+
+22. Day `skyBottom` `0x7fb0e0` -> `0x4a80bc`. Histogram **0.615 -> 0.535**, the
+    largest single move since iteration 7, and the first reading under the 0.55
+    bound.
+
+    Iteration 9 had already established the principle and simply had not taken
+    it far enough: a chase camera sits on the horizon, so the lower dome fills
+    the frame and `skyBottom` — not `skyTop` — is what the player looks at. It
+    moved 0xa8ccec to 0x7fb0e0 then and stopped. With cloud down to 0.07
+    (iteration 17), fog landed (18) and the flare gone (19), the gradient was
+    all that was left holding up the 184-223 block, and that block was still
+    +19.6pp of a total residual near 35pp.
+
+    Landed properly this time, by fitting the well rather than stepping until
+    it got worse: texture-space luminance 169 -> 0.615, 140 -> 0.565,
+    121 -> 0.535, 107 -> 0.614. 0x5286c2 at 127 measures 0.534, a thousandth
+    better, and was not taken — 0x4a80bc holds roadside density at 1.00 boost
+    and puts the frame mean at 150.4 against the reference's 150.5, and a
+    thousandth is not worth either of those.
+
+    Everything moved together, which is the sign of a real fix rather than a
+    traded error: verge 0.79 -> 0.90, mean 160.5 -> 150.4, and the boost row
+    0.564 -> 0.506.
+
+    **Two costs, both real.** Bright-pixel ratio fell 0.11 -> 0.05 and contrast
+    0.71 -> 0.65, so the frame is flatter and dimmer at the top end than it was.
+    The highlight deficit at queue item 5 is now the dominant error by a wide
+    margin, and contrast has been drifting since iteration 7 without ever being
+    addressed. **And the road is very likely un-landed again** — this took ten
+    luminance out of the scene, exactly the situation iteration 20 said to
+    expect. Check it next.
 
 ### The measurement was noisier than it was — fixed at iteration 12
 

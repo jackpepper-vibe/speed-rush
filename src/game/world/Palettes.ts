@@ -57,7 +57,7 @@ export const DAY_PALETTE: Record<DayPhase, Palette> = {
     // barely appears. At 0xa8ccec that band rendered at luminance 199, which is
     // where our sky was piling 29% of the frame against the reference's 3%.
     // The reference holds a deeper blue much further down towards its horizon.
-    skyTop: 0x1e5fbe, skyBottom: 0x7fb0e0, horizon: 0xfff2d0,
+    skyTop: 0x1e5fbe, skyBottom: 0x4a80bc, horizon: 0xfff2d0,
     hemiSky: 0xbcd8ff, hemiGround: 0x45402f, hemiIntensity: 0.82,
     // Elevation is geometry, not colour. At 0.85 the sun stood 54 degrees up
     // and every roadside shadow fell in a puddle under the thing that cast it —
