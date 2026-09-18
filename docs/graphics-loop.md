@@ -63,7 +63,7 @@ High tier, cruise row, unless stated.
 | 17 | `7c413aa` | **0.703** | 0.73 | 0.73 | 0.37 | 244/245 |
 | 18 | `75d3f61` | **0.690** | 0.72 | 0.74 | 0.37 | 244/245 |
 | 19 | `93f1997` | **0.634** | 0.79 | 0.72 | 0.11 | 244/245 |
-| 20 | `PENDING` | **0.615** | 0.79 | 0.71 | 0.11 | 244/245 |
+| 20 | `a6b888e` | **0.615** | 0.79 | 0.71 | 0.11 | 244/245 |
 
 The probe's own reading of the same bound is now **0.579** and falling with it.
 The boost row at iteration 20 reads **0.564**. The 0.55 bound has stopped being
