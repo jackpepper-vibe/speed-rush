@@ -122,6 +122,33 @@ export const HANDLING = {
    * than a route.
    */
   shoulderSpeedCap: 0.52,
+  /**
+   * Seconds of continuous contact with the shoulder before the car stops dead.
+   *
+   * The cap above made the gutter strictly slower than the road, which was
+   * supposed to make it an escape rather than a route. It did not: a constant
+   * fraction of the ceiling is still a *speed*, so the rumble strip stayed a
+   * sixth lane you could settle into and coast down at half pace, indefinitely
+   * and untouched by traffic that runs in lanes. Slow is a price a player will
+   * pay to be safe — the same lesson `shoulderCamber` was written for, and the
+   * camber only closed it for a driver who stopped paying attention.
+   *
+   * A ceiling that falls to zero cannot be settled into at all. It converts the
+   * gutter from somewhere cheap into somewhere with a timer: two seconds is
+   * long enough to dive in, slip past a blocked road and pull out again, which
+   * is the move that should stay legitimate, and far too short to travel in.
+   */
+  shoulderBogSeconds: 2.2,
+  /**
+   * How fast the bog clears once back on the tarmac, as a multiple of the rate
+   * it builds at.
+   *
+   * Faster than it builds, so the escape move stays repeatable and a driver who
+   * clips the strip through a bend is not carrying a penalty into the next one.
+   * Not instant, so hopping in and out along the same stretch of road cannot be
+   * used to reset the timer and travel the gutter in bursts.
+   */
+  shoulderRecoverRate: 1.8,
 } as const;
 
 /** Traffic density and behaviour. */

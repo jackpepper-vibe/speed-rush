@@ -151,15 +151,55 @@ export class PlayerManager implements Manager {
   /** True while the car is in continuous contact with a barrier. */
   private againstBarrier = false;
 
+  /** Seconds of continuous contact with the shoulder. */
+  private shoulderTime = 0;
+
+  /**
+   * How far the gutter has mired the car: 0 on clean tarmac, 1 stopped dead.
+   *
+   * Public so the gate can assert on it — the difference between "the strip is
+   * slow" and "the strip stops you" is two seconds apart and invisible to any
+   * single-frame measurement.
+   *
+   * Nothing renders it yet, and that is worth writing down as a debt rather
+   * than leaving to be rediscovered: this is a punishment with a timer, and a
+   * timer the player cannot see is one they will feel as the car dying for no
+   * reason. The camber already pulls them toward the rail while it runs, which
+   * is a hint, but it is not the same as being told.
+   */
+  get bog(): number {
+    return THREE.MathUtils.clamp(this.shoulderTime / HANDLING.shoulderBogSeconds, 0, 1);
+  }
+
+  /**
+   * Lowest speed the car may be clamped to this tick.
+   *
+   * Never above the ceiling, which is what lets a mired car reach zero while a
+   * car on the road still cannot fall below `SPEED.min`.
+   */
+  private get speedFloor(): number {
+    return Math.min(SPEED.min, this.speedCeiling);
+  }
+
   private integrateSpeed(dt: number, distance: number): void {
     const km = distance / 1000;
     let ceiling = Math.min(
       (SPEED.baseMax + km * SPEED.maxGainPerKm) * this.stats.topSpeed * this.boostFactor,
       SPEED.absoluteMax,
     );
-    // Off the tarmac, the ceiling comes down rather than the speed merely
-    // bleeding. See HANDLING.shoulderSpeedCap.
-    if (isOnShoulder(this.x)) ceiling *= HANDLING.shoulderSpeedCap;
+    /* Off the tarmac, the ceiling comes down rather than the speed merely
+     * bleeding — and it keeps coming down for as long as the car stays there.
+     *
+     * The fixed cap alone left the gutter drivable: half the ceiling is still a
+     * speed, so the strip was a sixth lane with no traffic in it. Winding the
+     * cap to zero over `shoulderBogSeconds` means there is no equilibrium to
+     * settle at. The car mires and stops. See HANDLING.shoulderBogSeconds.
+     */
+    const onShoulder = isOnShoulder(this.x);
+    this.shoulderTime = onShoulder
+      ? this.shoulderTime + dt
+      : Math.max(0, this.shoulderTime - dt * HANDLING.shoulderRecoverRate);
+    if (onShoulder) ceiling *= HANDLING.shoulderSpeedCap * (1 - this.bog);
     this.speedCeiling = ceiling;
 
     if (this.input.brake) {
@@ -172,9 +212,18 @@ export class PlayerManager implements Manager {
     }
 
     // Running a wheel onto the rumble strip scrubs speed off.
-    if (isOnShoulder(this.x)) this.speed -= HANDLING.shoulderDrag * dt;
+    if (onShoulder) this.speed -= HANDLING.shoulderDrag * dt;
 
-    this.speed = THREE.MathUtils.clamp(this.speed, SPEED.min, ceiling);
+    /* The floor follows the ceiling down.
+     *
+     * `SPEED.min` is what stops the car dribbling to a halt on the road, and on
+     * the road the ceiling is far above it so it does exactly that. In a fully
+     * mired gutter the ceiling is zero and a fixed floor of 18 would hold the
+     * car moving at a walk forever — which is the coast this change exists to
+     * remove, merely slower. Clamping between a floor that can never exceed the
+     * ceiling is also the only ordering `clamp` is defined for.
+     */
+    this.speed = THREE.MathUtils.clamp(this.speed, this.speedFloor, ceiling);
   }
 
   private integrateLateral(dt: number): void {
@@ -229,14 +278,19 @@ export class PlayerManager implements Manager {
 
       if (!this.againstBarrier) {
         this.againstBarrier = true;
-        this.speed = Math.max(SPEED.min, this.speed * 0.86);
+        this.speed = Math.max(this.speedFloor, this.speed * 0.86);
         this.ctx.bus.emit('player:crash', {
           with: 'barrier',
           speed: this.speed,
           position: this.mesh.position.clone(),
         });
       } else {
-        this.speed = Math.max(SPEED.min, this.speed - HANDLING.shoulderDrag * 2.5 * dt);
+        /* Held against the rail, which on a coastal boulevard means held in
+         * the gutter. The floor follows the ceiling here for the same reason
+         * it does above: a fixed `SPEED.min` would quietly restore a mired car
+         * to a walking pace on every tick of contact, and the rail is exactly
+         * where the camber puts a driver who tried to travel the shoulder. */
+        this.speed = Math.max(this.speedFloor, this.speed - HANDLING.shoulderDrag * 2.5 * dt);
       }
     } else {
       this.againstBarrier = false;
@@ -338,6 +392,11 @@ export class PlayerManager implements Manager {
     this.lastLane = Math.floor(ROAD.laneCount / 2);
     this.wasSlipping = false;
     this.lastSlope = 0;
+    this.againstBarrier = false;
+    // A new run starts on clean tarmac; carrying the last one's bog into it
+    // would cap the first seconds of it for no reason the player can see.
+    this.shoulderTime = 0;
+    this.speedCeiling = SPEED.baseMax;
     this.mesh.position.set(0, 0, 0);
     this.mesh.rotation.set(0, 0, 0);
   }

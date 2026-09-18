@@ -508,6 +508,81 @@ check('barrier', 'barrier-cue-fires', barrier.crashes > 0,
 check('barrier', 'barrier-state-finite', finite(barrier.x, barrier.vx, barrier.speed),
   `x=${barrier.x} vx=${barrier.vx} speed=${barrier.speed}`);
 
+/* -- the gutter ---------------------------------------------------------------
+ *
+ * The shoulder has been closed three times. A drag term settled at an
+ * equilibrium and left it a sixth lane; a speed cap made it a slower sixth
+ * lane; a camber closed it only for a driver who stopped steering. Each of
+ * those looked right in a single frame and each left somewhere to coast, so
+ * this is asserted over time and from both ends: that sitting in it stops the
+ * car outright, and that it is still possible to get out.
+ */
+phase = 'gutter';
+const gutter = await page.evaluate(() => {
+  const cr = window.carRacer;
+  cr.setCollisions(false);
+  cr.setPickupSpawning(false);
+  cr.setTrafficSpawning(false);
+  cr.clearPowerups();
+
+  // Parked on the strip with the throttle in, sampled every half second.
+  cr.startRun(5);
+  cr.drive(4, 0);
+  cr.place({ x: 11.6, vx: 0 });
+  const trace = [];
+  for (let i = 0; i < 10; i++) { cr.drive(0.5, 0); trace.push(cr.state().speed); }
+
+  // From a standstill in the gutter, steering out has to work.
+  cr.drive(2.0, -1);
+  cr.drive(3.0, 0);
+  const escaped = cr.state();
+
+  // A second's dip is the escape move, and must stay affordable.
+  cr.startRun(5);
+  cr.drive(4, 0);
+  const beforeDip = cr.state().speed;
+  cr.place({ x: 11.6, vx: 0 });
+  cr.drive(1.0, 0);
+  cr.place({ x: 0, vx: 0 });
+  cr.drive(2.0, 0);
+  const afterDip = cr.state().speed;
+
+  // And the floor on clean tarmac is untouched: brakes held, still rolling.
+  cr.startRun(5);
+  cr.drive(3, 0);
+  cr.place({ x: 0 });
+  cr.drive(6, 0, true);
+  const braked = cr.state().speed;
+
+  /* Hand the road back the way it was found.
+   *
+   * This phase needs an empty road — a truck arriving while the car is parked
+   * on the strip ends the measurement — but the spawners are global, and
+   * leaving them off silently disarmed every phase after this one. It cost ten
+   * failures in collision, powerups, score and the HUD, none of which had
+   * anything to do with the gutter and all of which were measuring a world
+   * with no traffic in it. */
+  cr.setTrafficSpawning(true);
+  cr.setPickupSpawning(true);
+  return { trace, escaped, beforeDip, afterDip, braked };
+});
+
+check('gutter', 'strip-stops-the-car',
+  gutter.trace[gutter.trace.length - 1] === 0 && gutter.trace.some((v) => v > 0),
+  `speed on the strip: ${gutter.trace.map((v) => v.toFixed(0)).join(' -> ')}`);
+check('gutter', 'stop-arrives-within-the-timer',
+  gutter.trace.findIndex((v) => v === 0) >= 0 && gutter.trace.findIndex((v) => v === 0) <= 6,
+  `reached zero after ${((gutter.trace.findIndex((v) => v === 0) + 1) * 0.5).toFixed(1)}s`);
+check('gutter', 'escape-is-still-possible',
+  Math.abs(gutter.escaped.x) < config.halfWidth && gutter.escaped.speed > 40,
+  `steered out to x=${gutter.escaped.x.toFixed(1)} at ${gutter.escaped.speed.toFixed(1)}`);
+check('gutter', 'a-brief-dip-stays-affordable',
+  gutter.afterDip > gutter.beforeDip * 0.4,
+  `${gutter.beforeDip.toFixed(0)} -> dip -> ${gutter.afterDip.toFixed(0)} back on the road`);
+check('gutter', 'road-floor-unchanged',
+  Math.abs(gutter.braked - config.speedMin) < 0.5,
+  `braking on tarmac settles at ${gutter.braked.toFixed(1)}, floor is ${config.speedMin}`);
+
 /* -- speed model ------------------------------------------------------------- */
 
 phase = 'speed';
@@ -1523,7 +1598,15 @@ const uiIds = await page.evaluate(() => window.carRacer.uiElements());
     cr.setPickupSpawning(true);
     cr.clearPowerups();
     cr.startRun(1212);
-    cr.drive(18, 0.3);
+    /* Straight, not the held 0.3 this used to carry.
+     *
+     * A constant steer for eighteen seconds does not mean "drive for a while"
+     * any more: the camber takes the car onto the shoulder within a second or
+     * two and `shoulderBogSeconds` then stops it dead, so the HUD was being
+     * read off a car sitting motionless against the rail — no gear, no
+     * distance, no chain. The phase wants a car that has been driving, so it
+     * has to drive. */
+    cr.drive(18, 0);
 
     const s = cr.state();
     const shown = {
@@ -1533,6 +1616,21 @@ const uiIds = await page.evaluate(() => window.carRacer.uiElements());
       gear: read('hud-gear'),
       coins: num('hud-coin-count'),
     };
+
+    /* Put the car back to a clean rest before the next two readings.
+     *
+     * The drive above used to hold a steer, which parked the car against the
+     * rail — out of the pickup line and far enough from laned traffic to never
+     * build a chain. It cannot do that any more, because the gutter stops a car
+     * that sits in it, so it now runs down the middle and consequently drives
+     * over power-ups and passes traffic closely. The slot check below reads
+     * "exactly the two effects I just granted" and the combo check reads
+     * "hidden, with no chain": both were relying on the rail for that, and both
+     * now have to ask for it. */
+    cr.clearPowerups();
+    cr.setTrafficSpawning(false);
+    cr.clearTraffic();
+    cr.drive(3, 0);
 
     // Power-up slots: one per running effect, each with a live timer.
     cr.givePowerup('shield');
@@ -1545,6 +1643,9 @@ const uiIds = await page.evaluate(() => window.carRacer.uiElements());
 
     // Combo meter: hidden at rest, shown with a chain.
     const comboHiddenAtRest = document.getElementById('hud-combo').hidden;
+    // And back on, now that "no chain" has been read: the loop below needs
+    // something to run alongside.
+    cr.setTrafficSpawning(true);
     for (let i = 0; i < 60; i++) {
       const beside = cr.traffic().filter((t) => t.ahead > 5 && t.ahead < 90)
         .sort((a, b) => a.ahead - b.ahead)[0];
