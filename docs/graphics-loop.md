@@ -354,9 +354,18 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     checked: a harness fault reading as an art failure is the confusion this
     whole section exists to stop, and the pass count stays 245.
 
-    **Determinism not yet claimed.** One run at 0.661 with no resample warning.
-    Two confirmation runs are in flight; iteration 15 published this claim off
-    a single sample and was wrong, and three is the minimum.
+    **Confirmed: three runs, 0.661, 0.661, 0.661, no resample warning on any
+    of them.** Both harnesses are now reproducible — `compare.mjs` since
+    iteration 14, `probe.mjs` since this one. The measurement is no longer what
+    limits this loop's resolution.
+
+    Two process notes worth keeping, since between them they cost four
+    iterations. Iteration 12 called a race noise and fixed a different real
+    problem. Iteration 15 published a determinism claim off one sample. The
+    rule that would have caught both: **three samples minimum, and read the
+    shape — discrete repeated values are a race, scatter is noise.** And when a
+    swing is larger than the art changes you have been booking, suspect the
+    instrument before the art.
 
 ### The measurement was noisier than it was — fixed at iteration 12
 
@@ -433,25 +442,10 @@ threshold.
    only justification is a hypothesis that measured false is dead weight, and
    it is twenty lines to restore if a later iteration needs it.
 
-2. **Close the probe's measurement race. Still open — iteration 15 failed.**
-   `compare.mjs` is reproducible; `probe.mjs` is not, returning 0.662, 0.696,
-   0.662 across three runs at `165f73a`.
-
-   `setAutoAdvance(false)` was necessary and not sufficient, and the leading
-   suspect is where iteration 15 put it. It sits *after* the boot-context
-   settle, which is a `waitForFunction` poll — so a variable number of boot
-   frames tick the world before the loop is ever stopped. That is the same
-   quantised drift, just moved earlier in the sequence.
-
-   Two things to check first, in order. Does `startRun(seed)` fully reset
-   `road.travelled` and the manager state? If it does, pre-settle drift cannot
-   survive into a scenario and the cause is elsewhere. If it does not, the fix
-   is to reset after stopping rather than to stop earlier — stopping before the
-   settle would leave the WebGL context unable to restore, which is why it was
-   placed there.
-
-   Note the shape: 0.662 twice and 0.696 once is still discrete. Discrete means
-   race, as at iteration 14.
+2. ~~**Close the probe's measurement race.**~~ **Done at iteration 16**, after
+   iteration 15 fixed the wrong thing. Both harnesses are reproducible: four
+   identical `compare.mjs` runs, three identical `probe.mjs` runs. **From here,
+   back to art** — the measurement no longer limits what this loop can resolve.
 3. ~~**Cadence props scatter rather than placing sequentially.**~~ **Done at
    iteration 13.** They are laid on a world-anchored grid facing the road, and
    the railing is continuous to the vanishing point.
