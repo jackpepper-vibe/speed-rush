@@ -82,8 +82,34 @@ export const HANDLING = {
   /** Grip multiplier by surface state. */
   gripWet: 0.72,
   gripStorm: 0.58,
-  /** Lateral push applied while driving on the shoulder. */
+  /**
+   * Speed scrubbed off per second while any part of the car is off the tarmac.
+   *
+   * Named for a lateral push and used as longitudinal drag since it was
+   * written. The push it was named for is `shoulderCamber`, below, which did
+   * not exist until the shoulder turned out to be drivable.
+   */
   shoulderDrag: 4.0,
+  /**
+   * Outward lateral acceleration while off the tarmac: the camber of the
+   * gutter, pulling the car towards the barrier.
+   *
+   * The shoulder was already strictly slower than the road and it was still a
+   * free lane, because **slow is a price a player will pay to be safe.**
+   * Traffic runs in lanes and lanes end at `halfWidth`, so a car sitting at the
+   * rail is not merely slower — it is untouchable, and a run that cannot end is
+   * worth more than a run that is quick. No speed penalty closes that; the
+   * shoulder has to stop being somewhere you can *rest*.
+   *
+   * A camber does exactly that and nothing else. Steering authority settles
+   * lateral velocity near 7.7 at full lock, so at 20 the gutter costs about a
+   * third of the steering budget held permanently: the shoulder stays usable
+   * for a second or two to slip past a blocked road, and stops being a place to
+   * park, because the moment attention goes elsewhere the car is against the
+   * rail. Deliberately not a bounce, a spin or damage — the escape is a
+   * legitimate move and should stay one.
+   */
+  shoulderCamber: 20,
   /**
    * Speed ceiling while any part of the car is off the tarmac, as a fraction
    * of the ceiling on the road.
@@ -105,6 +131,53 @@ export const TRAFFIC = {
   spawnIntervalMin: 0.42,
   /** Distance in km over which the interval tightens to its minimum. */
   rampKm: 7.5,
+  /**
+   * Share of outer-lane traffic that runs wide, half on the shoulder, and how
+   * far out it sits.
+   *
+   * The offset is chosen against the geometry rather than by feel, and the
+   * binding constraint is an invariant rather than an aesthetic. The outer lane
+   * centre is at 8.4, the tarmac ends at 10.5, and the rail stops the player at
+   * 11.9. What has to be true is that the two **bodies** overlap — half-widths
+   * are 1.02 each, so their centres must be within 2.04 — while the vehicle's
+   * own centre stays on the tarmac, because `traffic/stays-on-tarmac` asserts
+   * exactly that and it is a real invariant: traffic must not wander into the
+   * scenery.
+   *
+   * At 2.0 the centre sits at 10.4, on the tarmac with a tenth to spare, and
+   * the body overhangs to 11.42 — genuinely half on the shoulder to look at.
+   * The gap to a player on the rail is 1.5 against a 2.04 overlap threshold.
+   * The first attempt used 2.5, which put the centre at 10.9 and failed the
+   * gate; the fix belonged in the change, not in the check.
+   *
+   * The share is not flavour and was landed by measurement, because a corridor
+   * is only shut if something is actually *in* it often enough to be met. Hands
+   * off on the rail, run-end time: 0.16 never inside 150s, 0.30 at 127.1s,
+   * 0.45 at 69.7s. Against 14.2s for the same hands-off run in a lane, 0.45 is
+   * the value that makes the gutter an escape with a bounded life rather than a
+   * route. It works out at about 18% of all traffic, which is high for
+   * breakdowns and right for the reference: target2 has a row of vehicles
+   * parked along the kerb the whole length of the frame.
+   */
+  vergeShare: 0.45,
+  vergeOffset: 2.0,
+  /**
+   * Speed of a verge-hugger, as a fraction of the baseline ceiling.
+   *
+   * Far below the ordinary band, and that is the whole point rather than
+   * flavour. The shoulder's speed cap is what *created* the exploit: capped at
+   * 0.52 the player crawls at about 31 units/sec, every ordinary vehicle runs
+   * at 29 to 67, so nothing is ever overtaken — and a collision here only
+   * happens when the player closes on something. The anti-exploit measure was
+   * the exploit. Measured before this: hands off on the rail, forty seconds and
+   * no run-end; hands off in a lane, the run ends at 14.2 seconds.
+   *
+   * A vehicle half on the shoulder is there because it is slow — a breakdown, a
+   * heavy load — so it is slower than a shoulder-capped player by construction,
+   * and a rail-rider closes on it. This is the only part of the change that
+   * actually shuts the corridor.
+   */
+  vergeSpeedFraction: 0.16,
   /** Traffic moves in the same direction, slower than the player. */
   speedFractionMin: 0.34,
   speedFractionMax: 0.78,

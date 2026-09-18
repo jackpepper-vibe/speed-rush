@@ -32,6 +32,16 @@ interface Vehicle {
   targetLane: number;
   /** 0..1 through a lane change; 1 when settled. */
   laneBlend: number;
+  /**
+   * Lateral offset from the lane centre, for a vehicle hugging the verge.
+   *
+   * Zero for almost everything. The few that carry it sit partly on the
+   * shoulder, which is the only thing that puts anything in the corridor
+   * between the outer lane and the barrier — measured at x 8.40 and x 11.90
+   * respectively, so a car against the rail was untouchable by construction.
+   * A verge-hugger does not change lane: it is not going anywhere.
+   */
+  verge: number;
   speed: number;
   cruiseSpeed: number;
   braking: boolean;
@@ -92,7 +102,7 @@ export class TrafficManager implements Manager {
     mesh.visible = false;
     this.root.add(mesh);
     return {
-      mesh, kind, active: false, distance: 0, x: 0, lane: 0, targetLane: 0,
+      mesh, kind, active: false, distance: 0, x: 0, lane: 0, targetLane: 0, verge: 0,
       laneBlend: 1, speed: 0, cruiseSpeed: 0, braking: false,
       decisionTimer: 0, hornTimer: 0, passed: false, nearMissed: false, wheelSpin: 0,
     };
@@ -199,7 +209,7 @@ export class TrafficManager implements Manager {
 
     // Long vehicles need their own speed band or they block the road solid.
     const fraction = this.ctx.rng.range(TRAFFIC.speedFractionMin, TRAFFIC.speedFractionMax);
-    const cruise = SPEED.baseMax * fraction * (kind === 'truck' || kind === 'bus' ? 0.82 : 1);
+    let cruise = SPEED.baseMax * fraction * (kind === 'truck' || kind === 'bus' ? 0.82 : 1);
 
     this.reskin(vehicle, kind, colorRoll);
     vehicle.active = true;
@@ -207,7 +217,29 @@ export class TrafficManager implements Manager {
     vehicle.lane = lane;
     vehicle.targetLane = lane;
     vehicle.laneBlend = 1;
-    vehicle.x = ROAD.laneX(lane);
+    /* Some of the outer-lane traffic runs wide, half on the shoulder.
+     *
+     * The gutter was a free lane and no speed penalty could close it, because
+     * slow is a price a player will pay to be safe: traffic runs in lanes,
+     * lanes end at `halfWidth`, and a car parked against the rail therefore
+     * could not be hit by anything. `shoulderCamber` makes the shoulder cost
+     * attention; this is what makes it cost risk.
+     *
+     * Only the outer lanes, only sometimes, and only outward — a vehicle
+     * drifting inward would be wandering into moving traffic, which is a
+     * different and much worse kind of surprise.
+     */
+    const outer = lane === 0 ? -1 : lane === ROAD.laneCount - 1 ? 1 : 0;
+    vehicle.verge = outer !== 0 && this.ctx.rng.chance(TRAFFIC.vergeShare)
+      ? outer * TRAFFIC.vergeOffset
+      : 0;
+    // A vehicle sitting half on the shoulder is there because it is slow, and
+    // it has to be slower than a shoulder-capped player or the corridor stays
+    // open: collisions need the player to close on something.
+    if (vehicle.verge !== 0) {
+      cruise = SPEED.baseMax * TRAFFIC.vergeSpeedFraction;
+    }
+    vehicle.x = ROAD.laneX(lane) + vehicle.verge;
     vehicle.speed = cruise;
     vehicle.cruiseSpeed = cruise;
     vehicle.braking = false;
@@ -287,7 +319,8 @@ export class TrafficManager implements Manager {
 
     // Lane-change decisions, on a timer rather than every frame.
     v.decisionTimer -= dt;
-    if (v.decisionTimer <= 0 && v.laneBlend >= 1) {
+    // A vehicle hugging the verge stays there; it is not looking for a gap.
+    if (v.verge === 0 && v.decisionTimer <= 0 && v.laneBlend >= 1) {
       v.decisionTimer = TRAFFIC.laneChangeInterval;
       // A braking car is more motivated to find a way around.
       const urge = v.braking ? TRAFFIC.laneChangeChance * 2.4 : TRAFFIC.laneChangeChance;
@@ -300,10 +333,10 @@ export class TrafficManager implements Manager {
       const to = ROAD.laneX(v.targetLane);
       // Smoothstep: a lane change should ease out, not arrive at full rate.
       const t = v.laneBlend * v.laneBlend * (3 - 2 * v.laneBlend);
-      v.x = from + (to - from) * t;
+      v.x = from + (to - from) * t + v.verge;
       if (v.laneBlend >= 1) v.lane = v.targetLane;
     } else {
-      v.x = ROAD.laneX(v.lane);
+      v.x = ROAD.laneX(v.lane) + v.verge;
     }
 
     v.distance += v.speed * dt;

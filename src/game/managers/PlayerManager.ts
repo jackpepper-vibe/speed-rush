@@ -190,6 +190,23 @@ export class PlayerManager implements Manager {
 
     this.vx += this.steerAmount * HANDLING.steerRate * authority * dt * 6;
 
+    /* The gutter pulls outward.
+     *
+     * Applied with the steering rather than after the damping, so the tyres
+     * fight it the same way they fight a steering input and the two settle
+     * against each other instead of one being applied on top of the result.
+     *
+     * Ramped by how far off the tarmac the car is: a wheel over the line is a
+     * nudge, the full width of the shoulder is the full pull. A step change at
+     * the white line would make the edge of the road feel like a kerb, and the
+     * edge of the road is somewhere the player is meant to be able to run.
+     */
+    const over = Math.abs(this.x) - ROAD.halfWidth;
+    if (over > 0) {
+      const lean = Math.min(1, over / ROAD.shoulderWidth);
+      this.vx += Math.sign(this.x) * HANDLING.shoulderCamber * (0.3 + 0.7 * lean) * dt;
+    }
+
     // Tyres bleed lateral velocity. Wet roads bleed less, so the car slides.
     const damping = HANDLING.gripDamping * this.stats.grip * this.gripSurface;
     this.vx -= this.vx * Math.min(1, damping * dt);

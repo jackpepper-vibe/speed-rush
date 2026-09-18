@@ -81,6 +81,7 @@ High tier, cruise row, unless stated.
 | 35 | `591aeb5` | 0.486 | 1.07 | 0.81 | 0.07 | 247/247 |
 | 36 | `4f58222` | 0.486 | 1.07 | 0.81 | 0.07 | 247/247 |
 | 37 | `c8825e1` | 0.485 | 1.07 | 0.81 | 0.08 | 247/247 |
+| 38 | `PENDING` | 0.484 | 1.07 | 0.82 | 0.08 | 247/247 |
 
 From iteration 25 the probe has **246** checks, not 245. The new one asserts
 that something beside the road darkens it.
@@ -1116,6 +1117,58 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     instance drew its `ahead` from the window and could not fall outside it.
     Both placements are grid-based now and both can.
 
+38. **The gutter shut, and the anti-exploit measure turned out to be the
+    exploit.** `HANDLING.shoulderCamber` pulls the car outward off the tarmac,
+    and a share of outer-lane traffic now sits slow and half on the shoulder.
+    Scores unmoved: 0.484 cruise, 0.453 boost.
+
+    **The diagnosis inverted, and the measurement is the whole entry.** Hands
+    off, collisions live, traffic spawning: in a lane the run ends at **14.2
+    seconds**; on the rail it survived **150 seconds with no run-end at all**.
+    The cause is `shoulderSpeedCap`. Capped at 0.52 the player crawls at about
+    18 units/sec while every ordinary vehicle runs between 29 and 67, so nothing
+    is ever overtaken — and a collision in this game only happens when the
+    player closes on something. The penalty that was added to stop the shoulder
+    being a route is precisely what made it a sanctuary. *A cost that slows you
+    down can be a reward in a game where speed is the danger.*
+
+    Two mechanisms, and only the second one closes anything. The camber costs
+    attention: it settles about a third of the steering budget, so the shoulder
+    stays usable for a second or two and stops being somewhere to rest. On its
+    own it changed nothing about survival, because the barrier catches the car
+    and holds it. What closes the corridor is putting something *in* it that is
+    **slower than a shoulder-capped player**, which is the only way a rail-rider
+    ever closes on anything.
+
+    **Landed by measurement, twice.** The share first: hands-off run-end on the
+    rail at 0.16 never inside 150s, at 0.30 **127.1s**, at 0.45 **69.7s**.
+    Against 14.2s for the same run in a lane, 0.45 makes the gutter an escape
+    with a bounded life rather than a route. About 18% of traffic, which is high
+    for breakdowns and right for the standard: target2 has vehicles parked along
+    the kerb the whole length of the frame.
+
+    **Then the gate caught a real invariant and the fix went in the change.**
+    `traffic/stays-on-tarmac` failed at 246/247: it asserts a vehicle's centre
+    stays inside `halfWidth`, and at `vergeOffset` 2.5 the centre sat at 10.9.
+    That check is right — traffic wandering into the scenery is a defect — and
+    what the design actually needs is the two *bodies* overlapping, which needs
+    centres within 2.04. At 2.0 the centre is at 10.4, on the tarmac with a
+    tenth to spare, the body overhangs to 11.42, the gap to a player on the rail
+    is 1.5, and the run-end time is unchanged at 69.7s. **247/247 restored on
+    the first attempt, with the check untouched.**
+
+    **A broken instrument, caught by its own implausibility.** The first
+    survival harness reported that all three conditions survived the cap —
+    including full throttle down the centre lane, which cannot be true. There is
+    no `on` method on the dev handle, so `cr.on?.('run:end', ...)` silently
+    attached nothing and the loop always ran to the cap. Re-run against
+    `cues['run:end'].count`. The optional-call operator turned a missing API
+    into a passing test rather than an error, and the only thing that flagged it
+    was a result too good to believe.
+
+    Cost: 362985 tris and **865 draws**, down from 975, because verge vehicles
+    are slow and more of the pool sits behind the camera.
+
 ### The measurement was noisier than it was — fixed at iteration 12
 
 `makeRoadTexture` and `makeRoadWearTexture` both speckled with bare
@@ -1201,8 +1254,18 @@ the content is untouched is not a plan; it is a thermometer.** Work these first.
    worth having. A bar around 1.15x would have caught it and leaves room for
    legitimate art changes.
 
-3. **The gutter is a free lane.** You can drive the shoulder or chicane and miss
-   every obstacle. Gameplay, not graphics, but it is in the loop now.
+3. ~~**The gutter is a free lane.**~~ **Closed at iteration 38**, from
+   unbounded to a 69.7s hands-off run-end. The cause was not what it looked
+   like: `shoulderSpeedCap` made the player slower than all traffic, and since
+   collisions need the player to close on something, the speed penalty was what
+   made the shoulder safe. Camber plus slow verge traffic closes it.
+
+   Still open, and it is the deeper half: **slow is safe anywhere**, not just on
+   the shoulder. Nothing in this game can hit the player from behind, so any
+   speed below the slowest traffic is survivable wherever it is driven. The
+   shoulder was the visible case. A proper answer is traffic that closes from
+   behind, or a floor that rises with distance, and it is a design decision
+   rather than a bug fix.
 
 4. **Pickups are plain coloured boxes.**
 
