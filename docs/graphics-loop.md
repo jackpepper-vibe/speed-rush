@@ -84,6 +84,7 @@ High tier, cruise row, unless stated.
 | 38 | `e907f6f` | 0.484 | 1.07 | 0.82 | 0.08 | 247/247 |
 | 39 | `21b1b08` | 0.484 | 1.07 | 0.82 | 0.08 | 247/247 |
 | 40 | `b967d15` | 0.484 | 1.07 | 0.82 | 0.08 | 247/247 |
+| 41 | `PENDING` | 0.483 | 1.07 | 0.82 | 0.08 | 247/247 |
 
 From iteration 25 the probe has **246** checks, not 245. The new one asserts
 that something beside the road darkens it.
@@ -1252,6 +1253,47 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     palms, sky and scenery all cross that rectangle. A proper check counts
     visible sea segments across a coast boundary and wants a seam to do it.
 
+41. **The greenhouse.** Glass starts at the waist instead of the sill, and
+    traffic gets its own darker, non-physical material. Histogram 0.484 ->
+    0.483 cruise and 0.453 -> 0.452 boost — both a thousandth, inside the noise
+    band, so read as unchanged. Cost identical: 362053 triangles, 865 draws.
+
+    The pod took each station's full height, `yBottom` to `yTop`, so it wrapped
+    the flanks as well as the roof. Against a box cabin that did not matter —
+    the cabin was a separate volume with its own edges. Against one continuous
+    lofted surface there is no edge anywhere for a beltline to be, so iteration
+    36 shipped a traffic car with a good silhouette and no windows at all, and
+    said so at the time. Raising the pod's floor to `GLASS_BELT` gives the band
+    something to be bounded by, and it costs nothing: same stations, same
+    triangles, one interpolation on the way in.
+
+    **Iteration 36 suspected this pod of a different crime and cleared it.** It
+    was blamed for the white-lump traffic body, gated off behind `isPlayer`, and
+    the capture showed no difference — the section was the fault, not the glass.
+    That acquittal was correct and it is worth noting it did not make the pod
+    innocent of everything: it was still wrong, for a reason nobody was looking
+    for at the time.
+
+    Traffic now takes `GLASS_TRAFFIC`: a standard material rather than physical,
+    darker and more opaque. The hero earns a clearcoat because it is two metres
+    from the camera; a clearcoat lobe on a poolful of cars at range is invisible
+    and not free. And at forty pixels tall a subtle tint is the same colour as
+    the paint — the same lesson as the tyre smoke at iteration 30, arriving on a
+    different surface: **a value is only ever landed against what sits next to
+    it.**
+
+    Evidence is a before/after on one frozen pose with the same vehicle in it,
+    which is the trap iteration 36 fell into and this avoided: the hero's roof
+    goes from continuous red to a dark glasshouse over red bodywork, and the
+    orange traffic car gains a defined dark band. The change is most visible on
+    the **hero**, which was not the target but is the same defect.
+
+    The harness needed fixing first, and the reason is iteration 38's finding
+    arriving as a practical nuisance. `traffic-shot.mjs` crept forward at 12
+    units/sec looking for a near vehicle, and at that speed it never closes on
+    anything — every car sat 600 to 2400 units ahead. Slow is safe, and slow is
+    also blind.
+
 ### The measurement was noisier than it was — fixed at iteration 12
 
 `makeRoadTexture` and `makeRoadWearTexture` both speckled with bare
@@ -1316,15 +1358,18 @@ the content is untouched is not a plan; it is a thermometer.** Work these first.
 1. **Traffic vehicles are not good enough.** Iteration 28 tiered their detail;
    it did not make them better models. Boxy silhouettes, flat paint.
 
-   **Half done at iteration 36.** The boxes are gone: `sedan`, `suv` and `van`
-   now have loft stations, where before they had none and silently fell back to
-   stacked boxes on every tier. What is left is the **greenhouse**. The glass
-   pod hugs the body at 1.004, which was invisible against a box cabin and is
-   still invisible against a smooth one — so a traffic car now has a good
-   silhouette and no window band, where the box build had a worse silhouette
-   and a clear one. The fix is glass that is inset and darker rather than laid
-   on the surface, not more loft resolution. Flat paint is untouched and is
-   still open.
+   **Bodies done at iteration 36, greenhouse done at 41.** `sedan`, `suv` and
+   `van` have loft stations where before they had none and silently fell back
+   to stacked boxes on every tier; and the glass now starts at the waist rather
+   than the sill, so there is a window band instead of a sheath. Traffic carries
+   a darker, non-physical glass of its own.
+
+   **Flat paint is what is left, and it is untouched.** Traffic takes the same
+   `paint()` as the hero — metallic flake under a clearcoat — so the material is
+   not actually flat; what is flat is that every car is one solid colour with no
+   number plate, no light clusters beyond the brake bar, no trim, no dirt. That
+   is texture and decal work, not a material setting, and nothing in target2 can
+   adjudicate it: its traffic is small and distant. Play evidence only.
 
 2. ~~**City buildings pop in.**~~ **Done at iteration 37.** The diagnosis in
    this item was right to the line: `repopulate()` rewrote every instance on a

@@ -257,6 +257,41 @@ const GLASS = new THREE.MeshPhysicalMaterial({
   envMapIntensity: 3.2,
 });
 
+/**
+ * Traffic glass: darker, flatter, and not physical.
+ *
+ * The hero's glass earns a clearcoat because it is two metres from the camera.
+ * Traffic is a poolful of cars mostly seen from behind at range, where a
+ * clearcoat lobe is invisible and the only thing that matters is whether there
+ * is a band of dark across the top of the body. Darker and more opaque than the
+ * hero's for exactly that reason: at forty pixels tall a subtle tint is the
+ * same colour as the paint, which is how a lofted traffic car ended up with a
+ * good silhouette and no windows at all.
+ */
+const GLASS_TRAFFIC = new THREE.MeshStandardMaterial({
+  color: 0x0a1118,
+  roughness: 0.14,
+  metalness: 0.32,
+  transparent: true,
+  opacity: 0.88,
+  envMapIntensity: 2.2,
+});
+
+/**
+ * Where the glasshouse starts, as a fraction of the section's own height.
+ *
+ * The glass pod used to span each station from `yBottom` to `yTop` — the whole
+ * flank, sill to roof — so it sheathed the middle of the car instead of glazing
+ * the top of it. Against a box cabin that was invisible because the cabin was a
+ * separate volume; against one continuous lofted surface it is invisible
+ * because there is no edge anywhere to read as a beltline.
+ *
+ * Raising the pod's floor to the waist is what turns a sheath into a window
+ * band, and it costs nothing: the same stations, the same triangles, one
+ * interpolation on the way in.
+ */
+const GLASS_BELT = 0.58;
+
 const LAMP = new THREE.MeshStandardMaterial({
   color: 0xfff6e0, emissive: 0xfff0cc, emissiveIntensity: 2.2, roughness: 0.25,
 });
@@ -489,23 +524,25 @@ export function buildCar(opts: {
     shell.receiveShadow = true;
     group.add(shell);
 
-    /* Glass laid over the greenhouse region of the same loft, pushed out a
-     * hair so it sits on the surface rather than fighting it.
+    /* Glass over the greenhouse, pushed out a hair so it sits on the surface
+     * rather than fighting it — and starting at the waist, not at the sill.
      *
-     * It is a closed pod spanning the middle of the body rather than a fitted
-     * windscreen, and that is fine: scaled 1.004 it hugs whatever section the
-     * body has, so it reads as the glasshouse band. Suspected and cleared when
-     * the first traffic loft came out as a white lump — the pod was not the
-     * fault, the section was. */
+     * The previous pod took each station's full height, so it wrapped the
+     * flanks as well as the roof and never read as a window. Iteration 36
+     * cleared it of causing the white-lump traffic body, which it did not, and
+     * left this defect in place: a good silhouette with no glasshouse. Lifting
+     * the floor to `GLASS_BELT` gives the band an edge to be bounded by. */
     const glassGeo = loftBody(
-      stations.filter((s) => s.t > -0.45 && s.t < 0.6),
+      stations
+        .filter((s) => s.t > -0.45 && s.t < 0.6)
+        .map((s) => ({ ...s, yBottom: s.yBottom + (s.yTop - s.yBottom) * GLASS_BELT })),
       {
         length: p.len,
         ringSegments: Math.max(12, Math.round(lod.rings * 0.7)),
         lengthSegments: Math.max(12, Math.round(lod.length * 0.45)),
       },
     );
-    const glass = new THREE.Mesh(glassGeo, GLASS);
+    const glass = new THREE.Mesh(glassGeo, opts.isPlayer ? GLASS : GLASS_TRAFFIC);
     glass.scale.set((p.wid / 2) * 1.004, 1.004, 0.995);
     glass.position.y = sill * 0.32 + 0.02;
     group.add(glass);
