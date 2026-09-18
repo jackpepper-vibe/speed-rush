@@ -46,7 +46,7 @@ export const DAY_PALETTE: Record<DayPhase, Palette> = {
   dawn: {
     sunColor: 0xffc48a, sunIntensity: 2.2,
     skyTop: 0x2c4f8c, skyBottom: 0xf0a878, horizon: 0xffd0a0,
-    hemiSky: 0x9ab4e0, hemiGround: 0x4a3f34, hemiIntensity: 0.68,
+    hemiSky: 0x9ab4e0, hemiGround: 0x4a3f34, hemiIntensity: 0.60,
     fogColor: 0xe0b48c, fogDensity: 0.0030, sunElevation: 0.12, exposure: 1.0,
     stars: 0.18, clouds: 0.34, headlights: 1.4,
   },
@@ -58,7 +58,17 @@ export const DAY_PALETTE: Record<DayPhase, Palette> = {
     // where our sky was piling 29% of the frame against the reference's 3%.
     // The reference holds a deeper blue much further down towards its horizon.
     skyTop: 0x1e5fbe, skyBottom: 0x4a80bc, horizon: 0xfff2d0,
-    hemiSky: 0xbcd8ff, hemiGround: 0x45402f, hemiIntensity: 0.82,
+    /* The hemisphere is what fills shadow, so its intensity is the depth of
+     * every shadow in frame. At 0.82 it was lifting them to the point that the
+     * frame held 3.4% of its pixels below luminance 88 against the reference's
+     * 9.9%, and contrast had been drifting down since iteration 7 without
+     * anything being done about it. Landed by measurement rather than by eye:
+     * 0.82 -> 0.535, 0.68 -> 0.534, 0.60 -> 0.547, 0.50 -> 0.564. Past about
+     * 0.65 it stops buying darks and starts dragging mid-tones down into a
+     * band that is already over-full, which is why the histogram turns around
+     * while the contrast ratio keeps improving — the two disagree, and the
+     * bound is the one that governs. */
+    hemiSky: 0xbcd8ff, hemiGround: 0x45402f, hemiIntensity: 0.68,
     // Elevation is geometry, not colour. At 0.85 the sun stood 54 degrees up
     // and every roadside shadow fell in a puddle under the thing that cast it —
     // the props were lit, and nothing they stood on knew they were there. The

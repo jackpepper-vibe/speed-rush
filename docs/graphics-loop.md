@@ -65,15 +65,18 @@ High tier, cruise row, unless stated.
 | 19 | `93f1997` | **0.634** | 0.79 | 0.72 | 0.11 | 244/245 |
 | 20 | `a6b888e` | **0.615** | 0.79 | 0.71 | 0.11 | 244/245* |
 | 21 | `a538ecd` | 0.615 | 0.79 | 0.71 | 0.11 | 244/245 |
-| 22 | `dfb2c24` | **0.535** | 0.90 | 0.65 | 0.05 | see below |
+| 22 | `dfb2c24` | **0.535** | 0.90 | 0.65 | 0.05 | **245/245** |
+| 23 | `PENDING` | **0.534** | 0.90 | 0.66 | — | pending |
 
 **Iteration 22 is the first time the histogram bound has been met on
 `compare.mjs`.** Cruise 0.535 and boost 0.506 against a bound of 0.55, with
 roadside density 0.90 cruise and 1.00 boost, both inside 0.6-1.7. Frame mean
 150.4 against the reference's 150.5.
 
-The bound that matters is the probe's, and it is reported separately below —
-`compare.mjs` meeting it is not the same as the gate passing.
+**The probe passed too: 245/245 at iteration 22, with no resample warning** —
+the first legitimate pass of the histogram gate, as distinct from iteration 20's
+false one. Treat it as provisional until three runs agree; the confirmation runs
+launched for it were void (see entry 23) and have to be redone.
 
 \* Iteration 20's probe actually printed **245/245**, and it was a false pass.
 See entry 21. The probe's honest reading at that code state is 0.563.
@@ -550,6 +553,36 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     addressed. **And the road is very likely un-landed again** — this took ten
     luminance out of the scene, exactly the situation iteration 20 said to
     expect. Check it next.
+
+23. `hemiIntensity` `0.82` -> `0.68`. Histogram 0.535 -> 0.534, contrast
+    0.65 -> 0.66, dark pixels up. Small, and the iteration's value is mostly in
+    two things it disproved.
+
+    The hemisphere light is what fills shadow, so its intensity is the depth of
+    every shadow in frame. At 0.82 the frame held 3.4% of its pixels below
+    luminance 88 against the reference's 9.9%, and contrast had drifted since
+    iteration 7 with nothing done about it. Landed by measurement: 0.82 ->
+    0.535, 0.68 -> 0.534, 0.60 -> 0.547, 0.50 -> 0.564. Past about 0.65 it
+    stops buying darks and starts dragging mid-tones into a band that is
+    already over-full — **the histogram turns around while the contrast ratio
+    keeps improving.** The two metrics disagree there and the bound governs.
+
+    **The road was not un-landed, and iteration 20's rule needs narrowing.**
+    Iteration 22 predicted it would be, having taken ten luminance out of the
+    frame. Measured: 132 -> 0.535, 140 -> 0.538, 124 -> 0.635. It was already
+    landed. The rule "any lighting change un-lands the road" is too broad —
+    what un-lands it is a change to the light *reaching the road*, like the sun
+    angle at iteration 11 or the flare removal at 19, which was a large
+    additive source bleeding over the whole frame through bloom. `skyBottom`
+    mostly changes what the sky's own pixels are. Keep checking after lighting
+    changes, it is cheap; stop expecting it to move every time.
+
+    **A process failure, mine, recorded because it cost two probe runs.** The
+    confirmation runs for iteration 22's gate pass were launched in the
+    background and then source files were edited while they were in flight.
+    The probe reads live modules through vite, so those runs were measuring a
+    moving target; they returned nothing and exited non-zero. **Do not edit
+    source while a probe is running.** Commit the state first, then measure it.
 
 ### The measurement was noisier than it was — fixed at iteration 12
 
