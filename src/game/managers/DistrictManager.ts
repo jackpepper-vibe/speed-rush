@@ -74,14 +74,63 @@ export class DistrictManager extends CellField {
    * stair head breaks the symmetry so a row of them is not a row of clones.
    */
   protected buildGeometry(): THREE.BufferGeometry {
-    const parts = [
-      boxBetween(-0.5, 0.5, 0, 1, -0.5, 0.5),
-      // Parapet: proud of the wall on every side, shallow.
-      boxBetween(-0.53, 0.53, 1, 1.06, -0.53, 0.53),
-      // Stair head, set back and off-centre.
-      boxBetween(-0.22, 0.10, 1.06, 1.24, -0.18, 0.14),
-    ];
-    const merged = mergeBoxes(parts);
+    /*
+     * A seaside block with a shopfront, floors and balconies.
+     *
+     * These stand between 58 and 196 units out — near enough that the fog
+     * barely touches them and every one of their faces is legible, which is
+     * exactly why one flat stucco box was the most obviously unfinished thing
+     * in the landward half of the frame. The skyline can get away with pure
+     * silhouette at four hundred units; this rank cannot.
+     *
+     * Three pieces of information, in the order the eye takes them: a dark
+     * ground floor, because a building meets the street differently from how
+     * it meets the sky; recessed window bands for the floors above; and
+     * balcony slabs standing proud, which is the detail that says *seaside
+     * apartments* rather than *office*. All geometry, all one draw call — see
+     * `SkylineManager` for why a texture is the harder option here.
+     */
+    const WALL = new THREE.Color(0xffffff);
+    const GLASS = new THREE.Color(0x949cA8);
+    const SHADE = new THREE.Color(0xb4aa9a);
+    const parts: THREE.BufferGeometry[] = [];
+    const colours: THREE.Color[] = [];
+    const add = (g: THREE.BufferGeometry, c: THREE.Color): void => {
+      parts.push(g);
+      colours.push(c);
+    };
+
+    // Ground floor: inset and dark, so the block stands on shopfronts.
+    add(boxBetween(-0.5, 0.5, 0, 0.17, -0.5, 0.5), GLASS);
+
+    const FLOORS = 3;
+    const top = 1.0;
+    for (let i = 0; i < FLOORS; i++) {
+      const y0 = 0.17 + (top - 0.17) * (i / FLOORS);
+      const y1 = 0.17 + (top - 0.17) * ((i + 1) / FLOORS);
+      /* More wall than glass, and a balcony that barely stands proud.
+       *
+       * The first cut split the floor evenly and pushed the balcony 12% past
+       * the wall on every side. Both were too much: a façade that is half
+       * glass reads as a zebra, and a slab that proud at every floor turns
+       * the block into a stack of plates. Real balconies are a shadow line
+       * with a lip, which is all this needs to be at sixty units. */
+      /* Flush bands, not recessed ones. The unit cell is scaled per instance,
+       * so any inset expressed as a fraction becomes a ledge proportional to
+       * the building's width — a metre-deep shelf at every floor, which turned
+       * the block into a stack of plates. Colour carries the floors; the only
+       * geometry that steps is the parapet. */
+      const split = y0 + (y1 - y0) * 0.56;
+      add(boxBetween(-0.5, 0.5, y0, split, -0.5, 0.5), WALL);
+      add(boxBetween(-0.5, 0.5, split, y1, -0.5, 0.5), GLASS);
+    }
+
+    // Parapet: proud of the wall on every side, shallow.
+    add(boxBetween(-0.53, 0.53, top, top + 0.06, -0.53, 0.53), WALL);
+    // Stair head, set back and off-centre.
+    add(boxBetween(-0.22, 0.10, top + 0.06, top + 0.24, -0.18, 0.14), SHADE);
+
+    const merged = mergeBoxes(parts, colours);
     for (const p of parts) p.dispose();
     return merged;
   }
@@ -96,7 +145,7 @@ export class DistrictManager extends CellField {
    */
   protected buildMaterial(): THREE.Material {
     return new THREE.MeshStandardMaterial({
-      color: 0xffffff, roughness: 0.94, metalness: 0.02, envMapIntensity: 0.55,
+      vertexColors: true, roughness: 0.94, metalness: 0.02, envMapIntensity: 0.55,
     });
   }
 
