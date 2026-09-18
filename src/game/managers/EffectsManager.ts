@@ -293,13 +293,22 @@ export class EffectsManager implements Manager {
         0.5 + this.rng.next() * 0.9,
         3 + this.speed * 0.055,
       );
-      /* Warm grey rather than white, and darker than it looks written down.
+      /* Warm grey, and light enough to be seen against the road it is on.
        *
-       * These values are linear: the pass this ends up in is tone mapped and
-       * converted to sRGB downstream, so a 0.6 here arrives on screen at around
-       * 0.8 and a cloud of it reads as a bank of fog rolling off the back of the
-       * car. Tyre smoke is burnt rubber, and it belongs closer to mid grey. */
-      const shade = 0.3 + this.rng.next() * 0.16;
+       * These values are linear and the pass is tone mapped downstream. The
+       * old 0.30-0.46 was chosen as "burnt rubber, closer to mid grey" against
+       * the tarmac of the time, which was luminance 72. The carriageway has
+       * been re-landed three times since — iterations 7, 11 and 20 — and now
+       * renders around 150, which is almost exactly what that smoke renders at.
+       * Two hundred particles were changing the tail of the car by **1.51
+       * luminance**: the plume was not missing, not dark and not flat, it was
+       * the same colour as the thing behind it.
+       *
+       * Same lesson as the asphalt, from the other side: a value is only ever
+       * landed against what it sits on, and re-landing the road silently
+       * un-landed this. Sunlit tyre smoke is a pale thing anyway — it is water
+       * vapour far more than it is rubber. */
+      const shade = 0.58 + this.rng.next() * 0.18;
       this.tint.setRGB(shade, shade * 0.97, shade * 0.92);
       this.smoke.emit({
         position: this.pos, velocity: this.vel,

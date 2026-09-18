@@ -73,6 +73,7 @@ High tier, cruise row, unless stated.
 | 27 | `ff85bdc` | 0.531 | 1.03 | 0.77 | 0.06 | 246/246 |
 | 28 | `b25c41d` | 0.531 | 1.03 | 0.77 | 0.06 | 246/246 |
 | 29 | `72b2740` | 0.531 | 1.03 | 0.77 | 0.06 | 246/246 |
+| 30 | `PENDING` | 0.531 | 1.03 | 0.77 | 0.06 | pending |
 
 From iteration 25 the probe has **246** checks, not 245. The new one asserts
 that something beside the road darkens it.
@@ -805,6 +806,34 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     burnout is a driving state. Tyre smoke is a play-evidence item and always
     was.
 
+30. Tyre smoke shade `0.30-0.46` -> `0.58-0.76` linear. No change to any scored
+    pose — smoke does not appear in the cruise or boost captures — so this is
+    play evidence, measured by difference.
+
+    **Iteration 29 was wrong about the cause and the tools to prove it already
+    existed.** `EffectsManager.snapshot()` has always reported `smoke.liveCount`
+    and `forceDrift` has always existed; iteration 29 added a redundant pin and
+    concluded from images that the plume "does not reach the frame". It does.
+    With drift held at 1 there are **206 live particles**, and toggling
+    `setEffectVisible('smoke', …)` moves the tail region's mean by 1.51
+    luminance. Not missing. Not dark — the dark smear under the car really was
+    its cast shadow.
+
+    **It was the same colour as the road.** Linear 0.30-0.46 arrives at about
+    sRGB 148, and the carriageway now renders around 150. The comment defending
+    that value argued "burnt rubber, closer to mid grey", and it was right when
+    it was written — against tarmac at luminance 72. The road has been
+    re-landed three times since, at iterations 7, 11 and 20, and nobody
+    re-landed the smoke. **A value is only ever landed against what it sits
+    on**, which is the asphalt lesson arriving from the other side.
+
+    Raised, and the toggle delta goes 1.51 -> 2.40 with white puffs now plainly
+    visible at the rear wheels where the frame previously showed nothing.
+
+    The plume is still small and sparse — two clusters rather than the bank the
+    reference throws. That is the volume item, and it is now **observable**,
+    which it was not when iteration 29 tried to write it blind.
+
 ### The measurement was noisier than it was — fixed at iteration 12
 
 `makeRoadTexture` and `makeRoadWearTexture` both speckled with bare
@@ -939,14 +968,13 @@ threshold.
    x=20, so a 1.7x-height shadow lands on the verge and stops. Either the palms
    move in or the sun's azimuth swings to throw along the road rather than
    across it. `quality.shadows` already gates the tier.
-10. **Tyre smoke does not render, and that is the item now** — not its volume.
-    Iteration 29 added `setDriftIntensity` so it can be addressed at all, and
-    with drift pinned at 1 the plume still does not appear: one billboard and
-    three measure 149.18 and 149.25 and produce the same image. Find what else
-    gates `emitDrift` before writing any more art for it. A check in the probe
-    — smoke visible with drift pinned, measured by difference the way
-    `roadside-casts-onto-road` is — would have caught this and is the obvious
-    companion. Only then is volume worth doing.
+10. **Tyre smoke volume.** Iteration 30 corrected iteration 29: the smoke
+    always rendered, it was simply the same luminance as the road. Now visible
+    (toggle delta 2.40) but small and sparse — two clusters where the reference
+    throws a bank. Measure by difference with `setDriftIntensity(1)` and
+    `setEffectVisible('smoke', …)`; `effects().smoke` gives the live count. A
+    probe check on that delta, the way `roadside-casts-onto-road` works, is
+    still the obvious companion and would have saved iteration 29 entirely.
 11. **Hero tail crease** and **nitro bloom haze**. No support from target2 — its
    hero is a matte classic coupe under no boost. Play observations only.
 
