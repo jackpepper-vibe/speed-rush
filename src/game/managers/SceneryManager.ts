@@ -2,9 +2,9 @@ import * as THREE from 'three';
 import type { GameContext, Manager } from '@/core/Manager';
 import type { BiomeId } from '@/core/GameEvents';
 import { ROAD } from '@/game/config/Balance';
-import { barrierLimit, curveAt, hillAt } from '@/game/world/RoadGeometry';
+import { barrierLimit, curveAt, groundReliefAt, hillAt } from '@/game/world/RoadGeometry';
 import { disposePropMaterials, propsForBiome, type PropKind } from '@/game/render/PropFactory';
-import type { RoadManager } from './RoadManager';
+import { BEACH_DRY_LIMIT, SEA_HEIGHT, type RoadManager } from './RoadManager';
 import type { SceneRig } from '@/game/render/SceneRig';
 import { WORLD } from '@/game/config/Balance';
 
@@ -222,6 +222,8 @@ export class SceneryManager implements Manager {
     const span = ROAD.drawDistance * this.rig.quality.drawDistanceScale;
     const behind = 90;
     this.onRoadCount = 0;
+    this.maxSeawardEdge = 0;
+    this.inSeaCount = 0;
 
     for (const entry of this.live.values()) {
       const { kind, mesh } = entry;
@@ -354,8 +356,62 @@ export class SceneryManager implements Manager {
          * is the prop's true world position at any point in the band — where a
          * buffer written against `distance` is only correct on the frame it was
          * written and drifts for the rest of the band. */
+        /* On the ground, not on the road's own plane.
+         *
+         * This used to be `hillAt` alone, and the comment on `RELIEF_INNER`
+         * explained why that was safe: relief began at 96, further out than
+         * anything was planted, so the verge under every prop was flat and a
+         * prop at road height stood on it. Bringing the beach in to 34 to get
+         * the water into frame ends that, and it ends it for the two kinds
+         * with the longest reach — scrub at 40 and rock at 59 are now on the
+         * slope, where road height is mid-air.
+         *
+         * Sampling the same function the ground mesh is built from is the
+         * only version of this that cannot drift: the far fields have all
+         * placed themselves this way since the skyline was built, and the
+         * scatter was the last rank still assuming a flat world.
+         */
+        const relief = groundReliefAt(x, world);
+
+        /* Nothing stands in the sea.
+         *
+         * Rock reaches 59 and the waterline is around 32, so without this the
+         * seaward tail of the scatter wades out into the water — and because
+         * the water is drawn over it, it reads as debris floating offshore
+         * rather than as a rock that should not have been placed. Parked on
+         * the near side of the test rather than pulled inboard, because the
+         * waterline bends with the road: a clamp would put a rank of rocks
+         * along the tide line, which is a worse artefact than a gap.
+         *
+         * Tested at the prop's **outboard edge**, not its origin. Testing the
+         * origin is the version that looks right and is not: it keeps anything
+         * whose centre clears the water, so a rock with two units of radius on
+         * a slope falling nine units over twenty-two keeps its seaward half in
+         * the sea. The first capture of this change showed exactly that — a
+         * clean shoreline with scrub and boulders sitting out in the water
+         * beyond it. `x` is already derived from the footprint where it clears
+         * the barrier; this is the same measurement at the other end.
+         *
+         * Tested against a solved limit rather than a sampled height, which is
+         * the part that took three captures to get right. Sampling the relief
+         * under the edge and comparing it to `SEA_HEIGHT` is the obvious test
+         * and it leaks: the mesh that draws the beach interpolates linearly
+         * between columns while the profile is a smoothstep, so the drawn sand
+         * sits below the sampled figure near the top of the ramp, and the
+         * swell moves the crossing again on top of that. Each round of margin
+         * bought back a fraction of a unit and the boulders stayed afloat.
+         * `shoreDryLimit` answers the question that was actually being asked —
+         * how far out is it dry *everywhere* — once, from the profile's own
+         * constants, so it cannot drift out of step with them.
+         */
+        const edge = x + kind.radius * scale;
+        if (x > 0 && edge + kind.radius * scale > BEACH_DRY_LIMIT) {
+          mesh.setMatrixAt(i, this.matrix.makeTranslation(0, -9999, 0));
+          continue;
+        }
+
         const px = curveAt(world) - curveAt(base) + x;
-        const py = hillAt(world) - hillAt(base) - kind.sink * scale;
+        const py = hillAt(world) - hillAt(base) + relief - kind.sink * scale;
         const pz = -ahead;
 
         // Measured rather than trusted: if the arithmetic above ever lets a
@@ -364,6 +420,12 @@ export class SceneryManager implements Manager {
         // Tracked so the gate can prove there is ground under the furthest of
         // them, rather than open sky.
         this.maxLateral = Math.max(this.maxLateral, Math.abs(x) + kind.radius * scale);
+        // And that the furthest seaward of them is standing on beach rather
+        // than wading, which is the same question asked of the other edge.
+        if (x > 0) {
+          this.maxSeawardEdge = Math.max(this.maxSeawardEdge, edge);
+          if (groundReliefAt(edge, world) < SEA_HEIGHT) this.inSeaCount += 1;
+        }
 
         this.position.set(px, py, pz);
         /* A laid kind faces the road; a scattered one faces wherever it grew.
@@ -414,6 +476,17 @@ export class SceneryManager implements Manager {
     onRoad: number;
     /** Furthest any prop stands from the centreline, including its footprint. */
     maxLateral: number;
+    /** Furthest seaward edge reached by any placed prop. */
+    maxSeawardEdge: number;
+    /**
+     * Placed props whose seaward edge is under water.
+     *
+     * Zero by construction — the placement loop declines them — and reported
+     * anyway for the same reason `onRoad` is: the arithmetic that keeps a prop
+     * out of the sea is worth measuring rather than trusting, and a rock
+     * standing offshore photographs as convincingly as one on the beach.
+     */
+    inSea: number;
     groundHalfWidth: number;
   } {
     return {
@@ -421,12 +494,16 @@ export class SceneryManager implements Manager {
       kinds: [...this.live.values()].map((e) => ({ id: e.kind.id, instances: e.used })),
       onRoad: this.onRoadCount,
       maxLateral: this.maxLateral,
+      maxSeawardEdge: this.maxSeawardEdge,
+      inSea: this.inSeaCount,
       groundHalfWidth: this.road.groundHalfWidth,
     };
   }
 
   /** Furthest lateral extent reached by any placed prop. */
   private maxLateral = 0;
+  private maxSeawardEdge = 0;
+  private inSeaCount = 0;
 
   /** Total live instances across every kind. */
   get instanceCount(): number {

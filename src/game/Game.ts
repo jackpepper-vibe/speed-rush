@@ -19,7 +19,9 @@ import { AudioManager } from '@/game/managers/AudioManager';
 import { SceneryManager } from '@/game/managers/SceneryManager';
 import { SkylineManager } from '@/game/managers/SkylineManager';
 import { MarinaManager } from '@/game/managers/MarinaManager';
+import { CruiseShipManager } from '@/game/managers/CruiseShipManager';
 import { DistrictManager } from '@/game/managers/DistrictManager';
+import { KerbsideManager } from '@/game/managers/KerbsideManager';
 import { EffectsManager } from '@/game/managers/EffectsManager';
 import { SaveManager } from '@/game/SaveManager';
 import { SPEED } from '@/game/config/Balance';
@@ -55,7 +57,9 @@ export class Game {
   readonly scenery: SceneryManager;
   readonly skyline: SkylineManager;
   readonly marina: MarinaManager;
+  readonly cruise: CruiseShipManager;
   readonly district: DistrictManager;
+  readonly kerbside: KerbsideManager;
   readonly effects: EffectsManager;
 
   private readonly managers = new ManagerRegistry();
@@ -109,9 +113,15 @@ export class Game {
     // rather than to the scenery's recycled bands so that it cannot re-roll.
     this.skyline = this.managers.add(new SkylineManager(ctx, this.road, this.rig, this.world));
     this.marina = this.managers.add(new MarinaManager(ctx, this.road, this.rig, this.world));
+    // Deep water, outside the moorings: one silhouette per field, and a liner
+    // is not a yacht scaled up however far away it is.
+    this.cruise = this.managers.add(new CruiseShipManager(ctx, this.road, this.rig, this.world));
     // The rank between the two: without it the skyline stands on clear sand and
     // reads as a backdrop rather than as a distance.
     this.district = this.managers.add(new DistrictManager(ctx, this.road, this.rig, this.world));
+    // Nearest of the four ranks, filling the last empty band between the
+    // roadside props and the town.
+    this.kerbside = this.managers.add(new KerbsideManager(ctx, this.road, this.rig, this.world));
     // After the player, whose exhaust anchors the flame hangs off, and after
     // the rig, which it asks to shake on a crash.
     this.effects = this.managers.add(new EffectsManager(ctx, this.player, this.rig));

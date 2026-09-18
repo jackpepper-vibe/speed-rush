@@ -14,7 +14,24 @@ import * as THREE from 'three';
  * The parts are not disposed; the caller owns them, because a caller that built
  * them from a cache would not want them released.
  */
-export function mergeBoxes(parts: readonly THREE.BufferGeometry[]): THREE.BufferGeometry {
+export function mergeBoxes(
+  parts: readonly THREE.BufferGeometry[],
+  /**
+   * One colour per part, baked into a `color` attribute.
+   *
+   * Optional, and absent by default, because most silhouettes assembled here
+   * are a single material tinted per instance and an unused attribute is three
+   * floats per vertex of dead bandwidth. It exists for the shapes whose
+   * *internal* contrast is the thing that makes them legible: a liner two
+   * hundred units out in haze is a white slab unless the hull under its decks
+   * is dark, and one flat colour per instance cannot say that.
+   *
+   * A material that opts in with `vertexColors` multiplies this by its own
+   * colour and by `instanceColor`, so a field can still tint the whole hull
+   * per instance on top of the two-tone.
+   */
+  colours?: readonly THREE.Color[],
+): THREE.BufferGeometry {
   const out = new THREE.BufferGeometry();
   const names = ['position', 'normal', 'uv'] as const;
 
@@ -23,6 +40,24 @@ export function mergeBoxes(parts: readonly THREE.BufferGeometry[]): THREE.Buffer
   for (const p of parts) {
     vertexCount += p.getAttribute('position').count;
     indexCount += p.getIndex()!.count;
+  }
+
+  if (colours) {
+    if (colours.length !== parts.length) {
+      throw new Error(`mergeBoxes: ${parts.length} parts but ${colours.length} colours`);
+    }
+    const data = new Float32Array(vertexCount * 3);
+    let at = 0;
+    for (let i = 0; i < parts.length; i++) {
+      const c = colours[i];
+      const count = parts[i].getAttribute('position').count;
+      for (let v = 0; v < count; v++) {
+        data[at++] = c.r;
+        data[at++] = c.g;
+        data[at++] = c.b;
+      }
+    }
+    out.setAttribute('color', new THREE.BufferAttribute(data, 3));
   }
 
   for (const name of names) {

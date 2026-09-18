@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import type { GameContext, Manager } from '@/core/Manager';
 import { ROAD } from '@/game/config/Balance';
-import { curveAt, groundReliefAt, hillAt, isCoastAt } from '@/game/world/RoadGeometry';
+import {
+  curveAt, groundReliefAt, hillAt, isCoastAt, shoreLowestAt, SHORE_SPAN,
+} from '@/game/world/RoadGeometry';
 import { RoadStrip, type SectionPoint } from '@/game/world/RoadStrip';
 import {
   makeGroundTexture, makeRoadTexture, makeRoadWearTexture, makeShoulderTexture,
@@ -52,7 +54,15 @@ const GROUND_HALF_WIDTH = 420;
  * No amount of texture fixes that; the horizon has to have a shape.
  */
 const GROUND_COLUMNS: readonly number[] = (() => {
-  const inner = [0, 60, 96];
+  /* Columns through the beach ramp, which is the one place on this mesh where
+   * a few units of lateral error is a visible mistake. The seaward profile
+   * falls nine units between 34 and 64, and the waterline is wherever that
+   * fall crosses `SEA_HEIGHT` — so a column spacing of thirty across the ramp
+   * would put the shoreline anywhere in a thirty-unit band and make it a
+   * straight edge between two of them. These are mirrored onto the landward
+   * side, where they cost a few vertices across ground that is flat until 96
+   * and interpolate to exactly what they interpolated to before. */
+  const inner = [0, 16, 24, 30, 36, 42, 48, 66, 96];
   const outer = [130, 170, 215, 265, 320, GROUND_HALF_WIDTH];
   const half = [...inner, ...outer];
   return [...half.slice(1).reverse().map((x) => -x), ...half];
@@ -61,18 +71,22 @@ const GROUND_COLUMNS: readonly number[] = (() => {
 /**
  * The sea, on the seaward side of a coastal road.
  *
- * Columns start where the ground ends and run far enough out that the water
- * meets the sky rather than ending in a visible edge — at a chase camera's
- * height the horizon is a long way off, and a sea that stops short reads as a
- * swimming pool. Spacing widens with distance because nothing out there needs
- * resolution; what it needs is to still be there.
+ * Columns start inboard of the waterline — under the sand, where the beach is
+ * still above `SEA_HEIGHT` and hides them — and run far enough out that the
+ * water meets the sky rather than ending in a visible edge. At a chase
+ * camera's height the horizon is a long way off, and a sea that stops short
+ * reads as a swimming pool. Starting the plane under the beach rather than at
+ * the waterline is what lets the shoreline be a curve the ground decides
+ * rather than a lateral this array has to agree with. Spacing widens with
+ * distance because nothing out there needs resolution; what it needs is to
+ * still be there.
  *
  * Flat, with no relief function, because that is what water is. The ground
  * beside it keeps its relief, so the join reads as a shoreline rather than as
  * two planes meeting.
  */
 const SEA_COLUMNS: readonly number[] = [
-  150, 190, 240, 310, 420, 560, 760, 1050, 1450, 1900,
+  20, 30, 42, 58, 80, 112, 160, 240, 360, 560, 880, 1350, 1900,
 ];
 /**
  * Sea level, against a beach that reaches -9 by the time it is 130 out.
@@ -90,10 +104,43 @@ export const SEA_HEIGHT = -2.4;
  * The true waterline is wherever the beach profile crosses `SEA_HEIGHT`, which
  * is a curve that bends with the road. Anything floating only needs to know
  * that it is safely outboard of it, so this is that crossing rounded outwards
- * rather than solved: the beach reaches -9 over 130 units from `RELIEF_INNER`,
- * and -2.4 of that fall lands around 140 out.
+ * rather than solved: the beach reaches -9 over 22 units from `SHORE_INNER`,
+ * and -2.4 of that fall lands around 32 out, plus the swell's amplitude.
  */
-export const SHORELINE_LATERAL = 150;
+export const SHORELINE_LATERAL = 38;
+
+/**
+ * Furthest out anything may stand and still be on sand the water never covers.
+ *
+ * Solved here, against **this mesh**, because that is the only place the
+ * question has an answer. The beach profile is a smoothstep; the ground that
+ * draws it is a triangle strip sampling that smoothstep at `GROUND_COLUMNS`
+ * and interpolating linearly between them, and a chord across a convex curve
+ * lies below it. So the drawn sand near the top of the ramp sits lower than
+ * `groundReliefAt` reports, the water covers ground the function calls dry,
+ * and anything culled against the function keeps its feet wet.
+ *
+ * That cost three captures to find. Each one tightened a margin on a sampled
+ * test, the number moved, and the boulders stayed exactly where they were —
+ * because the test and the picture were reading two different surfaces. This
+ * reads the surface the picture reads: the same columns, the same linear
+ * interpolation, against the swell at its trough.
+ */
+export const BEACH_DRY_LIMIT = (() => {
+  const columns = GROUND_COLUMNS.filter((c) => c >= 0);
+  for (let i = 0; i < columns.length - 1; i++) {
+    const a = columns[i];
+    const b = columns[i + 1];
+    if (b <= SHORE_SPAN[0]) continue;
+    const ha = shoreLowestAt(a);
+    const hb = shoreLowestAt(b);
+    if (hb > SEA_HEIGHT) continue;
+    // This span straddles the waterline: find the crossing along the chord.
+    const t = (SEA_HEIGHT - ha) / (hb - ha);
+    return a + (b - a) * Math.max(0, t);
+  }
+  return SHORE_SPAN[1];
+})();
 
 /** Height of the barrier post, and how many stand in one segment. */
 const BARRIER_TOP = 1.02;

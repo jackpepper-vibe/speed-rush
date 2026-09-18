@@ -25,26 +25,39 @@ import type { WorldLookup } from './SceneryManager';
  * lands in the top bins is a measurement, not a promise.
  */
 
-/** Lateral band the moored inshore craft occupy. */
-const INSHORE = [SHORELINE_LATERAL + 22, SHORELINE_LATERAL + 120] as const;
-/** Lateral band the deep-water ships occupy. */
-const OFFSHORE = [SHORELINE_LATERAL + 190, SHORELINE_LATERAL + 640] as const;
+/**
+ * Lateral band the moored craft occupy.
+ *
+ * Keyed to `SHORELINE_LATERAL`, which moved inshore from 150 to 38 when the
+ * beach was brought into frame. Everything here moved with it, which is the
+ * point of expressing the band as an offset rather than as an absolute.
+ */
+const INSHORE = [SHORELINE_LATERAL + 10, SHORELINE_LATERAL + 96] as const;
 
 /**
- * Share of cells that carry a ship rather than a yacht, and the share that
- * carry nothing at all.
+ * Share of cells that carry a boat at all.
  *
- * A boat in every cell is a traffic jam; the reference has a busy inshore strip
- * and one large vessel standing well out. Sparseness is a property of the cell,
- * not of the pool, so the gaps are in the same place every time that stretch of
- * coast is driven.
+ * A boat in every cell is a traffic jam; the reference has a busy inshore
+ * strip and nothing between it and the ship standing well out. Sparseness is a
+ * property of the cell, not of the pool, so the gaps are in the same place
+ * every time that stretch of coast is driven.
  */
 const OCCUPANCY = 0.62;
-const SHIP_SHARE = 0.24;
 
-/** Hull length, beam and freeboard for each class, in world units. */
-const YACHT = { length: [18, 44] as const, beam: [5, 11] as const, height: [5, 11] as const };
-const SHIP = { length: [120, 230] as const, beam: [18, 30] as const, height: [26, 46] as const };
+/**
+ * Hull length, beam and freeboard, in world units.
+ *
+ * Moorings only. The ship class that used to share this field went to
+ * `CruiseShipManager` when the water came into frame: one silhouette scaled
+ * from a launch to a liner was defensible while both were fog, and stopped
+ * being so the moment either could be resolved.
+ *
+ * Trimmed with the band. These used to sit past 170 units out and now start at
+ * 48, so the figures that read as a yacht at that range are roughly two thirds
+ * of what they were — a lane is 4.2 units, which makes the longest of these
+ * about seven car lengths. Anything more is a ferry.
+ */
+const YACHT = { length: [12, 30] as const, beam: [3.5, 7.5] as const, height: [3.5, 8] as const };
 
 export class MarinaManager extends CellField {
   readonly name = 'marina';
@@ -122,13 +135,9 @@ export class MarinaManager extends CellField {
     const r4 = cellHash(cell, 23.5);
     const r5 = cellHash(cell, 31.3);
 
-    const ship = cellHash(cell, 41.9) < SHIP_SHARE;
-    const band = ship ? OFFSHORE : INSHORE;
-    const klass = ship ? SHIP : YACHT;
-
-    /* Squared, so inshore craft crowd the near edge of their band the way
-     * moorings crowd a harbour wall, and the deep-water ships spread out. */
-    out.lateral = band[0] + (band[1] - band[0]) * r2 * r2;
+    /* Squared, so craft crowd the near edge of the band the way moorings crowd
+     * a harbour wall rather than spreading evenly over open water. */
+    out.lateral = INSHORE[0] + (INSHORE[1] - INSHORE[0]) * r2 * r2;
     out.along = world + (r3 - 0.5) * 56;
     /* Floating, not standing: the sea is flat at a fixed height, so a vessel's
      * waterline is that height regardless of what the ground is doing. The road
@@ -137,18 +146,18 @@ export class MarinaManager extends CellField {
     out.height = SEA_HEIGHT - hullAt(world, out.lateral);
 
     /* Moored roughly parallel to the shore, with enough spread that the line of
-     * them is not a rank. A ship well out is under way and may lie across. */
-    out.yaw = ship ? (r4 - 0.5) * 1.5 : (r4 - 0.5) * 0.55;
+     * them is not a rank. */
+    out.yaw = (r4 - 0.5) * 0.55;
 
-    const length = klass.length[0] + r5 * (klass.length[1] - klass.length[0]);
-    const beam = klass.beam[0] + r4 * (klass.beam[1] - klass.beam[0]);
-    const height = klass.height[0] + r3 * (klass.height[1] - klass.height[0]);
+    const length = YACHT.length[0] + r5 * (YACHT.length[1] - YACHT.length[0]);
+    const beam = YACHT.beam[0] + r4 * (YACHT.beam[1] - YACHT.beam[0]);
+    const height = YACHT.height[0] + r3 * (YACHT.height[1] - YACHT.height[0]);
     out.scale.set(beam, height, length);
 
     /* Mostly white, with the occasional dark hull — a harbour of pure white is
      * a showroom. Kept high in value either way: what this field is for is the
      * bright end of the histogram. */
-    const dark = r2 < 0.18 && !ship;
+    const dark = r2 < 0.18;
     out.colour.setHSL(0.55 + r5 * 0.08, dark ? 0.20 : 0.05, dark ? 0.34 : 0.86 + r3 * 0.12);
     return true;
   }

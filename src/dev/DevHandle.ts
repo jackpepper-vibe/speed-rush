@@ -192,6 +192,16 @@ export interface DevHandle {
   setSceneryVisible(visible: boolean): void;
 
   /**
+   * Hide the water, for the same reason every other seam here exists.
+   *
+   * Whether a prop is standing on the beach or out in the sea is not a
+   * question a capture can answer: the water is drawn over the ground, so a
+   * rock on wet sand and a rock ten units offshore are the same picture. With
+   * the sea hidden the ground under it is visible and the two are not.
+   */
+  setSeaVisible(visible: boolean): void;
+
+  /**
    * The world-anchored far fields — the city behind the road and what floats
    * on the sea beside it — and a seam to hide either of them.
    *
@@ -417,18 +427,26 @@ export function installDevHandle(game: Game, version: string): DevHandle {
       game.scenery.setVisible(visible);
     },
 
+    setSeaVisible(visible) {
+      game.road.setSeaVisible(visible);
+    },
+
     cellFields() {
       return [
         { id: 'skyline', ...game.skyline.snapshot() },
         { id: 'marina', ...game.marina.snapshot() },
+        { id: 'cruise', ...game.cruise.snapshot() },
         { id: 'district', ...game.district.snapshot() },
+        { id: 'kerbside', ...game.kerbside.snapshot() },
       ];
     },
 
     setCellFieldVisible(id, visible) {
       if (id === 'skyline') game.skyline.setVisible(visible);
       if (id === 'marina') game.marina.setVisible(visible);
+      if (id === 'cruise') game.cruise.setVisible(visible);
       if (id === 'district') game.district.setVisible(visible);
+      if (id === 'kerbside') game.kerbside.setVisible(visible);
     },
 
     uiElements() {

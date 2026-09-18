@@ -93,7 +93,70 @@ export function isCoastAt(distance: number): boolean {
 
 /** How far the beach falls before it is safely under the water. */
 const SHORE_DROP = 9;
-const SHORE_RAMP = 130;
+
+/**
+ * Where the beach starts falling, and how far it takes to fall.
+ *
+ * Its own inner radius, not the hills' `RELIEF_INNER`, and that separation is
+ * the whole point. Sharing the landward figure put the first sand 96 units out
+ * and the waterline at 145, and at a 62° field of view lateral 145 only enters
+ * the frame past 300 units ahead — where `FogExp2` at 0.0034 has already taken
+ * 65% of it. The sea was built, placed and drawn correctly for ten iterations
+ * and never appeared in a single capture: a 2400-wide frame caught it as a
+ * turquoise sliver at the extreme right, and the 16:9 frame the game is
+ * actually played in caught none of it. Water nobody can see is not water.
+ *
+ * 24 puts the first sand just outside the railing, and the ramp crosses
+ * `SEA_HEIGHT` around 32 — a waterline that enters the frame at roughly its
+ * three-quarter width and runs to the vanishing point, which is where the
+ * reference's is. The coast's palms reach 30 and so now stand on the slope
+ * rather than behind it, which is what a beach palm does; `SceneryManager`
+ * samples this function for their footing and drops anything that would wade
+ * out past the tide line.
+ */
+const SHORE_INNER = 24;
+const SHORE_RAMP = 22;
+
+/** Amplitude of the swell that runs along the tide line. */
+const SHORE_SWELL = 0.8;
+
+/**
+ * How far the beach has fallen at this lateral, as a fraction of `SHORE_DROP`.
+ *
+ * Split out of `groundReliefAt` so the shoreline can be *solved* as well as
+ * sampled. Everything that has to stay clear of the water wants to know where
+ * the water is, and sampling the relief at one lateral cannot answer that: the
+ * profile is a smoothstep, the mesh that draws it interpolates linearly
+ * between columns six units apart, and the swell moves the crossing either way
+ * as you travel. Three iterations of this loop were spent adding margins to a
+ * sampled test and watching boulders stay afloat.
+ */
+function shoreRamp(lateral: number): number {
+  const out = lateral - SHORE_INNER;
+  if (out <= 0) return 0;
+  const t = Math.min(1, out / SHORE_RAMP);
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * The lowest the beach ever sits at this lateral, swell included.
+ *
+ * The worst case rather than the average one: the swell at its trough, which
+ * is the moment the tide line reaches furthest inshore. Anything that has to
+ * be dry along the *whole* coast rather than at one distance is answered from
+ * this rather than from a sample of `groundReliefAt`.
+ *
+ * Exported as a profile rather than as a solved limit because solving it needs
+ * the sea's height and the ground mesh's own lateral columns, and `RoadManager`
+ * owns both. It imports this module, so asking for them back would be a cycle.
+ */
+export function shoreLowestAt(lateral: number): number {
+  const ramp = shoreRamp(lateral);
+  return -SHORE_DROP * ramp - SHORE_SWELL * (1 - ramp);
+}
+
+/** The band over which the beach falls, for anything solving across it. */
+export const SHORE_SPAN = [SHORE_INNER, SHORE_INNER + SHORE_RAMP] as const;
 
 export function groundReliefAt(lateral: number, distance: number): number {
   /* Seaward of a coastal road the ground goes down, not up.
@@ -105,13 +168,11 @@ export function groundReliefAt(lateral: number, distance: number): number {
    * behind it.
    */
   if (lateral > 0 && coastAt(distance)) {
-    const out = lateral - RELIEF_INNER;
-    if (out <= 0) return 0;
-    const t = Math.min(1, out / SHORE_RAMP);
     // Eased, so the verge rolls into the beach rather than breaking at a line.
-    const ramp = t * t * (3 - 2 * t);
+    const ramp = shoreRamp(lateral);
+    if (ramp <= 0) return 0;
     // A little swell near the waterline, fading out as the ground submerges.
-    const ripple = Math.sin(distance * 0.021 + lateral * 0.013) * 0.8 * (1 - ramp);
+    const ripple = Math.sin(distance * 0.021 + lateral * 0.013) * SHORE_SWELL * (1 - ramp);
     return -SHORE_DROP * ramp + ripple;
   }
 
