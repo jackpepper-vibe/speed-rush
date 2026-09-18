@@ -2466,6 +2466,56 @@ phase = 'render-quality';
       `want > 1.5 — below that nothing beside the road is darkening it`);
   }
 
+  /* -- does the tyre smoke reach the frame ---------------------------------
+   * The same difference test as the shadows above, and it exists for the same
+   * reason with a sharper lesson behind it.
+   *
+   * Iteration 29 looked at a drifting frame, saw no plume, and concluded the
+   * smoke never rendered. It always had: 206 particles were alive and moving
+   * the road's mean by 1.5 luminance, but the shade had been chosen against
+   * tarmac at luminance 72 and the carriageway now renders near 150, so the
+   * smoke was very nearly the same colour as the thing behind it. A whole
+   * iteration was spent writing art for a defect that did not exist, and 246
+   * checks had nothing to say about it.
+   *
+   * Two things make this honest. The drift is pinned rather than provoked —
+   * the cue fires on a slip transition and decays in a third of a second, so
+   * a harness cannot reliably catch it. And the plume is measured against
+   * itself with `setEffectVisible`, because a bright patch behind a car could
+   * as easily be the road, the brake lights or the contact decal.
+   *
+   * What this does NOT do, stated plainly so nobody trusts it further than it
+   * goes: it does not police the smoke's *value* against the road. Volume and
+   * value land in the same number. Restoring iteration 29's dark shade under
+   * today's three-per-puff emitter still measures 3.45, comfortably over the
+   * bar, because there is now enough smoke to show up whatever colour it is —
+   * whereas at iteration 29's single-billboard emitter that same shade gave
+   * 1.51 and this check would have caught it. The bar is set for presence, not
+   * for contrast, and tightening it to catch colour would make it fail the
+   * first time someone legitimately trims the particle budget. */
+  {
+    const tail = { plume: [0.34, 0.55, 0.70, 0.95] };
+    const smoke = await hero.evaluate(async (rects) => {
+      const cr = window.carRacer;
+      cr.setDriftIntensity(1);
+      cr.drive(1.0, 0);
+      const live = cr.effects().smoke;
+      cr.setEffectVisible('smoke', true);
+      const on = cr.sampleFrame(rects).plume;
+      cr.setEffectVisible('smoke', false);
+      const off = cr.sampleFrame(rects).plume;
+      cr.setEffectVisible('smoke', true);
+      cr.setDriftIntensity(null);
+      return { live, on: on.mean, off: off.mean };
+    }, tail);
+
+    const lift = smoke.on - smoke.off;
+    check('render', 'tyre-smoke-reaches-the-frame', smoke.live > 0 && lift > 2,
+      `with the drift pinned there are ${smoke.live} live smoke particles and turning them off ` +
+      `changes the road behind the car by ${lift.toFixed(2)} luminance (${smoke.on.toFixed(2)} to ` +
+      `${smoke.off.toFixed(2)}), want > 2 — below that the plume is the same colour as the tarmac`);
+  }
+
   /* -- the reference -------------------------------------------------------
    * Skipped, never passed, when the target image is absent. A comparative
    * score with nothing to compare against is not a pass, and treating it as

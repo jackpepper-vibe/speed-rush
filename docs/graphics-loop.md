@@ -75,6 +75,7 @@ High tier, cruise row, unless stated.
 | 29 | `72b2740` | 0.531 | 1.03 | 0.77 | 0.06 | 246/246 |
 | 30 | `57726ae` | 0.531 | 1.03 | 0.77 | 0.06 | 246/246 |
 | 31 | `7775fe0` | 0.531 | 1.03 | 0.77 | 0.06 | 246/246 |
+| 32 | `PENDING` | 0.531 | 1.03 | 0.77 | 0.06 | **247/247** |
 
 From iteration 25 the probe has **246** checks, not 245. The new one asserts
 that something beside the road darkens it.
@@ -859,6 +860,35 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     sides meet behind the car, not more particles — 313 of 700 is not the
     constraint.
 
+32. `render/tyre-smoke-reaches-the-frame`. The probe has **247** checks. No art
+    change.
+
+    The queue has been asking for this since iteration 29 walked into the gap it
+    covers: drift pinned with `setDriftIntensity`, live count from
+    `effects().smoke`, and the plume measured against itself by toggling
+    `setEffectVisible`, because a bright patch behind a car could as easily be
+    the road, the brake lights or the contact decal.
+
+    **Then it was tested against the defect it was written for, and it did not
+    bite.** Restoring iteration 29's dark shade left it passing. That is worth
+    more than the check: under today's three-per-puff emitter the old shade
+    measures **3.45**, where at iteration 29's single-billboard emitter it
+    measured 1.51. **Volume and value land in the same number** — there is now
+    enough smoke to register whatever colour it is.
+
+    So the bar is set for presence, and the check's own comment says so rather
+    than implying more. It would have caught iteration 29 exactly (1.51 against
+    a bar of 2) and it will catch the plume vanishing. It will not catch the
+    plume going the colour of the road again. Tightening it to about 4.5 would,
+    and would then fail the first time someone legitimately trims the particle
+    budget — a check calibrated to today's art is a check that punishes
+    tomorrow's.
+
+    The general point, since this loop keeps meeting it: **a check that has
+    never been seen to fail is a hypothesis.** `roadside-casts-onto-road` at
+    iteration 25 passed on first run too, and that told us something real. This
+    one passing on first run told us nothing until it was deliberately broken.
+
 ### The measurement was noisier than it was — fixed at iteration 12
 
 `makeRoadTexture` and `makeRoadWearTexture` both speckled with bare
@@ -999,9 +1029,8 @@ threshold.
     mass behind the car. Lateral spread and cross-drift, not more particles —
     313 live of 700 is not the constraint. Measure by difference with
     `setDriftIntensity(1)` and `setEffectVisible('smoke', …)`; `effects().smoke`
-    gives the live count. **A probe check on that delta, the way
-    `roadside-casts-onto-road` works, is still missing and would have saved
-    iteration 29 entirely.**
+    gives the live count. The probe check on that delta landed at iteration 32
+    — but it guards presence, not colour, and the entry there explains why.
 11. **Hero tail crease** and **nitro bloom haze**. No support from target2 — its
    hero is a matte classic coupe under no boost. Play observations only.
 
