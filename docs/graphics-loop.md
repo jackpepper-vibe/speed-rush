@@ -64,7 +64,7 @@ High tier, cruise row, unless stated.
 | 18 | `75d3f61` | **0.690** | 0.72 | 0.74 | 0.37 | 244/245 |
 | 19 | `93f1997` | **0.634** | 0.79 | 0.72 | 0.11 | 244/245 |
 | 20 | `a6b888e` | **0.615** | 0.79 | 0.71 | 0.11 | 244/245* |
-| 21 | `PENDING` | 0.615 | 0.79 | 0.71 | 0.11 | 244/245 |
+| 21 | `a538ecd` | 0.615 | 0.79 | 0.71 | 0.11 | 244/245 |
 
 \* Iteration 20's probe actually printed **245/245**, and it was a false pass.
 See entry 21. The probe's honest reading at that code state is 0.563.
