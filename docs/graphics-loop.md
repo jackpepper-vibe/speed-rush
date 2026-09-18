@@ -80,6 +80,7 @@ High tier, cruise row, unless stated.
 | 34 | `52d5546` | **0.485** | 1.05 | 0.82 | 0.06 | 247/247 |
 | 35 | `591aeb5` | 0.486 | 1.07 | 0.81 | 0.07 | 247/247 |
 | 36 | `4f58222` | 0.486 | 1.07 | 0.81 | 0.07 | 247/247 |
+| 37 | `PENDING` | 0.485 | 1.07 | 0.81 | 0.08 | 247/247 |
 
 From iteration 25 the probe has **246** checks, not 245. The new one asserts
 that something beside the road darkens it.
@@ -1067,6 +1068,54 @@ re-deriving could only have meant loosening them to fit an unclosed gap.
     a sedan. *Check that the thing you are differencing is the thing you
     changed.*
 
+37. **The pop, measured and removed.** Scattered prop kinds are keyed on an
+    absolute world slot instead of a band-relative seed. No score change —
+    0.486 -> 0.485 cruise, 0.453 -> 0.454 boost, both well inside the noise
+    band — and the operator's most visible complaint is gone.
+
+    `repopulate()` seeded every instance on `base`, the band origin, and ran
+    every time the car crossed a 120-unit band, which at speed is about every
+    two seconds. The defence in the comment was that "the same stretch of road
+    is dressed the same way every time it is driven", and it was true: the
+    *band* was reproducible. What it was not is **stable while you are looking
+    at it.** A tower three hundred units ahead got a new seed at every crossing,
+    so the entire visible set changed species and position at once. That is
+    "city buildings pop in", and it was never a draw-distance problem.
+
+    Each scattered instance now owns a slot of `(span + behind) / count` units,
+    keyed on its absolute index, with the jitter covering 90% of the slot so the
+    distribution still reads as a scatter. Crossing a band shifts the pool by
+    one slot: one prop leaves at the back, one arrives at the horizon, every one
+    in view is written back identical. Exactly the `CellField` rule from
+    iteration 34, applied to the manager that needed it first.
+
+    **Measured as a ratio, so the step size cancels.** Frame-to-frame change in
+    the two roadside regions across 220 quarter-second steps, traffic and
+    pickups off, splitting the steps by whether they crossed a band:
+
+    | | crossings | ordinary | ratio |
+    |---|---|---|---|
+    | before | 19.12 (max 38.99) | 12.83 | **1.49x** |
+    | after | 9.39 (max 14.95) | 11.83 | **0.79x** |
+
+    A crossing used to be half again as large a change as an ordinary step and
+    is now *quieter* than one, which is what it should be: at a crossing the
+    group translation resets and the props that change are the ones furthest
+    away, where screen motion is smallest.
+
+    **A frame-of-reference error fixed on the way past, and it was load-bearing
+    for this.** `ahead` is measured from `base` — both placements say so in
+    their own comments — but `world`, `px` and `py` were all computed against
+    `travelled`/`distance`. It survived because a repopulate happens *at* a
+    crossing, where the two agree to within one tick of travel, so every biome
+    test and curve sample was approximately right. Approximately right stops
+    being good enough the moment a slot is a fixed piece of road rather than an
+    offset from wherever the camera is.
+
+    Also corrected: the window test was gated on `laid`, because a scattered
+    instance drew its `ahead` from the window and could not fall outside it.
+    Both placements are grid-based now and both can.
+
 ### The measurement was noisier than it was — fixed at iteration 12
 
 `makeRoadTexture` and `makeRoadWearTexture` both speckled with bare
@@ -1141,13 +1190,16 @@ the content is untouched is not a plan; it is a thermometer.** Work these first.
    on the surface, not more loft resolution. Flat paint is untouched and is
    still open.
 
-2. **City buildings pop in.** They arrive in a block every couple of seconds
-   rather than coming over the horizon. Almost certainly `SceneryManager`:
-   `BAND_LENGTH` is 120 units, which at speed is about that interval, and
-   `repopulate()` rewrites every instance on a band crossing — so the whole
-   visible set re-rolls at once. Note iteration 13 made cadence kinds
-   world-anchored, which is exactly the fix pattern; the scattered kinds still
-   re-roll.
+2. ~~**City buildings pop in.**~~ **Done at iteration 37.** The diagnosis in
+   this item was right to the line: `repopulate()` rewrote every instance on a
+   120-unit band crossing. Scattered kinds now take an absolute world slot, and
+   the crossing-to-ordinary frame-change ratio went **1.49x -> 0.79x**.
+
+   Worth adding as a probe check, and deliberately not added yet: it is the
+   rare gate that has been **seen to fail** (1.49x at the previous commit),
+   which by this file's own standard at iteration 32 is what makes a check
+   worth having. A bar around 1.15x would have caught it and leaves room for
+   legitimate art changes.
 
 3. **The gutter is a free lane.** You can drive the shoulder or chicane and miss
    every obstacle. Gameplay, not graphics, but it is in the loop now.

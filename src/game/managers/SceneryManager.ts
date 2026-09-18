@@ -246,10 +246,36 @@ export class SceneryManager implements Manager {
       const perSide = pitch > 0 ? Math.max(1, Math.floor(mesh.count / 2)) : 0;
       const anchor = Math.floor((base - behind) / Math.max(pitch, 1)) * pitch;
 
+      /* Scattered kinds get a world slot each, and that is this iteration.
+       *
+       * The scatter used to be seeded on `base`, the band origin — so every
+       * instance of every kind was re-rolled when the car crossed a band, which
+       * at speed is about every two seconds. It was defended as "the same
+       * stretch of road is dressed the same way every time it is driven", and
+       * that much was true: the *band* was reproducible. What it was not is
+       * **stable while you look at it**. A tower three hundred units ahead was
+       * rebuilt from a new seed every crossing, so the whole visible set changed
+       * species and position at once. That is the operator's "city buildings pop
+       * in", and it is not a draw-distance problem at all.
+       *
+       * The fix is the rule `CellField` was built on at iteration 34: cut the
+       * road into slots of `slotPitch`, key the randomness on the **absolute
+       * slot index**, and let the pool hold a sliding window of them. Crossing a
+       * band then shifts the contents by one slot — one prop leaves at the back,
+       * one arrives at the horizon, and every one in view is written back
+       * identical. The scatter stays a scatter: the slot only fixes *which*
+       * random numbers an instance gets, and the jitter below still spreads it
+       * across most of its slot.
+       */
+      const slotPitch = (span + behind) / Math.max(1, mesh.count);
+      const slotBase = Math.floor((base - behind) / slotPitch);
+
       for (let i = 0; i < mesh.count; i++) {
-        // A seeded scatter keyed on the band, so the same stretch of road is
-        // dressed the same way every time it is driven.
-        const seed = (base * 0.013 + i * 7.77 + kind.id.length * 31.1);
+        /* Keyed on the slot, not the band and not the instance index. Two
+         * different kinds must not agree: `kind.id.length` was already doing
+         * that job and keeps doing it. */
+        const slot = slotBase + i;
+        const seed = (slot * 7.77 + kind.id.length * 31.1);
         const r1 = fract(Math.sin(seed) * 43758.5453);
         const r2 = fract(Math.sin(seed * 1.7 + 2.3) * 24634.6345);
         const r3 = fract(Math.sin(seed * 2.9 + 5.1) * 19349.1233);
@@ -274,16 +300,24 @@ export class SceneryManager implements Manager {
          * it, having no `distance` term to perturb. Two discrete values are a
          * race, not noise, and the fix is to stop reading the clock.
          */
+        /* A scattered kind now sits in its own slot with a jitter, where it
+         * used to take a free draw across the whole span. Same distribution to
+         * look at — the jitter covers 90% of a slot, so neighbours still
+         * overlap and the spacing still reads as random — and a completely
+         * different behaviour over time, because the slot is absolute and the
+         * span was relative to the band. */
         const ahead = laid
           ? anchor + (i % perSide) * pitch - base
-          : -behind + r1 * (span + behind);
+          : (slot + 0.5 + (r1 - 0.5) * 0.9) * slotPitch - base;
         const side = laid ? (i < perSide ? -1 : 1) : (r2 < 0.5 ? -1 : 1);
         const depth = laid
           ? kind.offset[0]
           : kind.offset[0] + r3 * (kind.offset[1] - kind.offset[0]);
 
-        // Off the back or past the horizon: park it rather than draw it.
-        if (laid && (ahead < -behind || ahead > span)) {
+        // Off the back or past the horizon: park it rather than draw it. Both
+        // placements are now grid-based and so both can land outside the
+        // window; the scatter could not, when its range *was* the window.
+        if (ahead < -behind || ahead > span) {
           mesh.setMatrixAt(i, this.matrix.makeTranslation(0, -9999, 0));
           continue;
         }
@@ -292,7 +326,17 @@ export class SceneryManager implements Manager {
         // prop's base is clear of the tarmac, not merely its origin.
         const x = side * (barrierLimit() + kind.radius * scale + depth);
 
-        const world = this.road.travelled + ahead;
+        /* Relative to the band origin, not to where the car happens to be.
+         *
+         * `ahead` is measured from `base` — both placements say so — and
+         * `reposition` carries the car's progress through the band as a group
+         * translation. Reading `travelled` here mixed the two frames and left
+         * every biome test and every curve sample up to a band out of step with
+         * the position the instance was actually written at. It survived because
+         * a repopulate happens *at* a crossing, where the two are within one
+         * tick of each other; now that a slot is a fixed piece of road, being
+         * approximately right is no longer good enough. */
+        const world = base + ahead;
 
         /* The biome of the ground this instance lands on, not of the ground
          * the car is standing on. A prop from the wrong side of a boundary is
@@ -304,8 +348,14 @@ export class SceneryManager implements Manager {
           continue;
         }
 
-        const px = curveAt(world) - curveAt(distance) + x;
-        const py = hillAt(world) - hillAt(distance) - kind.sink * scale;
+        /* Against the band origin, for the same reason `world` is. The group
+         * translation in `reposition` is exactly `curveAt(base) - curveAt(
+         * distance)`, so a buffer written against `base` plus that translation
+         * is the prop's true world position at any point in the band — where a
+         * buffer written against `distance` is only correct on the frame it was
+         * written and drifts for the rest of the band. */
+        const px = curveAt(world) - curveAt(base) + x;
+        const py = hillAt(world) - hillAt(base) - kind.sink * scale;
         const pz = -ahead;
 
         // Measured rather than trusted: if the arithmetic above ever lets a
