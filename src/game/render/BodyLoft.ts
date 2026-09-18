@@ -208,58 +208,92 @@ export function loftBody(stations: Station[], options: LoftOptions): THREE.Buffe
  * runs, and how the tail is cut off.
  */
 export const BODY_STATIONS: Record<string, Station[]> = {
+  /*
+   * Mid-engined supercar: cab-forward, so the cabin crest sits well ahead of
+   * centre and the engine deck *behind* it is lower than the roof. Hips over
+   * the rear axle are the widest point. A roofline that falls and then runs
+   * level is the classic mid-engined read and no front-engined car can do it.
+   */
   super: [
-    { t: -1.00, halfWidth: 0.52, yBottom: 0.26, yTop: 0.40, roofRatio: 0.80, squareness: 0.30 },
-    { t: -0.88, halfWidth: 0.80, yBottom: 0.16, yTop: 0.56, roofRatio: 0.74, squareness: 0.36 },
-    { t: -0.66, halfWidth: 0.97, yBottom: 0.13, yTop: 0.70, roofRatio: 0.70, squareness: 0.44 },
-    { t: -0.40, halfWidth: 1.02, yBottom: 0.12, yTop: 0.92, roofRatio: 0.62, squareness: 0.52 },
-    { t: -0.12, halfWidth: 1.03, yBottom: 0.12, yTop: 1.22, roofRatio: 0.50, squareness: 0.58 },
-    { t: 0.16, halfWidth: 1.04, yBottom: 0.12, yTop: 1.24, roofRatio: 0.48, squareness: 0.58 },
-    { t: 0.44, halfWidth: 1.06, yBottom: 0.13, yTop: 1.06, roofRatio: 0.56, squareness: 0.54 },
-    { t: 0.74, halfWidth: 1.05, yBottom: 0.16, yTop: 0.84, roofRatio: 0.68, squareness: 0.48 },
-    { t: 0.92, halfWidth: 0.96, yBottom: 0.22, yTop: 0.76, roofRatio: 0.76, squareness: 0.42 },
-    { t: 1.00, halfWidth: 0.84, yBottom: 0.28, yTop: 0.70, roofRatio: 0.84, squareness: 0.36 },
+    { t: -1.00, halfWidth: 0.52, yBottom: 0.22, yTop: 0.32, roofRatio: 0.82, squareness: 0.28 },
+    { t: -0.80, halfWidth: 0.84, yBottom: 0.13, yTop: 0.52, roofRatio: 0.74, squareness: 0.34 },
+    { t: -0.56, halfWidth: 0.98, yBottom: 0.12, yTop: 0.68, roofRatio: 0.66, squareness: 0.42 },
+    { t: -0.34, halfWidth: 1.02, yBottom: 0.11, yTop: 1.00, roofRatio: 0.52, squareness: 0.48 },
+    { t: -0.14, halfWidth: 1.03, yBottom: 0.11, yTop: 1.22, roofRatio: 0.44, squareness: 0.50 },
+    { t:  0.06, halfWidth: 1.05, yBottom: 0.11, yTop: 1.14, roofRatio: 0.48, squareness: 0.50 },
+    { t:  0.28, halfWidth: 1.10, yBottom: 0.12, yTop: 0.94, roofRatio: 0.62, squareness: 0.52 },
+    { t:  0.54, halfWidth: 1.15, yBottom: 0.13, yTop: 0.92, roofRatio: 0.70, squareness: 0.52 },
+    { t:  0.80, halfWidth: 1.13, yBottom: 0.15, yTop: 0.90, roofRatio: 0.76, squareness: 0.48 },
+    { t:  1.00, halfWidth: 0.98, yBottom: 0.24, yTop: 0.82, roofRatio: 0.84, squareness: 0.40 },
   ],
+  /*
+   * Hyper: the extreme of the wedge and the supercar at once. Lowest canopy,
+   * widest hips, and a deck behind the cockpit that drops away to a cut tail.
+   * Almost no tumblehome at the nose and a great deal at the cockpit, so the
+   * canopy reads as a bubble dropped into a very wide, very flat car.
+   */
   hyper: [
-    { t: -1.00, halfWidth: 0.54, yBottom: 0.22, yTop: 0.34, roofRatio: 0.82, squareness: 0.26 },
-    { t: -0.86, halfWidth: 0.84, yBottom: 0.13, yTop: 0.50, roofRatio: 0.74, squareness: 0.32 },
-    { t: -0.62, halfWidth: 1.02, yBottom: 0.10, yTop: 0.62, roofRatio: 0.68, squareness: 0.40 },
-    { t: -0.34, halfWidth: 1.07, yBottom: 0.10, yTop: 0.86, roofRatio: 0.58, squareness: 0.48 },
-    { t: -0.06, halfWidth: 1.08, yBottom: 0.10, yTop: 1.14, roofRatio: 0.44, squareness: 0.54 },
-    { t: 0.22, halfWidth: 1.09, yBottom: 0.10, yTop: 1.12, roofRatio: 0.44, squareness: 0.54 },
-    { t: 0.52, halfWidth: 1.11, yBottom: 0.12, yTop: 0.92, roofRatio: 0.54, squareness: 0.50 },
-    { t: 0.80, halfWidth: 1.08, yBottom: 0.15, yTop: 0.74, roofRatio: 0.66, squareness: 0.44 },
-    { t: 1.00, halfWidth: 0.90, yBottom: 0.22, yTop: 0.66, roofRatio: 0.80, squareness: 0.34 },
+    { t: -1.00, halfWidth: 0.50, yBottom: 0.18, yTop: 0.24, roofRatio: 0.80, squareness: 0.22 },
+    { t: -0.82, halfWidth: 0.86, yBottom: 0.10, yTop: 0.40, roofRatio: 0.70, squareness: 0.28 },
+    { t: -0.58, halfWidth: 1.04, yBottom: 0.09, yTop: 0.56, roofRatio: 0.60, squareness: 0.34 },
+    { t: -0.36, halfWidth: 1.09, yBottom: 0.09, yTop: 0.84, roofRatio: 0.44, squareness: 0.40 },
+    { t: -0.14, halfWidth: 1.10, yBottom: 0.09, yTop: 1.06, roofRatio: 0.36, squareness: 0.42 },
+    { t:  0.08, halfWidth: 1.12, yBottom: 0.09, yTop: 1.00, roofRatio: 0.40, squareness: 0.42 },
+    { t:  0.32, halfWidth: 1.18, yBottom: 0.10, yTop: 0.82, roofRatio: 0.56, squareness: 0.44 },
+    { t:  0.60, halfWidth: 1.22, yBottom: 0.11, yTop: 0.78, roofRatio: 0.66, squareness: 0.44 },
+    { t:  0.86, halfWidth: 1.20, yBottom: 0.13, yTop: 0.76, roofRatio: 0.74, squareness: 0.40 },
+    { t:  1.00, halfWidth: 1.02, yBottom: 0.20, yTop: 0.70, roofRatio: 0.82, squareness: 0.34 },
   ],
+  /*
+   * Wedge: a single straight rise from the lowest nose on the grid to a tail
+   * that is still climbing when the car runs out, cut off square. No crest at
+   * all — the roofline never turns over, which is what separates it from the
+   * coupe it used to be a copy of.
+   */
   wedge: [
-    { t: -1.00, halfWidth: 0.56, yBottom: 0.24, yTop: 0.36, roofRatio: 0.84, squareness: 0.30 },
-    { t: -0.84, halfWidth: 0.82, yBottom: 0.15, yTop: 0.52, roofRatio: 0.76, squareness: 0.38 },
-    { t: -0.58, halfWidth: 0.96, yBottom: 0.13, yTop: 0.66, roofRatio: 0.72, squareness: 0.46 },
-    { t: -0.28, halfWidth: 1.00, yBottom: 0.12, yTop: 0.90, roofRatio: 0.60, squareness: 0.54 },
-    { t: 0.02, halfWidth: 1.01, yBottom: 0.12, yTop: 1.16, roofRatio: 0.50, squareness: 0.60 },
-    { t: 0.34, halfWidth: 1.02, yBottom: 0.13, yTop: 1.08, roofRatio: 0.54, squareness: 0.58 },
-    { t: 0.68, halfWidth: 1.03, yBottom: 0.15, yTop: 0.88, roofRatio: 0.66, squareness: 0.50 },
-    { t: 1.00, halfWidth: 0.88, yBottom: 0.24, yTop: 0.74, roofRatio: 0.80, squareness: 0.38 },
+    { t: -1.00, halfWidth: 0.54, yBottom: 0.22, yTop: 0.30, roofRatio: 0.84, squareness: 0.26 },
+    { t: -0.76, halfWidth: 0.86, yBottom: 0.13, yTop: 0.52, roofRatio: 0.76, squareness: 0.34 },
+    { t: -0.48, halfWidth: 0.98, yBottom: 0.12, yTop: 0.74, roofRatio: 0.68, squareness: 0.40 },
+    { t: -0.18, halfWidth: 1.03, yBottom: 0.12, yTop: 0.94, roofRatio: 0.58, squareness: 0.44 },
+    { t:  0.12, halfWidth: 1.05, yBottom: 0.12, yTop: 1.10, roofRatio: 0.50, squareness: 0.46 },
+    { t:  0.44, halfWidth: 1.07, yBottom: 0.13, yTop: 1.20, roofRatio: 0.50, squareness: 0.46 },
+    { t:  0.74, halfWidth: 1.08, yBottom: 0.14, yTop: 1.22, roofRatio: 0.56, squareness: 0.44 },
+    { t:  0.94, halfWidth: 1.06, yBottom: 0.17, yTop: 1.20, roofRatio: 0.66, squareness: 0.40 },
+    { t:  1.00, halfWidth: 0.96, yBottom: 0.24, yTop: 1.14, roofRatio: 0.74, squareness: 0.36 },
   ],
+  /*
+   * Fastback coupe: one unbroken line from a crest just ahead of centre all
+   * the way to the tail. Nothing flat anywhere, and the lowest tail of the
+   * front-engined cars — where the hatch drops off a cliff, this pours away.
+   */
   coupe: [
-    { t: -1.00, halfWidth: 0.58, yBottom: 0.26, yTop: 0.46, roofRatio: 0.86, squareness: 0.34 },
-    { t: -0.82, halfWidth: 0.84, yBottom: 0.18, yTop: 0.62, roofRatio: 0.80, squareness: 0.42 },
-    { t: -0.54, halfWidth: 0.94, yBottom: 0.16, yTop: 0.76, roofRatio: 0.76, squareness: 0.50 },
-    { t: -0.24, halfWidth: 0.97, yBottom: 0.15, yTop: 1.04, roofRatio: 0.62, squareness: 0.56 },
-    { t: 0.06, halfWidth: 0.98, yBottom: 0.15, yTop: 1.30, roofRatio: 0.52, squareness: 0.60 },
-    { t: 0.38, halfWidth: 0.99, yBottom: 0.16, yTop: 1.24, roofRatio: 0.56, squareness: 0.58 },
-    { t: 0.72, halfWidth: 0.98, yBottom: 0.18, yTop: 0.94, roofRatio: 0.70, squareness: 0.52 },
-    { t: 1.00, halfWidth: 0.86, yBottom: 0.26, yTop: 0.80, roofRatio: 0.82, squareness: 0.42 },
+    { t: -1.00, halfWidth: 0.56, yBottom: 0.24, yTop: 0.42, roofRatio: 0.86, squareness: 0.32 },
+    { t: -0.80, halfWidth: 0.86, yBottom: 0.16, yTop: 0.58, roofRatio: 0.80, squareness: 0.40 },
+    { t: -0.52, halfWidth: 0.96, yBottom: 0.15, yTop: 0.70, roofRatio: 0.76, squareness: 0.46 },
+    { t: -0.24, halfWidth: 1.00, yBottom: 0.14, yTop: 1.06, roofRatio: 0.62, squareness: 0.52 },
+    { t: -0.02, halfWidth: 1.01, yBottom: 0.14, yTop: 1.32, roofRatio: 0.52, squareness: 0.54 },
+    { t:  0.26, halfWidth: 1.01, yBottom: 0.15, yTop: 1.22, roofRatio: 0.54, squareness: 0.52 },
+    { t:  0.56, halfWidth: 1.02, yBottom: 0.16, yTop: 1.02, roofRatio: 0.60, squareness: 0.48 },
+    { t:  0.82, halfWidth: 1.00, yBottom: 0.18, yTop: 0.84, roofRatio: 0.70, squareness: 0.42 },
+    { t:  1.00, halfWidth: 0.88, yBottom: 0.24, yTop: 0.74, roofRatio: 0.80, squareness: 0.36 },
   ],
+  /*
+   * Muscle: a long, flat, low bonnet running a third of the car, then an
+   * abrupt screen, a flat roof, and a notch down to a short square boot.
+   * Slab-sided (the highest squareness of any player body) and widest over
+   * the rear axle. The bonnet plateau at 0.80 is the signature.
+   */
   muscle: [
-    { t: -1.00, halfWidth: 0.64, yBottom: 0.26, yTop: 0.52, roofRatio: 0.88, squareness: 0.40 },
-    { t: -0.80, halfWidth: 0.92, yBottom: 0.18, yTop: 0.70, roofRatio: 0.84, squareness: 0.50 },
-    { t: -0.50, halfWidth: 1.02, yBottom: 0.16, yTop: 0.82, roofRatio: 0.80, squareness: 0.58 },
-    { t: -0.20, halfWidth: 1.04, yBottom: 0.15, yTop: 1.10, roofRatio: 0.66, squareness: 0.64 },
-    { t: 0.10, halfWidth: 1.05, yBottom: 0.15, yTop: 1.34, roofRatio: 0.58, squareness: 0.66 },
-    { t: 0.42, halfWidth: 1.07, yBottom: 0.16, yTop: 1.26, roofRatio: 0.62, squareness: 0.64 },
-    { t: 0.76, halfWidth: 1.06, yBottom: 0.18, yTop: 0.96, roofRatio: 0.76, squareness: 0.56 },
-    { t: 1.00, halfWidth: 0.94, yBottom: 0.26, yTop: 0.86, roofRatio: 0.86, squareness: 0.46 },
+    { t: -1.00, halfWidth: 0.68, yBottom: 0.26, yTop: 0.60, roofRatio: 0.92, squareness: 0.56 },
+    { t: -0.82, halfWidth: 0.98, yBottom: 0.18, yTop: 0.78, roofRatio: 0.90, squareness: 0.68 },
+    { t: -0.56, halfWidth: 1.06, yBottom: 0.17, yTop: 0.80, roofRatio: 0.88, squareness: 0.76 },
+    { t: -0.34, halfWidth: 1.07, yBottom: 0.16, yTop: 0.82, roofRatio: 0.88, squareness: 0.78 },
+    { t: -0.20, halfWidth: 1.07, yBottom: 0.16, yTop: 1.16, roofRatio: 0.76, squareness: 0.76 },
+    { t: -0.02, halfWidth: 1.07, yBottom: 0.16, yTop: 1.44, roofRatio: 0.68, squareness: 0.74 },
+    { t:  0.30, halfWidth: 1.08, yBottom: 0.16, yTop: 1.44, roofRatio: 0.68, squareness: 0.74 },
+    { t:  0.48, halfWidth: 1.09, yBottom: 0.17, yTop: 1.18, roofRatio: 0.78, squareness: 0.76 },
+    { t:  0.70, halfWidth: 1.10, yBottom: 0.17, yTop: 1.06, roofRatio: 0.84, squareness: 0.78 },
+    { t:  1.00, halfWidth: 0.98, yBottom: 0.26, yTop: 1.02, roofRatio: 0.88, squareness: 0.70 },
   ],
   /*
    * The three below are traffic-only profiles, and until now they had no
@@ -314,15 +348,22 @@ export const BODY_STATIONS: Record<string, Station[]> = {
     { t: 0.82, halfWidth: 1.00, yBottom: 0.15, yTop: 2.08, roofRatio: 0.90, squareness: 3.20 },
     { t: 1.00, halfWidth: 0.94, yBottom: 0.22, yTop: 1.96, roofRatio: 0.92, squareness: 2.60 },
   ],
+  /*
+   * Hot hatch: short, tall and upright, with a roof that goes flat early
+   * and a tailgate that falls off the back of it. The only body here whose
+   * peak is a plateau rather than a crest — that plateau and the near-vertical
+   * drop at t=0.9 are the whole read, and they are what no other car has.
+   */
   hatch: [
-    { t: -1.00, halfWidth: 0.60, yBottom: 0.26, yTop: 0.54, roofRatio: 0.88, squareness: 0.38 },
-    { t: -0.80, halfWidth: 0.86, yBottom: 0.18, yTop: 0.70, roofRatio: 0.84, squareness: 0.48 },
-    { t: -0.52, halfWidth: 0.92, yBottom: 0.17, yTop: 0.82, roofRatio: 0.80, squareness: 0.56 },
-    { t: -0.20, halfWidth: 0.94, yBottom: 0.16, yTop: 1.16, roofRatio: 0.68, squareness: 0.60 },
-    { t: 0.14, halfWidth: 0.95, yBottom: 0.16, yTop: 1.42, roofRatio: 0.62, squareness: 0.62 },
-    { t: 0.52, halfWidth: 0.95, yBottom: 0.17, yTop: 1.40, roofRatio: 0.64, squareness: 0.62 },
-    { t: 0.86, halfWidth: 0.93, yBottom: 0.19, yTop: 1.20, roofRatio: 0.72, squareness: 0.56 },
-    { t: 1.00, halfWidth: 0.86, yBottom: 0.26, yTop: 1.02, roofRatio: 0.82, squareness: 0.46 },
+    { t: -1.00, halfWidth: 0.62, yBottom: 0.26, yTop: 0.60, roofRatio: 0.90, squareness: 0.52 },
+    { t: -0.78, halfWidth: 0.90, yBottom: 0.19, yTop: 0.78, roofRatio: 0.86, squareness: 0.62 },
+    { t: -0.50, halfWidth: 0.95, yBottom: 0.18, yTop: 0.86, roofRatio: 0.82, squareness: 0.70 },
+    { t: -0.22, halfWidth: 0.96, yBottom: 0.17, yTop: 1.34, roofRatio: 0.74, squareness: 0.72 },
+    { t:  0.06, halfWidth: 0.97, yBottom: 0.17, yTop: 1.56, roofRatio: 0.72, squareness: 0.74 },
+    { t:  0.40, halfWidth: 0.97, yBottom: 0.17, yTop: 1.57, roofRatio: 0.72, squareness: 0.74 },
+    { t:  0.70, halfWidth: 0.96, yBottom: 0.18, yTop: 1.52, roofRatio: 0.74, squareness: 0.72 },
+    { t:  0.90, halfWidth: 0.93, yBottom: 0.20, yTop: 1.24, roofRatio: 0.80, squareness: 0.66 },
+    { t:  1.00, halfWidth: 0.88, yBottom: 0.26, yTop: 1.02, roofRatio: 0.86, squareness: 0.58 },
   ],
 };
 

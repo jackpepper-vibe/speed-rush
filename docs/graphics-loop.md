@@ -256,3 +256,54 @@ clean; `npm run probe` 247/247 checks, 34/34 cues.
 **Backlog state: items 1–8 built and confirmed from a capture, at the angle and
 distance each is actually seen.** Items 5 and 6 were closed twice — once wrongly
 at iteration 45 on a code reading, and once here on a picture.
+
+### Iteration 48 — Player car overhaul (operator request, outside the backlog)
+
+**The complaint.** The six cars looked like six colours of one car, in the
+garage and on the road. Correct, and the numbers say why. Every station list
+put its roof crest at the same place — t between -0.06 and +0.14, the middle of
+the car — so all six were the same teardrop. The stance table then spread them
+across 4.2 to 4.85 in length, 0.46 to 0.7 in height and 0.34 to 0.38 in wheel
+radius: a 15% spread on the axes a player reads, against a 100% spread in
+colour. Colour was doing all the work because nothing else was doing any.
+
+**Six archetypes, not six tunings.** Each roofline now does something the
+others cannot.
+
+- **hatch** — a plateau, not a crest: flat roof from t=0.06 to 0.70, then a
+  tailgate falling off the back of it. Short, narrow and tall.
+- **coupe** — one unbroken fall from a crest ahead of centre to the lowest tail
+  on the grid. Nothing flat anywhere.
+- **muscle** — a long flat bonnet across a third of the car, an abrupt screen, a
+  flat roof, a notch, a square boot. Slab-sided and widest over the rear axle.
+- **wedge** — a single straight rise that never turns over, cut off square.
+- **super** — cab-forward, crest well ahead of centre, engine deck behind it
+  *lower* than the roof, hips widest at the rear axle.
+- **hyper** — lowest canopy, widest hips, deck dropping away to a cut tail.
+
+Stance widened with them: roughly 3:1 on height and 2:1 on the gap between
+wheel radius and ride, so a hatch stands on its tyres and a hyper sits in the
+road.
+
+**Rear aero, because it is the only difference visible from the chase camera.**
+Everything above is a curve, and a curve read from directly behind at speed is
+a colour. Five kinds — roof blade, fastback lip, ducktail, bolted blade,
+swan-neck with endplates — one per class, so the car you bought is identifiable
+from the one surface always in frame.
+
+**A bug the re-proportioning exposed.** Spoilers were positioned from `p.hgt`,
+which scales the *box fallback* and the cabin, not the lofted shell — the loft
+takes its height from the station list and is lifted by `sill * 0.32`. The two
+used to agree closely enough to land a wing near the deck by accident. With new
+proportions the hatch's roof spoiler appeared half a metre above the car,
+unattached, hanging in the sky. Aero now reads the stations it is bolting to.
+
+**Not fixed, and not a defect.** The pale wedge under each car in the garage is
+the preview's gradient environment reflecting in the clearcoat — `buildStage`
+has no floor and no car geometry is that colour, confirmed by hiding the contact
+shadow and by scanning every mesh's material. It predates this pass.
+
+**Verification.** `iter_48_garage.png` is all six on the turntable;
+`iter_48_ingame.png` is all six from the chase camera at the same road position.
+`npm run build` clean; `npm run probe` 252/252, including the silhouette
+smoothness gate and the player triangle floor and ceiling.

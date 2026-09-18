@@ -416,16 +416,30 @@ interface Profile {
   wheelR: number;
   /** Ride height as a fraction of wheel radius. */
   ride: number;
-  spoiler: 'none' | 'lip' | 'wing';
+  spoiler: 'none' | 'lip' | 'wing' | 'roof' | 'ducktail' | 'swan';
 }
 
 const PROFILE: Record<string, Profile> = {
-  hatch: { len: 4.2, wid: 1.84, hgt: 0.7, cabX: 0.9, cabZ: 0.8, cabOffset: 0.1, nose: 0.62, wheelR: 0.34, ride: 0.9, spoiler: 'lip' },
-  coupe: { len: 4.6, wid: 1.9, hgt: 0.6, cabX: 0.86, cabZ: 0.62, cabOffset: 0.06, nose: 0.5, wheelR: 0.35, ride: 0.84, spoiler: 'lip' },
-  muscle: { len: 4.95, wid: 2.02, hgt: 0.66, cabX: 0.88, cabZ: 0.56, cabOffset: 0.1, nose: 0.7, wheelR: 0.38, ride: 0.86, spoiler: 'wing' },
-  wedge: { len: 4.7, wid: 1.96, hgt: 0.52, cabX: 0.82, cabZ: 0.58, cabOffset: 0.02, nose: 0.36, wheelR: 0.35, ride: 0.78, spoiler: 'wing' },
-  super: { len: 4.75, wid: 2.06, hgt: 0.5, cabX: 0.78, cabZ: 0.5, cabOffset: -0.04, nose: 0.32, wheelR: 0.36, ride: 0.74, spoiler: 'wing' },
-  hyper: { len: 4.85, wid: 2.12, hgt: 0.46, cabX: 0.74, cabZ: 0.46, cabOffset: -0.08, nose: 0.28, wheelR: 0.37, ride: 0.7, spoiler: 'wing' },
+  /*
+   * Stance, which is the half of the difference the station lists cannot carry.
+   *
+   * A loft is authored in a unit cell and scaled to `len`/`wid`/`hgt`, so two
+   * cars with different rooflines still read as the same object if they are the
+   * same size, sit at the same height and roll on the same wheels. These used
+   * to span 4.2 to 4.85 in length, 0.46 to 0.7 in height and 0.34 to 0.38 in
+   * wheel radius — a 15% spread on the axis a player actually reads, against a
+   * 100% spread in colour. Which is why they looked like six colours of one car.
+   *
+   * The spread is now roughly 3:1 on height and 2:1 on the gap between wheel
+   * radius and ride. A hatch is short, narrow, tall and stands on its tyres; a
+   * hyper is long, wide, flat and sits in the road on big rims.
+   */
+  hatch: { len: 4.05, wid: 1.78, hgt: 0.92, cabX: 0.9, cabZ: 0.86, cabOffset: 0.14, nose: 0.72, wheelR: 0.33, ride: 1.06, spoiler: 'roof' },
+  coupe: { len: 4.62, wid: 1.9, hgt: 0.62, cabX: 0.86, cabZ: 0.6, cabOffset: 0.02, nose: 0.5, wheelR: 0.35, ride: 0.86, spoiler: 'lip' },
+  muscle: { len: 5.1, wid: 2.06, hgt: 0.72, cabX: 0.9, cabZ: 0.52, cabOffset: 0.16, nose: 0.82, wheelR: 0.39, ride: 0.94, spoiler: 'ducktail' },
+  wedge: { len: 4.78, wid: 1.98, hgt: 0.5, cabX: 0.82, cabZ: 0.58, cabOffset: 0.04, nose: 0.3, wheelR: 0.36, ride: 0.76, spoiler: 'wing' },
+  super: { len: 4.8, wid: 2.12, hgt: 0.46, cabX: 0.78, cabZ: 0.46, cabOffset: -0.1, nose: 0.28, wheelR: 0.37, ride: 0.7, spoiler: 'wing' },
+  hyper: { len: 4.95, wid: 2.2, hgt: 0.4, cabX: 0.72, cabZ: 0.42, cabOffset: -0.16, nose: 0.22, wheelR: 0.39, ride: 0.64, spoiler: 'swan' },
   sedan: { len: 4.55, wid: 1.86, hgt: 0.64, cabX: 0.9, cabZ: 0.74, cabOffset: 0.04, nose: 0.62, wheelR: 0.34, ride: 0.9, spoiler: 'none' },
   suv: { len: 4.8, wid: 2, hgt: 0.98, cabX: 0.93, cabZ: 0.84, cabOffset: 0.02, nose: 0.8, wheelR: 0.42, ride: 1.02, spoiler: 'none' },
   van: { len: 5.3, wid: 2.04, hgt: 1.26, cabX: 0.96, cabZ: 0.94, cabOffset: 0.1, nose: 0.88, wheelR: 0.4, ride: 1, spoiler: 'none' },
@@ -704,20 +718,91 @@ export function buildCar(opts: {
   /* The ambient patch on the tarmac. Under every car, at every tier. */
   group.userData.contactShadow = addContactShadow(group, p.wid * 2.1, p.len * 1.5, 0.82);
 
-  /* Spoiler. */
+  /*
+   * Rear aero, and the single most legible difference between two cars.
+   *
+   * Everything else that separates these bodies — roofline, stance, hips — is a
+   * curve, and a curve read from directly behind at speed is a colour. A wing
+   * is a hard horizontal bar against the sky above the tail, and the player is
+   * looking straight at it for the entire run. Five kinds, one per class, so
+   * the car you bought is identifiable from the one thing always in frame.
+   */
+  /*
+   * Anchored to the body that was actually built, not to `p.hgt`.
+   *
+   * A lofted shell takes its height from the station list and is lifted by
+   * `sill * 0.32`; `p.hgt` scales only the box fallback and the cabin. The two
+   * used to agree closely enough for a wing to land near the deck by accident,
+   * and re-proportioning the profiles ended that — the hatch's roof spoiler
+   * appeared half a metre above the car, unattached, hanging in the sky. Read
+   * the stations and the aero cannot drift from the bodywork again.
+   */
+  const st = BODY_STATIONS[opts.profile];
+  const bodyLift = sill * 0.32;
+  const roofTop = st
+    ? Math.max(...st.map((x) => x.yTop)) + bodyLift
+    : sill + p.hgt + cabinH;
+  const deckTop = st
+    ? Math.max(...st.filter((x) => x.t >= 0.55).map((x) => x.yTop)) + bodyLift
+    : sill + p.hgt;
+  const deckY = deckTop;
+  const tailZ = p.len / 2;
   if (p.spoiler === 'wing') {
-    const blade = new THREE.Mesh(bevel(p.wid * 0.9, 0.08, 0.32, 0.03, 1), trimMat);
-    blade.position.set(0, sill + p.hgt + cabinH * 0.72, p.len / 2 - 0.2);
+    // Wedge: a plain bolted blade on stub stays, sitting just clear of the deck.
+    const blade = new THREE.Mesh(bevel(p.wid * 0.92, 0.08, 0.34, 0.03, 1), trimMat);
+    blade.position.set(0, deckY + 0.16, tailZ - 0.2);
     blade.castShadow = true;
     group.add(blade);
     for (const sx of [-1, 1]) {
-      const stay = new THREE.Mesh(box(0.07, 0.2, 0.1), trimMat);
-      stay.position.set(sx * p.wid * 0.33, sill + p.hgt + cabinH * 0.6, p.len / 2 - 0.2);
+      const stay = new THREE.Mesh(box(0.07, 0.22, 0.1), trimMat);
+      stay.position.set(sx * p.wid * 0.33, deckY + 0.04, tailZ - 0.2);
+      group.add(stay);
+    }
+  } else if (p.spoiler === 'swan') {
+    /* Hyper: a swan-neck, mounted over the top of the blade on tall curved
+     * stays and standing well proud of the deck. The gap of sky between blade
+     * and body is the point — it is the only spoiler here that reads as a
+     * separate object rather than a lip on the tail. */
+    const blade = new THREE.Mesh(bevel(p.wid * 1.02, 0.07, 0.42, 0.03, 1), trimMat);
+    blade.position.set(0, deckY + 0.34, tailZ - 0.14);
+    blade.castShadow = true;
+    group.add(blade);
+    for (const sx of [-1, 1]) {
+      const neck = new THREE.Mesh(bevel(0.08, 0.46, 0.14, 0.03, 1), trimMat);
+      neck.position.set(sx * p.wid * 0.38, deckY + 0.12, tailZ - 0.14);
+      neck.rotation.x = -0.18;
+      group.add(neck);
+    }
+    // Endplates, which is what turns a bar into a wing.
+    for (const sx of [-1, 1]) {
+      const plate = new THREE.Mesh(bevel(0.05, 0.22, 0.42, 0.02, 1), trimMat);
+      plate.position.set(sx * p.wid * 0.51, deckY + 0.36, tailZ - 0.14);
+      group.add(plate);
+    }
+  } else if (p.spoiler === 'ducktail') {
+    /* Muscle: no wing at all. A ducktail kicked up off the boot lid, wide and
+     * shallow, which is what a car with a flat square deck wears. */
+    const lip = new THREE.Mesh(bevel(p.wid * 0.94, 0.1, 0.26, 0.05, 1), trimMat);
+    lip.position.set(0, deckTop + 0.05, tailZ - 0.16);
+    lip.rotation.x = -0.22;
+    lip.castShadow = true;
+    group.add(lip);
+  } else if (p.spoiler === 'roof') {
+    /* Hatch: the spoiler sits at the *top* of the tailgate rather than on a
+     * deck, because a hatch has no deck. Highest rear aero on the grid and the
+     * easiest of the five to pick out of a mirror. */
+    const blade = new THREE.Mesh(bevel(p.wid * 0.88, 0.09, 0.28, 0.04, 1), trimMat);
+    blade.position.set(0, roofTop + 0.03, tailZ - 0.3);
+    blade.castShadow = true;
+    group.add(blade);
+    for (const sx of [-1, 1]) {
+      const stay = new THREE.Mesh(box(0.06, 0.14, 0.1), trimMat);
+      stay.position.set(sx * p.wid * 0.3, roofTop - 0.06, tailZ - 0.3);
       group.add(stay);
     }
   } else if (p.spoiler === 'lip') {
     const lip = new THREE.Mesh(bevel(p.wid * 0.86, 0.06, 0.16, 0.025, 1), trimMat);
-    lip.position.set(0, sill + p.hgt + 0.04, p.len / 2 - 0.1);
+    lip.position.set(0, deckTop + 0.03, tailZ - 0.1);
     group.add(lip);
   }
 
