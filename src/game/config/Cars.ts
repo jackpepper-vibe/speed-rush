@@ -32,7 +32,7 @@ export interface CarDef {
   readonly glow: number;
   readonly stats: CarStats;
   /** Silhouette the mesh factory builds. */
-  readonly body: 'roadster' | 'coupe' | 'muscle' | 'super' | 'wedge' | 'hyper';
+  readonly body: 'roadster' | 'coupe' | 'muscle' | 'super' | 'wedge' | 'hyper' | 'superbike';
   readonly blurb: string;
 }
 
@@ -113,7 +113,29 @@ export const CARS: readonly CarDef[] = [
     stats: { topSpeed: 1.4, accel: 1.3, grip: 1.22, boost: 1.35 },
     blurb: 'Homologation special. Everything, all at once.',
   },
+  {
+    id: 'hornet',
+    name: 'HORNET',
+    price: 9000,
+    color: 0x15161a,
+    trim: 0xd9a93e,
+    glow: 0xffc24a,
+    body: 'superbike',
+    stats: { topSpeed: 1.33, accel: 1.38, grip: 1.04, boost: 1.2 },
+    blurb: 'Litre superbike. Threads gaps no car can, and forgives nothing.',
+  },
 ] as const;
+
+/**
+ * What a vehicle stands on, which decides more than its looks: how wide it is
+ * to hit, how close it can run to the rail, and whether it rolls out of a
+ * corner on its springs or leans into it.
+ */
+export type Chassis = 'car' | 'bike';
+
+export function chassisOf(def: CarDef): Chassis {
+  return def.body === 'superbike' ? 'bike' : 'car';
+}
 
 export function carById(id: string): CarDef {
   return CARS.find((c) => c.id === id) ?? CARS[0];

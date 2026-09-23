@@ -40,6 +40,14 @@ export const PLATE_TEXTS = [
 const PLATE_W = 256;
 const PLATE_H = 60;
 
+/**
+ * A motorcycle's registration: nearly square, on two lines, because a bike has
+ * no room across its tail for a car's strip. Its own region, not a thirteenth
+ * slot in the car rows, which are full up to the grille.
+ */
+export const BIKE_PLATE_TEXT = ['HN19', 'RRV'] as const;
+const BIKE_PLATE = { x: 800, y: 624, w: 168, h: 128 } as const;
+
 export const ATLAS = {
   white: region(4, 4, 24, 24),
   roundRed: region(32, 0, 128, 128),
@@ -64,6 +72,7 @@ export const ATLAS = {
   busRear: region(256, 624, 256, 256),
   headSquare: region(512, 624, 192, 96),
   roundHeadSmall: region(704, 624, 96, 96),
+  bikePlate: region(BIKE_PLATE.x, BIKE_PLATE.y, BIKE_PLATE.w, BIKE_PLATE.h),
 } as const;
 
 /* ---------------------------------------------------------------- drawing */
@@ -332,6 +341,39 @@ function drawPlates(g: Ctx): void {
   });
 }
 
+function drawBikePlate(g: Ctx): void {
+  const { x, y, w, h } = BIKE_PLATE;
+  g.fillStyle = '#f3f2ec';
+  g.fillRect(x, y, w, h);
+  g.strokeStyle = '#1a1a1a';
+  g.lineWidth = 3;
+  g.strokeRect(x + 3, y + 3, w - 6, h - 6);
+  g.fillStyle = '#1d3f9e';
+  g.fillRect(x + 4, y + 4, 24, h - 8);
+  g.fillStyle = '#ffd21a';
+  for (let s = 0; s < 12; s++) {
+    const a = (s / 12) * Math.PI * 2;
+    g.fillRect(x + 16 + Math.cos(a) * 7 - 1, y + 30 + Math.sin(a) * 7 - 1, 2, 2);
+  }
+  g.fillStyle = '#ffffff';
+  g.font = 'bold 13px Arial, sans-serif';
+  g.textAlign = 'center';
+  g.fillText('SR', x + 16, y + h - 18);
+  g.save();
+  g.fillStyle = '#121212';
+  g.font = 'bold 50px "Arial Narrow", Arial, sans-serif';
+  g.textBaseline = 'middle';
+  const cx = x + 28 + (w - 32) / 2;
+  BIKE_PLATE_TEXT.forEach((line, row) => {
+    g.save();
+    g.translate(cx, y + h * (0.3 + row * 0.42));
+    g.scale(0.78, 1);
+    g.fillText(line, 0, 0);
+    g.restore();
+  });
+  g.restore();
+}
+
 function drawPanels(g: Ctx): void {
   // Honeycomb grille mesh.
   g.fillStyle = '#07080a';
@@ -460,6 +502,7 @@ export function vehicleAtlas(): THREE.CanvasTexture {
   drawRoundLenses(g);
   drawRectLamps(g);
   drawPlates(g);
+  drawBikePlate(g);
   drawPanels(g);
 
   atlas = new THREE.CanvasTexture(canvas);

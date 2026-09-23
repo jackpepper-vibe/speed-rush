@@ -4,6 +4,18 @@ import { SkyDome } from './SkyDome';
 import { HorizonHills } from './sky/HorizonHills';
 import { resolveQuality, type QualitySettings } from './Quality';
 import { FILL_LAYER } from './vehicles/VehicleFactory';
+import type { Chassis } from '@/game/config/Cars';
+
+/**
+ * How far behind and above the subject the chase camera sits, relative to a
+ * car. A bike is a third of a car's width, and framed from a car's distance it
+ * was a dark sliver in the bottom of the frame; closer and a little lower it
+ * fills the same share of the screen.
+ */
+const CHASE_FRAMING: Record<Chassis, { readonly distance: number; readonly height: number }> = {
+  car: { distance: 1, height: 1 },
+  bike: { distance: 0.78, height: 0.86 },
+};
 
 /**
  * Renderer, camera, lighting and the post chain.
@@ -136,6 +148,7 @@ export class SceneRig {
 
   /** Chase-camera state, integrated rather than snapped. */
   private readonly camTarget = new THREE.Vector3();
+  private framing = CHASE_FRAMING.car;
   private camShake = 0;
   private shakeSeed = 0;
 
@@ -453,6 +466,11 @@ export class SceneRig {
    * lower as the car accelerates, which reads as speed far more strongly than
    * raising the FOV alone.
    */
+  /** Frame the chase camera for what the player is driving. */
+  setChassis(chassis: Chassis): void {
+    this.framing = CHASE_FRAMING[chassis];
+  }
+
   updateCamera(
     targetX: number,
     targetY: number,
@@ -479,8 +497,8 @@ export class SceneRig {
      * tenth of the width, where no amount of modelling on it could be seen.
      * The field of view comes down with the distance so the road ahead keeps
      * its proportions instead of fish-eyeing as the camera closes in. */
-    const back = 5.35 + speedFraction * 1.1;
-    const height = 1.72 + speedFraction * 0.26;
+    const back = (5.35 + speedFraction * 1.1) * this.framing.distance;
+    const height = (1.72 + speedFraction * 0.26) * this.framing.height;
 
     this.camTarget.set(
       targetX * 0.8 + lateralVel * 0.08,

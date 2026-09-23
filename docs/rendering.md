@@ -100,6 +100,22 @@ edge lands wherever the grid does, and comes out stair-stepped. `paintOut` is
 fine for full-width bands, such as a carbon diffuser or a lower valance,
 because the panel's rows are level.
 
+Vehicles lean. `Vehicle.frame` holds the body, extras, exhaust anchors and
+lamps, and `setLean` rolls it about the line where the tyres meet the road.
+The contact shadow and underglow stay outside the frame, flat on the tarmac. A
+car rolls a little on its springs; the superbike (`designs/Superbike.ts`) leans
+about 34° at full lateral speed.
+
+The superbike is built with the same lofted shell as the cars, a third as wide,
+and the shell's wheel-arch cuts shape its fairing over each wheel. Whether a
+vehicle is a car or a bike is its chassis (`chassisOf`, in `config/Cars.ts`).
+The chassis also sets:
+
+- the collision footprint and how close to the rail it can run
+  (`COLLISION.player` in `Balance.ts`)
+- the shape of its contact shadow
+- how the chase camera frames it (`SceneRig.setChassis`)
+
 There are three detail levels:
 
 | level | used for |

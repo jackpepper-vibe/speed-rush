@@ -173,7 +173,8 @@ export class EffectsManager implements Manager {
     this.flameRoot.removeFromParent();
 
     const anchors = this.player.mesh.exhausts;
-    this.player.mesh.add(this.flameRoot);
+    // On the frame with the pipes, so the flame leans with a bike.
+    this.player.mesh.frame.add(this.flameRoot);
 
     for (const anchor of anchors) {
       for (const [scale, material] of [
@@ -275,14 +276,16 @@ export class EffectsManager implements Manager {
 
   /** Smoke and scraped sparks off the rear tyres, while the car is sliding. */
   private emitDrift(dt: number): void {
-    const rear = 1.5;
-    const track = 0.85;
+    // From just behind wherever the driven tyres touch the road: two on a car,
+    // one down the middle of a bike.
+    const contacts = this.player.mesh.rearContacts;
 
     this.smokeDebt += dt * DRIFT_SMOKE_RATE * this.driftIntensity;
     while (this.smokeDebt >= 1) {
       this.smokeDebt -= 1;
       if (!this.visible.smoke) break;
       const side = this.rng.next() < 0.5 ? -1 : 1;
+      const tyre = contacts[Math.min(contacts.length - 1, Math.floor(this.rng.next() * contacts.length))];
       /* A puff, not a billboard.
        *
        * One sprite per emission is what kept this reading as a stamp: every
@@ -300,9 +303,9 @@ export class EffectsManager implements Manager {
       for (let k = 0; k < SMOKE_PUFF_PARTICLES; k++) {
         const depth = (k - (SMOKE_PUFF_PARTICLES - 1) / 2) * 0.6;
         this.pos.set(
-          this.player.x + side * track + (this.rng.next() - 0.5) * 0.5,
+          this.player.x + tyre.x + (this.rng.next() - 0.5) * 0.5,
           0.22 + this.rng.next() * 0.2,
-          rear + depth + (this.rng.next() - 0.5) * 0.4,
+          tyre.z + 0.3 + depth + (this.rng.next() - 0.5) * 0.4,
         );
         this.vel.set(
           side * (0.5 + this.rng.next() * 1.2),
@@ -345,7 +348,8 @@ export class EffectsManager implements Manager {
       this.sparkDebt -= 1;
       if (!this.visible.sparks) break;
       const side = this.rng.next() < 0.5 ? -1 : 1;
-      this.pos.set(this.player.x + side * track, 0.1, rear);
+      const tyre = contacts[Math.min(contacts.length - 1, Math.floor(this.rng.next() * contacts.length))];
+      this.pos.set(this.player.x + tyre.x, 0.1, tyre.z + 0.3);
       this.vel.set(
         side * (1 + this.rng.next() * 3),
         1.4 + this.rng.next() * 2.6,
@@ -365,11 +369,13 @@ export class EffectsManager implements Manager {
 
   private burstLanding(impact: number): void {
     const strength = THREE.MathUtils.clamp(impact / 12, 0.2, 1);
+    // Thrown out from under the sides, wherever the sides of this vehicle are.
+    const flank = this.player.mesh.width * 0.37;
     if (this.visible.smoke) {
       for (let i = 0; i < Math.round(18 + strength * 34); i++) {
         const side = this.rng.next() < 0.5 ? -1 : 1;
         this.pos.set(
-          this.player.x + side * (0.7 + this.rng.next() * 0.6),
+          this.player.x + side * (flank + this.rng.next() * 0.6),
           0.15,
           (this.rng.next() - 0.4) * 3,
         );

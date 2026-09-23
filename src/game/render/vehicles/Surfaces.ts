@@ -110,4 +110,5 @@ export const SURF = {
 
   plate: (index: number): Surface =>
     surface(`plate-${index}`, { roughness: 0.4, lamp: LAMP_CHANNEL.constant, glow: 0.12, tex: ATLAS.plates[index % ATLAS.plates.length] }),
+  bikePlate: surface('plate-bike', { roughness: 0.4, lamp: LAMP_CHANNEL.constant, glow: 0.12, tex: ATLAS.bikePlate }),
 } as const;

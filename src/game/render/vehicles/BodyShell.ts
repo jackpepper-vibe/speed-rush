@@ -259,7 +259,10 @@ export class BodyShell {
     }
 
     const inset = rails.shoulderInset.at(t);
-    const xs = Math.max(0.2, hw - inset);
+    // A floor under the shoulder, as a share of the section rather than a
+    // fixed 0.2: that was a car's minimum, and held a bike's tail at the
+    // width of a car's.
+    const xs = Math.max(Math.min(0.2, hw * 0.7), hw - inset);
     const rs = Math.min(this.spec.shoulderRadius, (yBelt - yRock) * 0.35, xs * 0.3);
 
     let well = 0;

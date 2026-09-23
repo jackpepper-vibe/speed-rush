@@ -230,6 +230,112 @@ function torusX(r: number, tube: number, seg: number): THREE.BufferGeometry {
   });
 }
 
+/**
+ * A motorcycle tyre: round in section, because a bike leans on it. The car
+ * tyre's flat tread and square shoulders would stand a leaning bike on its
+ * sidewall.
+ */
+function roundTyre(radius: number, halfWidth: number, rr: number, seg: number): THREE.BufferGeometry {
+  return cached(`roundtyre:${radius}:${halfWidth}:${rr}:${seg}`, () => {
+    const w = halfWidth;
+    const R = radius;
+    const profile: THREE.Vector2[] = [new THREE.Vector2(rr + 0.004, -w * 0.72), new THREE.Vector2(R - w * 1.08, -w * 0.97)];
+    // The tread: a half-round from one shoulder over the crown to the other.
+    for (let i = 0; i <= 10; i++) {
+      const a = -Math.PI / 2 + (i / 10) * Math.PI;
+      profile.push(new THREE.Vector2(R - w + w * Math.cos(a), w * Math.sin(a)));
+    }
+    profile.push(new THREE.Vector2(R - w * 1.08, w * 0.97), new THREE.Vector2(rr + 0.004, w * 0.72));
+    const g = new THREE.LatheGeometry(profile, seg);
+    g.rotateZ(-Math.PI / 2);
+    return g;
+  });
+}
+
+/**
+ * A motorcycle wheel on the centreline, the same from either side.
+ *
+ * A car wheel has an outside and an inside; a bike's shows its spokes and its
+ * brake discs to both flanks, and the gap between the two rim faces is open.
+ * `discs` puts a disc each side (a front wheel) or one on the left (a rear).
+ * The calipers stay put while the wheel turns inside them.
+ */
+export function bikeWheel(
+  b: VehicleBuilder, w: WheelSpec, hub: THREE.Vector3, front: boolean, discs: 'twin' | 'left',
+  hero: boolean, far: boolean,
+): void {
+  const seg = hero ? 48 : far ? 12 : 18;
+  const hw = w.width / 2;
+  const rr = w.radius * w.rim;
+  const at = (x: number): THREE.Matrix4 => new THREE.Matrix4().makeTranslation(hub.x + x, hub.y, hub.z);
+  const discR = w.radius * (front ? 0.6 : 0.42);
+  const discX = hw * 0.62 + 0.012;
+
+  b.wheel(hub, front, () => {
+    b.addGeometry(roundTyre(w.radius, hw, rr, seg), at(0), SURF.rubber);
+    if (far) {
+      pair(b, disc(rr, seg), at(hw * 0.3), w.finish);
+      return;
+    }
+    if (hero) {
+      pair(b, rimFace(rr, w.style, seg), at(hw * 0.2), [w.finish, w.finish]);
+      pair(b, torusX(rr * 0.985, Math.max(0.005, rr * 0.03), seg), at(hw * 0.45), w.finish);
+    } else {
+      /* The spokes as bars over a dark dish, both sides: the pattern without
+       * the cost of cutting it out of an extrusion, the way traffic's car
+       * wheels do it. */
+      pair(b, disc(rr * 0.97, seg), at(hw * 0.2), SURF.rimDark);
+      const spoke = roundedBox(0.012, rr * 0.8, rr * 0.16, 0.004, 1);
+      for (let i = 0; i < 5; i++) {
+        const m = at(hw * 0.28)
+          .multiply(new THREE.Matrix4().makeRotationX((i / 5) * Math.PI * 2))
+          .multiply(new THREE.Matrix4().makeTranslation(0, rr * 0.5, 0));
+        pair(b, spoke, m, w.finish);
+      }
+    }
+    b.addGeometry(cylX(rr * 0.16, hw * 1.5, hero ? 12 : 8), at(0), w.finish);
+    const rotor = ring(discR * 0.62, discR, seg);
+    if (discs === 'twin') pair(b, rotor, at(discX), SURF.brakeDisc);
+    else b.addGeometry(rotor, mirrored(at(discX)), SURF.brakeDisc);
+  });
+
+  if (far) return;
+  // Calipers grip the back of each disc.
+  const caliper = roundedBox(0.03, discR * 0.55, discR * 0.3, 0.01, 1);
+  const m = place(hub.x + discX + 0.012, hub.y + discR * 0.55, hub.z + discR * 0.55, -0.8, 0, 0);
+  if (discs === 'twin') pair(b, caliper, m, SURF.rimGold);
+  else b.addGeometry(caliper, mirrored(m), SURF.rimGold);
+}
+
+const _up = new THREE.Vector3(0, 1, 0);
+const _forward = new THREE.Vector3(0, 0, 1);
+
+/** A round tube between two points, tapering from `r0` to `r1`: fork legs, stays, stalks. */
+export function strut(b: VehicleBuilder, from: THREE.Vector3, to: THREE.Vector3, r0: number, r1: number, s: Surface, seg: number): void {
+  const dir = new THREE.Vector3().subVectors(to, from);
+  const len = dir.length();
+  const geo = cached(`strut:${r0}:${r1}:${len.toFixed(4)}:${seg}`, () => new THREE.CylinderGeometry(r1, r0, len, seg, 1, false));
+  const q = new THREE.Quaternion().setFromUnitVectors(_up, dir.normalize());
+  b.addGeometry(geo, new THREE.Matrix4().compose(from.clone().add(to).multiplyScalar(0.5), q, _s.set(1, 1, 1)), s);
+}
+
+/** A rectangular member between two points, `w` across and `h` deep: swingarms, brackets. */
+export function beam(b: VehicleBuilder, from: THREE.Vector3, to: THREE.Vector3, w: number, h: number, s: Surface): void {
+  const dir = new THREE.Vector3().subVectors(to, from);
+  const len = dir.length();
+  const q = new THREE.Quaternion().setFromUnitVectors(_forward, dir.normalize());
+  const geo = roundedBox(w, h, len, Math.min(w, h) * 0.3, 1);
+  b.addGeometry(geo, new THREE.Matrix4().compose(from.clone().add(to).multiplyScalar(0.5), q, _s.set(1, 1, 1)), s);
+}
+
+/** An ellipsoid of semi-axes (a, b, c), turned by `rx` about x: torsos, helmets. */
+export function ellipsoid(
+  bld: VehicleBuilder, x: number, y: number, z: number, a: number, bb: number, c: number, rx: number, s: Surface, hero: boolean,
+): void {
+  const ws = hero ? 22 : 10;
+  bld.addGeometry(sphere(1, ws, Math.round(ws * 0.7)), place(x, y, z, rx, 0, 0, a, bb, c), s);
+}
+
 const caliperSurfaces = new Map<number, Surface>();
 
 /**

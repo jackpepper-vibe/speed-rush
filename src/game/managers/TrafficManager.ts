@@ -461,9 +461,10 @@ export class TrafficManager implements Manager {
     const box = COLLISION.kind[v.kind];
     const dx = Math.abs(v.x - this.player.x);
     const dz = Math.abs(ahead);
+    const me = this.player.footprint;
 
-    const overlapX = dx < box.hw + COLLISION.playerHalfWidth;
-    const overlapZ = dz < box.hl + COLLISION.playerHalfLength;
+    const overlapX = dx < box.hw + me.hw;
+    const overlapZ = dz < box.hl + me.hl;
 
     if (overlapX && overlapZ) {
       if (!this.collisionsEnabled) return;
@@ -478,11 +479,11 @@ export class TrafficManager implements Manager {
     }
 
     // A near miss is a car that got alongside, close, and lived. Scored once.
-    if (!v.nearMissed && overlapZ && dx < box.hw + COLLISION.playerHalfWidth + TRAFFIC.nearMissGap) {
+    if (!v.nearMissed && overlapZ && dx < box.hw + me.hw + TRAFFIC.nearMissGap) {
       v.nearMissed = true;
       this.ctx.bus.emit('player:near-miss', {
         kind: v.kind,
-        gap: dx - box.hw - COLLISION.playerHalfWidth,
+        gap: dx - box.hw - me.hw,
         position: v.mesh.position.clone(),
       });
     }

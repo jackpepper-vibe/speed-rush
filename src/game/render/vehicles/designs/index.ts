@@ -7,6 +7,7 @@ import { HYPERCAR } from './Hypercar';
 import { MUSCLE } from './Muscle';
 import { ROADSTER } from './Roadster';
 import { COUPE, SEDAN, SUV, VAN } from './Saloon';
+import { SUPERBIKE } from './Superbike';
 import { SUPERCAR } from './Supercar';
 import { WEDGE } from './Wedge';
 
@@ -18,6 +19,7 @@ export const PLAYER_DESIGNS: Record<CarDef['body'], VehicleDesign> = {
   wedge: WEDGE,
   super: SUPERCAR,
   hyper: HYPERCAR,
+  superbike: SUPERBIKE,
 };
 
 /** Which design each kind of traffic builds. */
@@ -44,7 +46,7 @@ export const TRAFFIC_PAINTS: Record<TrafficKind, readonly number[]> = {
   bus: [0xd8581f, 0xf2c21a, 0x2a6ab8, 0xeeeeea],
 };
 
-/** Plate slots in the atlas for each kind; the player's cars use 0-5. */
+/** Plate slots in the atlas for each kind; the player's cars use 0-5, and the bike its own. */
 export const TRAFFIC_PLATES: Record<TrafficKind, number> = {
   sedan: 6,
   coupe: 7,

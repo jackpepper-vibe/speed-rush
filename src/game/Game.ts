@@ -162,9 +162,15 @@ export class Game {
      * between the two because the far fields filled themselves during `init`,
      * against the route this call is about to replace.
      */
+    this.rig.setChassis(this.player.chassisKind);
     this.world.setRoute(this.seed);
     this.managers.resetAll();
     this.world.update(0, 0, 0);
+
+    // What the garage changes is on the car at once — on the menu behind it,
+    // through the countdown, and in the handling.
+    this.bus.on('garage:equip', () => this.applyEquippedCar());
+    this.bus.on('garage:upgrade', () => this.applyEquippedCar());
 
     // Hitting traffic ends the run; scraping a barrier only costs speed, which
     // the player manager has already applied by the time this is delivered.
@@ -247,6 +253,7 @@ export class Game {
    */
   startCountdown(from = 3): void {
     this.managers.resetAll();
+    this.applyEquippedCar();
     this.state = 'countdown';
     this.countdown = from;
     this.countdownWhole = from + 1;
@@ -263,15 +270,28 @@ export class Game {
     }
     this.managers.resetAll();
     this.state = 'driving';
+    this.applyEquippedCar();
 
+    this.bus.emit('run:start', { seed: this.seed, carId: this.player.currentCarId });
+  }
+
+  /**
+   * Put the equipped car, with everything bought for it, under the player.
+   *
+   * Applied the moment the garage changes either, and again as a run is set
+   * up, rather than only when the run starts. The run starts behind a
+   * countdown, so waiting for it showed the old car on the menu and through
+   * the count and swapped in the new one on the frame the lights went green.
+   * And a new upgrade on the car already equipped never reached the handling
+   * at all, because the run only looked for a change of car.
+   */
+  private applyEquippedCar(): void {
     const carId = this.save.snapshot.activeCar;
-    if (carId !== this.player.currentCarId) {
-      this.player.setCar(carId, this.save.upgradesFor(carId));
-      // The exhaust anchors belong to the mesh that was just disposed.
+    if (this.player.setCar(carId, this.save.upgradesFor(carId))) {
+      // The exhaust anchors belong to the body that was just replaced.
       this.effects.rebind();
+      this.rig.setChassis(this.player.chassisKind);
     }
-
-    this.bus.emit('run:start', { seed: this.seed, carId });
   }
 
   endRun(cause: 'crash' | 'quit'): void {

@@ -1331,16 +1331,21 @@ const garage = await page.evaluate(() => {
 
   const equipped = cr.equipCar(locked.def.id);
   const equipCue = JSON.parse(JSON.stringify(cr.cues['garage:equip']));
+  // The car under the player, straight after equipping: the menu behind the
+  // garage and the countdown both show this one.
   const activeCar = cr.state().carId;
 
   // Upgrades: price, effect on stats, and the level ceiling.
   const before = cr.garage().find((e) => e.def.id === locked.def.id);
   const upgradePrice = before.upgradePrices.grip;
   const balanceBeforeUpgrade = cr.state().coins;
+  const gripBefore = cr.state().carStats.grip;
   const upgraded = cr.upgradeCar(locked.def.id, 'grip');
   const balanceAfterUpgrade = cr.state().coins;
   const upgradeCue = JSON.parse(JSON.stringify(cr.cues['garage:upgrade']));
   const after = cr.garage().find((e) => e.def.id === locked.def.id);
+  // What the handling uses, not what the garage quotes.
+  const gripAfter = cr.state().carStats.grip;
 
   // Push one stat to its ceiling and confirm it refuses to go further.
   for (let i = 0; i < 12; i++) cr.upgradeCar(locked.def.id, 'grip');
@@ -1354,8 +1359,8 @@ const garage = await page.evaluate(() => {
 
   return {
     startingBalance, brokeAttempt, balanceAfterFailure, funded, bought, afterPurchase,
-    boughtTwice, afterSecond, equipped, activeCar, price: locked.def.price,
-    upgradePrice, balanceBeforeUpgrade, upgraded, balanceAfterUpgrade,
+    boughtTwice, afterSecond, equipped, activeCar, lockedId: locked.def.id, price: locked.def.price,
+    upgradePrice, balanceBeforeUpgrade, upgraded, balanceAfterUpgrade, gripBefore, gripAfter,
     levelBefore: before.levels.grip ?? 0, levelAfter: after.levels.grip ?? 0,
     maxedLevel: maxed.levels.grip ?? 0, maxedPrice: maxed.upgradePrices.grip,
     beyondMax, equipLocked, upgradeLocked,
@@ -1381,8 +1386,13 @@ check('garage', 'cannot-buy-the-same-car-twice',
 
 check('garage', 'equip-cue-fires', garage.equipCue.count > 0,
   `garage:equip fired ${garage.equipCue.count} times`);
-check('garage', 'equip-changes-the-car', garage.equipped === true,
-  `equipCar returned ${garage.equipped}; active car is now ${garage.activeCar}`);
+/* On the car at once, not when the next run starts. It used to be swapped in
+ * by the run itself, which starts behind a countdown: the menu and the whole
+ * count showed the old car, and it changed on the frame the lights went green. */
+check('garage', 'equip-changes-the-car',
+  garage.equipped === true && garage.activeCar === garage.lockedId,
+  `equipCar returned ${garage.equipped}; the car under the player is ${garage.activeCar}, ` +
+  `equipped ${garage.lockedId}`);
 check('garage', 'cannot-equip-an-unowned-car', garage.equipLocked === false,
   `equipping a locked car returned ${garage.equipLocked}`);
 
@@ -1391,6 +1401,11 @@ check('garage', 'upgrade-cue-fires', garage.upgradeCue.count > 0,
 check('garage', 'upgrade-raises-the-level',
   garage.upgraded === true && garage.levelAfter === garage.levelBefore + 1,
   `grip level ${garage.levelBefore} -> ${garage.levelAfter}`);
+/* An upgrade to the car already equipped used to reach the handling only when
+ * the player changed car or reloaded: the run looked for a change of car, not
+ * of upgrades. */
+check('garage', 'upgrade-reaches-the-handling', garage.gripAfter > garage.gripBefore,
+  `grip the car drives with: ${garage.gripBefore} -> ${garage.gripAfter} after the upgrade`);
 check('garage', 'upgrade-charges-its-quoted-price',
   garage.balanceBeforeUpgrade - garage.balanceAfterUpgrade === garage.upgradePrice,
   `quoted ${garage.upgradePrice}, charged ${garage.balanceBeforeUpgrade - garage.balanceAfterUpgrade}`);

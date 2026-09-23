@@ -608,9 +608,12 @@ export function installDevHandle(game: Game, version: string): DevHandle {
         lane: p.lane,
         slipping: p.slipping,
         // The car being driven right now, and the one the garage has selected.
-        // They differ between equipping and the next run starting.
+        // The garage puts its choice on the car at once, so these agree except
+        // when the save is replaced from outside (`resetSave`) until the next
+        // run is set up. `carStats` is what the handling is actually using.
         carId: p.currentCarId,
         activeCar: game.save.snapshot.activeCar,
+        carStats: { ...p.carStats },
         coins: game.save.coins,
         best: game.save.snapshot.best,
         multiplier: game.scoring.multiplier,

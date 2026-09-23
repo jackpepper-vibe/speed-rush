@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildPlayerCar } from '@/game/render/vehicles/VehicleFactory';
+import { buildPlayerCar, type Vehicle } from '@/game/render/vehicles/VehicleFactory';
 import { CARS, type CarDef } from '@/game/config/Cars';
 
 /**
@@ -26,12 +26,28 @@ const HEIGHT = 200;
 
 const cache = new Map<string, string>();
 
-/** Three-quarter front view: shows the nose, the flank and the roofline at once. */
+/** Three-quarter rear view: the tail, the flank and the roofline at once. */
+const VIEW_DIRECTION = new THREE.Vector3(4.6, 1.63, 5.4).normalize();
+/**
+ * How far out the camera stands, in half-diagonals of the vehicle's own box:
+ * the distance the cars were first framed from, over a car's. Measured before
+ * the showroom turn, which widens the box without changing the car. Framing by size rather than from one
+ * fixed spot is what keeps a bike, half a car's length, from being a speck in
+ * the corner of its card.
+ */
+const DISTANCE_PER_RADIUS = 2.8;
+
 function frameCamera(aspect: number): THREE.PerspectiveCamera {
-  const camera = new THREE.PerspectiveCamera(30, aspect, 0.1, 100);
-  camera.position.set(4.6, 2.35, 5.4);
-  camera.lookAt(0, 0.72, 0);
-  return camera;
+  return new THREE.PerspectiveCamera(30, aspect, 0.1, 100);
+}
+
+function frameVehicle(camera: THREE.PerspectiveCamera, vehicle: Vehicle): void {
+  vehicle.updateWorldMatrix(true, true);
+  const box = vehicle.body.geometry.boundingBox ?? new THREE.Box3().setFromObject(vehicle.body);
+  const radius = box.getSize(new THREE.Vector3()).length() / 2;
+  const centre = box.getCenter(new THREE.Vector3()).applyMatrix4(vehicle.body.matrixWorld);
+  camera.position.copy(centre).addScaledVector(VIEW_DIRECTION, radius * DISTANCE_PER_RADIUS);
+  camera.lookAt(centre);
 }
 
 function buildStage(): THREE.Scene {
@@ -128,19 +144,15 @@ export function renderCarPreviews(defs: readonly CarDef[] = CARS): Map<string, s
 
       car.rotation.y = -0.34;
       scene.add(car);
+      frameVehicle(camera, car);
 
       renderer.render(scene, camera);
       cache.set(def.id, canvas.toDataURL('image/png'));
 
-      scene.remove(car);
-      // Deliberately not disposing the car's materials.
-      //
-      // Almost all of them — rubber, chrome, rim, plastic, grille, lamp, glass,
-      // and the paint cache — are module-level singletons shared with the car
-      // the player is about to drive. Disposing by type here would strip the
-      // materials off the live game. What is genuinely local is one trim
-      // material per body, built six times in the lifetime of a session and
-      // never again, which is not a leak worth risking that for.
+      // Releases what this copy owns — its materials — and takes it out of
+      // the scene. The geometry is the design's, shared with the car on the
+      // road, and stays.
+      car.dispose();
     }
 
     scene.environment?.dispose();

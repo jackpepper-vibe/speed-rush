@@ -69,6 +69,13 @@ export const HANDLING = {
   maxRoll: 0.19,
   maxYaw: 0.28,
   /**
+   * A bike's lean at full lateral velocity, and how much of a car's front
+   * wheel angle it shows. A bike turns by leaning, not by steering: at speed
+   * the bars barely move while the whole machine goes over thirty degrees.
+   */
+  bikeLean: 0.6,
+  bikeSteer: 0.25,
+  /**
    * Lateral speed above which tyres break traction and squeal.
    *
    * Steering authority and grip damping both scale with the surface, so the
@@ -226,8 +233,16 @@ export const TRAFFIC = {
 
 /** Collision boxes, in world units. Deliberately smaller than the art. */
 export const COLLISION = {
-  playerHalfWidth: 1.02,
-  playerHalfLength: 2.15,
+  /**
+   * The player's box, by chassis, and `rail`: how close the centre of the
+   * vehicle may come to the barrier. A bike is a third of a car's width, and
+   * a car-sized box on it would crash into traffic the player can see they
+   * cleared — threading the gap is the whole reason to ride one.
+   */
+  player: {
+    car: { hw: 1.02, hl: 2.15, rail: 1.0 },
+    bike: { hw: 0.4, hl: 1.05, rail: 0.45 },
+  },
   /** Per-kind half extents, keyed by TrafficKind. */
   kind: {
     sedan: { hw: 1.02, hl: 2.2 },

@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import type { GameContext, Manager } from '@/core/Manager';
-import { HANDLING, ROAD, SPEED } from '@/game/config/Balance';
+import { COLLISION, HANDLING, ROAD, SPEED } from '@/game/config/Balance';
 import { barrierLimit, hillSlopeAt, isOnShoulder, laneAt } from '@/game/world/RoadGeometry';
 import { buildPlayerCar, type Vehicle } from '@/game/render/vehicles/VehicleFactory';
-import { CARS, carById, effectiveStats, type CarStats, type UpgradableStat } from '@/game/config/Cars';
+import { CARS, carById, chassisOf, effectiveStats, type CarStats, type Chassis, type UpgradableStat } from '@/game/config/Cars';
 
 export interface PlayerInput {
   /** -1 full left, +1 full right. */
@@ -46,6 +46,7 @@ export class PlayerManager implements Manager {
   private wasSlipping = false;
   private gripSurface = 1;
   private carId: string;
+  private chassis: Chassis;
 
   /** Ceiling on speed, raised by distance and by nitro. */
   speedCeiling: number = SPEED.baseMax;
@@ -60,25 +61,51 @@ export class PlayerManager implements Manager {
   ) {
     this.carId = carId;
     const def = carById(carId);
+    this.chassis = chassisOf(def);
     this.stats = effectiveStats(def, upgrades);
     this.mesh = buildPlayerCar(def, carIndex(carId));
     this.ctx.scene.add(this.mesh);
   }
 
-  /** Swap the car without rebuilding the manager. */
-  setCar(carId: string, upgrades: Partial<Record<UpgradableStat, number>>): void {
-    this.carId = carId;
+  /**
+   * Put a car under the player, with what has been bought for it.
+   *
+   * The stats are always re-derived; the body is rebuilt only when the car
+   * itself changes, since a new upgrade on the same car is a change of
+   * numbers rather than of model. Returns whether the body was replaced, so
+   * whatever hangs off it can be moved to the new one.
+   */
+  setCar(carId: string, upgrades: Partial<Record<UpgradableStat, number>>): boolean {
     const def = carById(carId);
     this.stats = effectiveStats(def, upgrades);
+    if (carId === this.carId) return false;
+    this.carId = carId;
+    this.chassis = chassisOf(def);
     const replacement = buildPlayerCar(def, carIndex(carId));
     replacement.position.copy(this.mesh.position);
     this.mesh.dispose();
     (this as { mesh: Vehicle }).mesh = replacement;
     this.ctx.scene.add(replacement);
+    return true;
   }
 
   get currentCarId(): string {
     return this.carId;
+  }
+
+  /** Car or bike: what the player is driving stands on. */
+  get chassisKind(): Chassis {
+    return this.chassis;
+  }
+
+  /** How big the vehicle is to hit, and how close it may run to the rail. */
+  get footprint(): (typeof COLLISION.player)[Chassis] {
+    return COLLISION.player[this.chassis];
+  }
+
+  /** The stats the car is being driven with, upgrades included. */
+  get carStats(): Readonly<CarStats> {
+    return this.stats;
   }
 
   /** The car's boost stat, multiplying nitro duration. */
@@ -270,7 +297,7 @@ export class PlayerManager implements Manager {
      * the gearbox in neutral while the player still had the throttle pinned.
      * Sustained contact is a scrub, not a series of collisions.
      */
-    const limit = barrierLimit() - 1.0;
+    const limit = barrierLimit() - this.footprint.rail;
     if (Math.abs(this.x) > limit) {
       this.x = Math.sign(this.x) * limit;
       this.vx *= -0.28;
@@ -349,8 +376,10 @@ export class PlayerManager implements Manager {
     this.mesh.position.set(this.x, this.y, 0);
 
     const lateralT = THREE.MathUtils.clamp(this.vx / HANDLING.steerRate, -1, 1);
-    // Roll opposes the turn, yaw follows it — the two together sell a corner.
-    this.mesh.rotation.z = -lateralT * HANDLING.maxRoll;
+    const bike = this.chassis === 'bike';
+    // A car rolls a little on its springs and a bike leans hard; yaw follows
+    // the turn in both. Only the body leans: the shadow stays on the road.
+    this.mesh.setLean(-lateralT * (bike ? HANDLING.bikeLean : HANDLING.maxRoll));
     this.mesh.rotation.y = lateralT * HANDLING.maxYaw * -0.5;
     this.mesh.rotation.x = this.airborne ? THREE.MathUtils.clamp(-this.vy * 0.015, -0.2, 0.2) : 0;
 
@@ -358,7 +387,7 @@ export class PlayerManager implements Manager {
     // the tyre forwards, towards -z.
     this.wheelSpin -= (this.speed * dt) / 0.31;
     this.mesh.setWheelSpin(this.wheelSpin);
-    this.mesh.setSteer(-lateralT * 0.28);
+    this.mesh.setSteer(-lateralT * 0.28 * (bike ? HANDLING.bikeSteer : 1));
     this.mesh.setBrake(this.input.brake ? 1 : 0);
 
     /* Underglow and lamps follow the light.

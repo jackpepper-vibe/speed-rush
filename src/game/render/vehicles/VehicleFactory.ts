@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { TrafficKind } from '@/core/GameEvents';
-import type { CarDef } from '@/game/config/Cars';
+import { chassisOf, type CarDef, type Chassis } from '@/game/config/Cars';
 import type { QualitySettings } from '../Quality';
 import { makeGlowTexture } from '../RoadTextures';
 import { BodyShell, FAR_DETAIL, HERO_DETAIL, TRAFFIC_DETAIL, type Detail } from './BodyShell';
@@ -45,6 +45,8 @@ export interface VehicleArt {
   readonly triangles: number;
   /** Triangles of the lofted shell, which come first in the index; the parts follow. */
   readonly shellTriangles: number;
+  /** Where the driven tyres touch the road: two for a car, one for a bike. */
+  readonly rearContacts: readonly THREE.Vector3[];
   readonly surfaces: readonly Surface[];
 }
 
@@ -105,6 +107,10 @@ export function vehicleArt(design: VehicleDesign, level: VehicleLevel, plate: nu
 
   const geometry = b.toGeometry();
   geometry.name = `vehicle:${key}`;
+  const half = shell.spec.rearTrack / 2;
+  const rearContacts = half > 0.05
+    ? [new THREE.Vector3(half, 0, shell.rearAxleZ), new THREE.Vector3(-half, 0, shell.rearAxleZ)]
+    : [new THREE.Vector3(0, 0, shell.rearAxleZ)];
   const size = new THREE.Vector3();
   geometry.boundingBox?.getSize(size);
   const out: VehicleArt = {
@@ -115,6 +121,7 @@ export function vehicleArt(design: VehicleDesign, level: VehicleLevel, plate: nu
     size,
     triangles: b.triangleCount,
     shellTriangles,
+    rearContacts,
     surfaces: b.surfaces,
   };
   built.set(key, out);
@@ -123,18 +130,46 @@ export function vehicleArt(design: VehicleDesign, level: VehicleLevel, plate: nu
 
 /* --------------------------------------------------------------- shadows */
 
-let contactTex: THREE.Texture | null = null;
+/**
+ * The layout of a contact shadow, in -1..1 across the vehicle's footprint
+ * (y runs nose to tail): a soft body and a denser pad under each tyre.
+ */
+interface ContactLayout {
+  /** Half-extents of the flat core, then how far the edge falls off beyond it. */
+  readonly core: readonly [number, number];
+  readonly falloff: readonly [number, number];
+  readonly body: number;
+  readonly pads: ReadonlyArray<readonly [number, number]>;
+  readonly padSize: readonly [number, number];
+  readonly pad: number;
+}
+
+const CONTACT: Record<Chassis, ContactLayout> = {
+  car: {
+    core: [0.55, 0.62], falloff: [0.45, 0.38], body: 0.62,
+    pads: [[-0.72, -0.6], [0.72, -0.6], [-0.72, 0.62], [0.72, 0.62]], padSize: [0.3, 0.22], pad: 0.4,
+  },
+  // One narrow track: a bike's shade is a sliver with a tyre at each end.
+  bike: {
+    core: [0.12, 0.66], falloff: [0.6, 0.3], body: 0.5,
+    pads: [[0, -0.8], [0, 0.68]], padSize: [0.32, 0.16], pad: 0.5,
+  },
+};
+
+const contactTex = new Map<Chassis, THREE.Texture>();
 
 /**
- * The patch of shade a car sits in.
+ * The patch of shade a vehicle sits in.
  *
  * A shadow map is uniformly soft, so it cannot make the road darkest right
  * where the tyres touch it — and that contact is what stops a car looking
  * pasted onto the tarmac. This is the ambient half: a soft footprint under the
- * body with four denser pads where the wheels are.
+ * body with denser pads where the tyres are.
  */
-function contactTexture(): THREE.Texture {
-  if (contactTex) return contactTex;
+function contactTexture(chassis: Chassis): THREE.Texture {
+  const cached = contactTex.get(chassis);
+  if (cached) return cached;
+  const layout = CONTACT[chassis];
   const W = 128;
   const H = 256;
   const canvas = document.createElement('canvas');
@@ -143,19 +178,18 @@ function contactTexture(): THREE.Texture {
   const g = canvas.getContext('2d');
   if (!g) throw new Error('2D canvas unavailable for the contact shadow');
   const img = g.createImageData(W, H);
-  const pads = [[-0.72, -0.6], [0.72, -0.6], [-0.72, 0.62], [0.72, 0.62]];
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const nx = (x / (W - 1)) * 2 - 1;
       const ny = (y / (H - 1)) * 2 - 1;
       // Rounded-rectangle footprint.
-      const qx = Math.max(Math.abs(nx) - 0.55, 0);
-      const qy = Math.max(Math.abs(ny) - 0.62, 0);
-      const d = Math.hypot(qx / 0.45, qy / 0.38);
-      let a = 0.62 * (1 - smooth(0.0, 1.0, d));
-      for (const [px, py] of pads) {
-        const pd = Math.hypot((nx - px) / 0.3, (ny - py) / 0.22);
-        a += 0.4 * (1 - smooth(0, 1, pd));
+      const qx = Math.max(Math.abs(nx) - layout.core[0], 0);
+      const qy = Math.max(Math.abs(ny) - layout.core[1], 0);
+      const d = Math.hypot(qx / layout.falloff[0], qy / layout.falloff[1]);
+      let a = layout.body * (1 - smooth(0.0, 1.0, d));
+      for (const [px, py] of layout.pads) {
+        const pd = Math.hypot((nx - px) / layout.padSize[0], (ny - py) / layout.padSize[1]);
+        a += layout.pad * (1 - smooth(0, 1, pd));
       }
       const i = (y * W + x) * 4;
       img.data[i] = 0;
@@ -165,9 +199,10 @@ function contactTexture(): THREE.Texture {
     }
   }
   g.putImageData(img, 0, 0);
-  contactTex = new THREE.CanvasTexture(canvas);
-  contactTex.colorSpace = THREE.SRGBColorSpace;
-  return contactTex;
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  contactTex.set(chassis, texture);
+  return texture;
 }
 
 function smooth(e0: number, e1: number, x: number): number {
@@ -188,6 +223,8 @@ export interface VehicleOptions {
   glow?: number;
   /** Spot lights on the road ahead at night. Player only. */
   headlights?: boolean;
+  /** What it stands on, for the shape of its shadow. Car when omitted. */
+  chassis?: Chassis;
 }
 
 /**
@@ -195,6 +232,13 @@ export interface VehicleOptions {
  * simulation drives it through.
  */
 export class Vehicle extends THREE.Group {
+  /**
+   * Everything that leans through a corner: the body, its extras, the exhaust
+   * anchors and the lamps. The contact shadow and the underglow sit outside
+   * it, flat on the road, which is where a leaning bike's shadow stays.
+   * Anything that should lean with the vehicle hangs off this.
+   */
+  readonly frame = new THREE.Group();
   readonly body: THREE.Mesh<THREE.BufferGeometry, VehicleMaterial>;
   readonly material: VehicleMaterial;
   readonly exhausts: THREE.Object3D[] = [];
@@ -206,6 +250,8 @@ export class Vehicle extends THREE.Group {
   readonly height: number;
   readonly triangles: number;
   readonly designId: string;
+  /** Where the driven tyres touch the road, in the vehicle's own frame. */
+  readonly rearContacts: readonly THREE.Vector3[];
   private readonly owned: THREE.Material[] = [];
 
   constructor(design: VehicleDesign, level: VehicleLevel, plate: number, opts: VehicleOptions) {
@@ -216,6 +262,8 @@ export class Vehicle extends THREE.Group {
     this.width = art.size.x;
     this.height = art.size.y;
     this.triangles = art.triangles;
+    this.rearContacts = art.rearContacts;
+    this.add(this.frame);
 
     this.material = new VehicleMaterial(vehicleAtlas());
     this.material.setPaint(opts.paint);
@@ -227,12 +275,12 @@ export class Vehicle extends THREE.Group {
     this.body = new THREE.Mesh(art.geometry, this.material);
     this.body.castShadow = true;
     this.body.receiveShadow = true;
-    this.add(this.body);
+    this.frame.add(this.body);
 
-    for (const extra of art.extras) this.add(extra.clone());
+    for (const extra of art.extras) this.frame.add(extra.clone());
 
     const shadowMat = new THREE.MeshBasicMaterial({
-      map: contactTexture(),
+      map: contactTexture(opts.chassis ?? 'car'),
       color: 0x000000,
       transparent: true,
       opacity: 0.8,
@@ -250,7 +298,7 @@ export class Vehicle extends THREE.Group {
     for (const p of art.exhausts) {
       const anchor = new THREE.Object3D();
       anchor.position.copy(p);
-      this.add(anchor);
+      this.frame.add(anchor);
       this.exhausts.push(anchor);
     }
 
@@ -280,7 +328,7 @@ export class Vehicle extends THREE.Group {
         const spot = new THREE.SpotLight(0xfff4e0, 0, 70, 0.42, 0.55, 1.2);
         spot.position.copy(p);
         spot.target.position.set(p.x * 0.6, 0, p.z - 22);
-        this.add(spot, spot.target);
+        this.frame.add(spot, spot.target);
         this.headlights.push(spot);
       }
     }
@@ -294,6 +342,11 @@ export class Vehicle extends THREE.Group {
 
   setSteer(angle: number): void {
     this.material.vehicle.uSteer.value = angle;
+  }
+
+  /** Roll the vehicle about the line its tyres touch the road along. */
+  setLean(angle: number): void {
+    this.frame.rotation.z = angle;
   }
 
   /** 0 lamps at their running level, 1 full stop lamps. */
@@ -340,6 +393,7 @@ export function buildPlayerCar(def: CarDef, index = 0, level: VehicleLevel = run
     stripes: def.trim,
     glow: def.glow,
     headlights: true,
+    chassis: chassisOf(def),
   });
 }
 
@@ -388,8 +442,8 @@ export function disposeVehicleCaches(): void {
   built.clear();
   disposePartCache();
   disposeVehicleAtlas();
-  contactTex?.dispose();
-  contactTex = null;
+  for (const texture of contactTex.values()) texture.dispose();
+  contactTex.clear();
   glowTex?.dispose();
   glowTex = null;
 }
