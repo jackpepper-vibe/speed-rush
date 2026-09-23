@@ -12,10 +12,22 @@ export interface SaveData {
   runs: number;
   muted: boolean;
   leaderboard: { name: string; score: number; distance: number; at: number }[];
+  /** Which leaderboard season the scores in this save belong to. */
+  season: number;
 }
 
 const KEY = 'speedrush.v2';
 const CURRENT_VERSION = 2;
+
+/**
+ * The leaderboard season. Raising it clears every player's board, best score
+ * and furthest distance once, the next time their save is loaded, and nothing
+ * else: coins, cars, upgrades and the name are theirs to keep.
+ *
+ * 2: the board was full of scores set when the game was easier, which a
+ * player on the current game could not fairly beat.
+ */
+const LEADERBOARD_SEASON = 2;
 
 function blank(): SaveData {
   return {
@@ -30,6 +42,7 @@ function blank(): SaveData {
     runs: 0,
     muted: false,
     leaderboard: [],
+    season: LEADERBOARD_SEASON,
   };
 }
 
@@ -46,6 +59,8 @@ export class SaveManager {
 
   constructor(private readonly storage: Storage | null = safeStorage()) {
     this.data = this.load();
+    // Written back at once, so a season reset is done once and not on every load.
+    this.flush();
   }
 
   private load(): SaveData {
@@ -55,18 +70,21 @@ export class SaveManager {
       const raw = this.storage.getItem(KEY);
       if (!raw) return fallback;
       const parsed = JSON.parse(raw) as Partial<SaveData>;
+      // Scores from an earlier season do not carry over; the rest of the save does.
+      const current = parsed.season === LEADERBOARD_SEASON;
       return {
         version: CURRENT_VERSION,
         coins: num(parsed.coins, 0),
-        best: num(parsed.best, 0),
-        bestDistance: num(parsed.bestDistance, 0),
+        best: current ? num(parsed.best, 0) : 0,
+        bestDistance: current ? num(parsed.bestDistance, 0) : 0,
         playerName: typeof parsed.playerName === 'string' ? cleanName(parsed.playerName) : '',
         activeCar: typeof parsed.activeCar === 'string' ? parsed.activeCar : 'dart',
         owned: Array.isArray(parsed.owned) ? parsed.owned.filter((c) => typeof c === 'string') : ['dart'],
         upgrades: typeof parsed.upgrades === 'object' && parsed.upgrades ? parsed.upgrades : {},
         runs: num(parsed.runs, 0),
         muted: parsed.muted === true,
-        leaderboard: Array.isArray(parsed.leaderboard) ? parsed.leaderboard.slice(0, 10) : [],
+        leaderboard: current && Array.isArray(parsed.leaderboard) ? parsed.leaderboard.slice(0, 10) : [],
+        season: LEADERBOARD_SEASON,
       };
     } catch {
       return fallback;

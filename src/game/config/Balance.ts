@@ -274,7 +274,7 @@ export const POWERUPS = {
   shield: 9,
   nitro: 4.5,
   magnet: 11,
-  ghost: 6,
+  ghost: 12,
   slowmo: 5.5,
   /** Nitro multiplies the speed ceiling and pins throttle open. */
   nitroBoost: 1.42,
