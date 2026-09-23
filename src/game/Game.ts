@@ -5,7 +5,7 @@ import { GameLoop } from '@/core/GameLoop';
 import { ManagerRegistry, type GameContext, type Manager } from '@/core/Manager';
 import { Random } from '@/core/Random';
 import { SceneRig } from '@/game/render/SceneRig';
-import { setHeroLod, setTrafficDetail } from '@/game/render/CarFactory';
+import { setVehicleDetail } from '@/game/render/vehicles/VehicleFactory';
 import { RoadManager } from '@/game/managers/RoadManager';
 import { PlayerManager } from '@/game/managers/PlayerManager';
 import { InputManager } from '@/game/managers/InputManager';
@@ -80,10 +80,9 @@ export class Game {
     this.seed = seed ?? (Math.random() * 2 ** 32) >>> 0;
     this.rng = new Random(this.seed);
     this.rig = new SceneRig(canvas);
-    // Before any car is built: the hero's loft resolution is a level of detail,
-    // and the player's mesh is constructed a dozen lines below this.
-    setHeroLod(this.rig.quality.heroLoftRings, this.rig.quality.heroLoftLength);
-    setTrafficDetail(this.rig.quality.trafficDetail);
+    // Before any car is built: the tier decides how much car each one is, and
+    // the player's is constructed a dozen lines below this.
+    setVehicleDetail(this.rig.quality.vehicleDetail);
 
     const ctx: GameContext = {
       scene: this.rig.scene,

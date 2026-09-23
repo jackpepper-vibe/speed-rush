@@ -2,15 +2,20 @@ import * as THREE from 'three';
 import type { GameContext, Manager } from '@/core/Manager';
 import type { BiomeId, DayPhase, WeatherId } from '@/core/GameEvents';
 import { WORLD } from '@/game/config/Balance';
-import { setCoastLookup } from '@/game/world/RoadGeometry';
+import { setBiomeLookup, setCoastLookup } from '@/game/world/RoadGeometry';
 import {
   BIOME_TINT, DAY_PALETTE, PHASE_ORDER, WEATHER, blendPalette, blendTint, mixHex,
   type BiomeTint, type Palette,
 } from '@/game/world/Palettes';
 import type { SceneRig } from '@/game/render/SceneRig';
+import { setNightLevel } from '@/game/render/NightLights';
+import { RainStreaks } from '@/game/render/effects/RainStreaks';
 import type { PlayerManager } from './PlayerManager';
 import type { PowerupManager } from './PowerupManager';
 import type { RoadManager } from './RoadManager';
+
+/** What rain streaks are lifted towards from the colour of the haze. */
+const RAIN_HIGHLIGHT = new THREE.Color(0xffffff);
 
 /**
  * Where you are, when it is, and what the weather is doing.
@@ -111,9 +116,10 @@ export class WorldManager implements Manager {
    * change and judging the weather. Never set in play.
    */
   private pinned: { biome?: BiomeId; weather?: WeatherId; phase?: DayPhase } | null = null;
-  private rainSystem: THREE.Points | null = null;
-  private rainGeometry: THREE.BufferGeometry | null = null;
-  private rainMaterial: THREE.PointsMaterial | null = null;
+  private readonly rain = new RainStreaks();
+  /** How hard it is raining, 0..1, as the look last worked it out. */
+  private rainAmount = 0;
+  private readonly rainColour = new THREE.Color();
 
   constructor(
     private readonly ctx: GameContext,
@@ -125,7 +131,7 @@ export class WorldManager implements Manager {
 
   init(): void {
     this.installCoastLookup();
-    this.buildRain();
+    this.ctx.scene.add(this.rain.mesh);
     // The route is a function of the seed, so it has to be told the seed.
     this.ctx.bus.on('run:start', ({ seed }) => this.setRoute(seed));
   }
@@ -197,7 +203,7 @@ export class WorldManager implements Manager {
     this.tunnelEnd = Number.POSITIVE_INFINITY;
   }
 
-  update(_dt: number, _speed: number, distance: number): void {
+  update(dt: number, speed: number, distance: number): void {
     if (!this.pinned) {
       this.updateBiome(distance);
       this.updateWeather(distance);
@@ -205,6 +211,7 @@ export class WorldManager implements Manager {
       this.updateTunnel(distance);
     }
     this.applyLook(distance);
+    this.rain.update(dt, this.rainAmount, speed, this.player.x, this.rig.renderer);
   }
 
   /**
@@ -222,6 +229,7 @@ export class WorldManager implements Manager {
    */
   private installCoastLookup(): void {
     setCoastLookup((distance) => this.biomeAtDistance(distance) === 'coast');
+    setBiomeLookup((distance) => this.biomeAtDistance(distance));
   }
 
   biomeAtDistance(distance: number): BiomeId {
@@ -394,13 +402,21 @@ export class WorldManager implements Manager {
       // in it — an empty one reads as a rendering budget rather than a day.
       clouds: Math.min(1, palette.clouds + (weather.cloudCover ?? 0) * intensity),
       sunElevation: palette.sunElevation,
+      sunAzimuth: palette.sunAzimuth,
       exposure: palette.exposure * (1 - (1 - weather.exposureScale) * intensity),
     });
 
     this.rig.sky.setStars(palette.stars);
+    // Lamps, lit windows and pools of light on the road follow the dark.
+    setNightLevel(Math.max(palette.stars, this.inTunnel ? 1 : 0));
 
     // The ground belongs to the biome, and darkens with the sky along with
     // everything else — a desert floor at midnight is not sand-coloured.
+    // Rain wets the road as well as the lens: darker, and polished enough to
+    // mirror the lamps and the sky.
+    this.road.setWetness(Math.min(1, weather.wet * intensity * 1.3));
+    this.road.setSeaChop(0.5 + weather.rain * intensity * 0.9);
+
     this.road.setGroundColour(
       mixHex(tint.ground, palette.fogColor, 0.28 + palette.stars * 0.4),
       tint.groundRoughness,
@@ -423,11 +439,12 @@ export class WorldManager implements Manager {
     const lights = Math.max(palette.headlights, weather.rain * intensity * 2.2, this.inTunnel ? 3 : 0);
     this.player.setHeadlights(lights);
 
-    // Bloom lifts at night so the lights actually glow.
+    // A soft sheen off the brightest things by day — cloud tops, chrome, sun
+    // on water — and a real glow at night, so the lights actually glow.
     this.rig.setBloom(
-      this.rig.quality.bloomStrength * (1 + palette.stars * 0.8),
-      0.72,
-      0.82 - palette.stars * 0.25,
+      this.rig.quality.bloomStrength * (0.4 + palette.stars * 1.1),
+      0.55,
+      1.1 - palette.stars * 0.5,
     );
 
     this.player.setSurfaceGrip(this.surfaceGrip);
@@ -438,60 +455,10 @@ export class WorldManager implements Manager {
       weather.wet * intensity,
     );
 
-    this.updateRain(weather.rain * intensity);
-  }
-
-  /* ------------------------------------------------------------------- rain */
-
-  /**
-   * Rain as a single points cloud that follows the camera.
-   *
-   * Recycled rather than respawned: the particles wrap within a box around the
-   * car, so the system costs one buffer update a frame regardless of how long
-   * the storm lasts.
-   */
-  private buildRain(): void {
-    const count = 1400;
-    const positions = new Float32Array(count * 3);
-    for (let i = 0; i < count; i++) {
-      positions[i * 3] = (Math.random() - 0.5) * 60;
-      positions[i * 3 + 1] = Math.random() * 34;
-      positions[i * 3 + 2] = (Math.random() - 0.5) * 90;
-    }
-    this.rainGeometry = new THREE.BufferGeometry();
-    this.rainGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    this.rainMaterial = new THREE.PointsMaterial({
-      color: 0xaac4e0,
-      size: 0.14,
-      transparent: true,
-      opacity: 0,
-      depthWrite: false,
-    });
-    this.rainSystem = new THREE.Points(this.rainGeometry, this.rainMaterial);
-    this.rainSystem.frustumCulled = false;
-    this.rainSystem.visible = false;
-    this.ctx.scene.add(this.rainSystem);
-  }
-
-  private updateRain(amount: number): void {
-    if (!this.rainSystem || !this.rainGeometry || !this.rainMaterial) return;
-
-    if (amount <= 0.001) {
-      this.rainSystem.visible = false;
-      return;
-    }
-    this.rainSystem.visible = true;
-    this.rainMaterial.opacity = 0.42 * amount;
-    this.rainSystem.position.set(this.player.x, 0, 0);
-
-    const pos = this.rainGeometry.attributes.position as THREE.BufferAttribute;
-    const arr = pos.array as Float32Array;
-    const fall = 1.1 + amount * 1.6;
-    for (let i = 1; i < arr.length; i += 3) {
-      arr[i] -= fall;
-      if (arr[i] < 0) arr[i] += 34;
-    }
-    pos.needsUpdate = true;
+    this.rainAmount = weather.rain * intensity;
+    // Drops take the light of the air they fall through, a little brighter
+    // than the haze behind them.
+    this.rain.setColour(this.rainColour.setHex(mixHex(palette.fogColor, tint.tint, tint.tintStrength)).lerp(RAIN_HIGHLIGHT, 0.55));
   }
 
   reset(): void {
@@ -504,12 +471,12 @@ export class WorldManager implements Manager {
     this.inTunnel = false;
     this.tunnelStart = Number.POSITIVE_INFINITY;
     this.tunnelEnd = Number.POSITIVE_INFINITY;
-    if (this.rainSystem) this.rainSystem.visible = false;
+    this.rainAmount = 0;
+    this.rain.hide();
   }
 
   dispose(): void {
-    if (this.rainSystem) this.ctx.scene.remove(this.rainSystem);
-    this.rainGeometry?.dispose();
-    this.rainMaterial?.dispose();
+    this.rain.mesh.removeFromParent();
+    this.rain.dispose();
   }
 }

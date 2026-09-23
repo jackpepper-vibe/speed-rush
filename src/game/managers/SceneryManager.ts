@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { GameContext, Manager } from '@/core/Manager';
 import type { BiomeId } from '@/core/GameEvents';
 import { ROAD } from '@/game/config/Balance';
-import { barrierLimit, curveAt, groundReliefAt, hillAt } from '@/game/world/RoadGeometry';
+import { barrierLimit, curveAt, groundReliefAt, hillAt, isCoastAt } from '@/game/world/RoadGeometry';
 import { disposePropMaterials, propsForBiome, type PropKind } from '@/game/render/PropFactory';
 import { BEACH_DRY_LIMIT, SEA_HEIGHT, type RoadManager } from './RoadManager';
 import type { SceneRig } from '@/game/render/SceneRig';
@@ -72,6 +72,7 @@ export class SceneryManager implements Manager {
   private readonly position = new THREE.Vector3();
   private readonly quaternion = new THREE.Quaternion();
   private readonly scaleVec = new THREE.Vector3();
+  private readonly tint = new THREE.Color();
 
   /** Biomes whose kinds are currently resident, in view order. */
   private resident: BiomeId[] = [];
@@ -151,6 +152,9 @@ export class SceneryManager implements Manager {
         // letting an unset identity matrix stack them all at the origin.
         for (let i = 0; i < count; i++) {
           mesh.setMatrixAt(i, this.matrix.makeTranslation(0, -9999, 0));
+          // Allocated before the first draw, so the shader is compiled with
+          // instance colour for kinds that tint.
+          if (kind.tints) mesh.setColorAt(i, this.tint.setHex(kind.tints[0]));
         }
         mesh.instanceMatrix.needsUpdate = true;
         this.root.add(mesh);
@@ -309,7 +313,7 @@ export class SceneryManager implements Manager {
          * different behaviour over time, because the slot is absolute and the
          * span was relative to the band. */
         const ahead = laid
-          ? anchor + (i % perSide) * pitch - base
+          ? anchor + (i % perSide) * pitch + (kind.phase ?? 0) - base
           : (slot + 0.5 + (r1 - 0.5) * 0.9) * slotPitch - base;
         const side = laid ? (i < perSide ? -1 : 1) : (r2 < 0.5 ? -1 : 1);
         const depth = laid
@@ -405,7 +409,8 @@ export class SceneryManager implements Manager {
          * constants, so it cannot drift out of step with them.
          */
         const edge = x + kind.radius * scale;
-        if (x > 0 && edge + kind.radius * scale > BEACH_DRY_LIMIT) {
+        // Only where there is a sea: inland, the right-hand verge is as good as the left.
+        if (x > 0 && isCoastAt(world) && edge + kind.radius * scale > BEACH_DRY_LIMIT) {
           mesh.setMatrixAt(i, this.matrix.makeTranslation(0, -9999, 0));
           continue;
         }
@@ -437,14 +442,27 @@ export class SceneryManager implements Manager {
          * other half of why the railing did not read as a line: even placed end
          * to end, sections turned through arbitrary angles meet at corners.
          */
-        this.quaternion.setFromAxisAngle(UP, laid ? (side < 0 ? 0 : Math.PI) : r3 * Math.PI * 2);
+        const yaw = laid
+          ? (side < 0 ? 0 : Math.PI)
+          : kind.aligned
+            ? (r3 < 0.5 ? 0 : Math.PI / 2) + (r4 - 0.5) * 0.06
+            : r3 * Math.PI * 2;
+        this.quaternion.setFromAxisAngle(UP, yaw);
         this.scaleVec.setScalar(scale);
         mesh.setMatrixAt(i, this.matrix.compose(this.position, this.quaternion, this.scaleVec));
+        if (kind.tints) {
+          // Keyed on the slot like everything else here, so a building keeps
+          // its colour — and its facade style — while it is in view.
+          const pick = fract(Math.sin(seed * 5.3 + 1.7) * 9153.37);
+          const shade = 0.93 + fract(Math.sin(seed * 2.1 + 7.9) * 4721.13) * 0.14;
+          mesh.setColorAt(i, this.tint.setHex(kind.tints[Math.floor(pick * kind.tints.length)]).multiplyScalar(shade));
+        }
         placed += 1;
       }
 
       entry.used = placed;
       mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       mesh.computeBoundingSphere();
     }
   }

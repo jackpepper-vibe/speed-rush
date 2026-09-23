@@ -34,9 +34,27 @@ export interface SectionPoint {
   readonly height: number;
 }
 
+/**
+ * Period, in world units, of the distance a road-coordinate attribute carries.
+ *
+ * Distance is written modulo this so it stays small enough for a shader to
+ * take derivatives of after an hour of driving. It must be a multiple of the
+ * segment length and of every pattern period drawn along the road — dashes,
+ * texture tiles — so the wrap lands on a segment boundary and a whole number
+ * of every pattern, and never shows.
+ */
+export const ROAD_COORD_PERIOD = 1000;
+
 export class RoadStrip {
   readonly geometry: THREE.BufferGeometry;
   private readonly positions: Float32Array;
+  /**
+   * Road-space coordinates per vertex — lateral, distance, height above the
+   * deck — for surfaces whose shader draws by where on the road a point is
+   * rather than by a texture stretched over the strip. Only allocated when
+   * asked for.
+   */
+  private readonly coords: Float32Array | null;
 
   /** Absolute distance this strip currently starts at. */
   private startDistance = Number.NaN;
@@ -54,13 +72,16 @@ export class RoadStrip {
      * the hills would slide along with the car.
      */
     private readonly relief?: (lateral: number, distance: number) => number,
+    withCoords = false,
   ) {
     this.positions = new Float32Array(section.length * (rows + 1) * 3);
+    this.coords = withCoords ? new Float32Array(section.length * (rows + 1) * 4) : null;
 
     this.geometry = new THREE.BufferGeometry();
     this.geometry.setAttribute('position', new THREE.BufferAttribute(this.positions, 3));
     this.geometry.setAttribute('uv', new THREE.BufferAttribute(this.buildUVs(), 2));
     this.geometry.setIndex(this.buildIndices());
+    if (this.coords) this.geometry.setAttribute('road', new THREE.BufferAttribute(this.coords, 4));
   }
 
   /** A horizontal surface spanning a set of lateral columns. */
@@ -144,6 +165,12 @@ export class RoadStrip {
         // Relief is sampled at the vertex's own lateral and the absolute
         // distance of this row, never at the strip's local coordinates.
         const lift = this.relief ? this.relief(lateral, u) : 0;
+        if (this.coords) {
+          const k = (r * cols + c) * 4;
+          this.coords[k] = lateral;
+          this.coords[k + 1] = (start % ROAD_COORD_PERIOD) + t * this.length;
+          this.coords[k + 2] = this.section[c].height;
+        }
         this.positions[i++] = lateral + dx;
         this.positions[i++] = this.section[c].height + dy + lift;
         this.positions[i++] = z;
@@ -151,8 +178,20 @@ export class RoadStrip {
     }
 
     this.geometry.attributes.position.needsUpdate = true;
+    if (this.coords) this.geometry.attributes.road.needsUpdate = true;
     this.geometry.computeVertexNormals();
     this.geometry.computeBoundingSphere();
+  }
+
+  /**
+   * A value carried by every vertex of this strip in the fourth road
+   * coordinate: what the stretch it currently covers is like. Set when it
+   * recycles, alongside the vertices themselves.
+   */
+  setTag(tag: number): void {
+    if (!this.coords) return;
+    for (let k = 3; k < this.coords.length; k += 4) this.coords[k] = tag;
+    this.geometry.attributes.road.needsUpdate = true;
   }
 
   /** Local-space position of one vertex, for seam measurement. */

@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import type { GameContext, Manager } from '@/core/Manager';
 import { HANDLING, ROAD, SPEED } from '@/game/config/Balance';
 import { barrierLimit, hillSlopeAt, isOnShoulder, laneAt } from '@/game/world/RoadGeometry';
-import { buildPlayerCar, type CarMesh } from '@/game/render/CarFactory';
-import { carById, effectiveStats, type CarStats, type UpgradableStat } from '@/game/config/Cars';
+import { buildPlayerCar, type Vehicle } from '@/game/render/vehicles/VehicleFactory';
+import { CARS, carById, effectiveStats, type CarStats, type UpgradableStat } from '@/game/config/Cars';
 
 export interface PlayerInput {
   /** -1 full left, +1 full right. */
@@ -25,7 +25,7 @@ export interface PlayerInput {
 export class PlayerManager implements Manager {
   readonly name = 'player';
 
-  readonly mesh: CarMesh;
+  readonly mesh: Vehicle;
   private stats: CarStats;
 
   /** Road-space lateral position; 0 is the centreline. */
@@ -61,7 +61,7 @@ export class PlayerManager implements Manager {
     this.carId = carId;
     const def = carById(carId);
     this.stats = effectiveStats(def, upgrades);
-    this.mesh = buildPlayerCar(def);
+    this.mesh = buildPlayerCar(def, carIndex(carId));
     this.ctx.scene.add(this.mesh);
   }
 
@@ -70,11 +70,10 @@ export class PlayerManager implements Manager {
     this.carId = carId;
     const def = carById(carId);
     this.stats = effectiveStats(def, upgrades);
-    const replacement = buildPlayerCar(def);
+    const replacement = buildPlayerCar(def, carIndex(carId));
     replacement.position.copy(this.mesh.position);
-    this.ctx.scene.remove(this.mesh);
-    disposeGroup(this.mesh);
-    (this as { mesh: CarMesh }).mesh = replacement;
+    this.mesh.dispose();
+    (this as { mesh: Vehicle }).mesh = replacement;
     this.ctx.scene.add(replacement);
   }
 
@@ -355,22 +354,32 @@ export class PlayerManager implements Manager {
     this.mesh.rotation.y = lateralT * HANDLING.maxYaw * -0.5;
     this.mesh.rotation.x = this.airborne ? THREE.MathUtils.clamp(-this.vy * 0.015, -0.2, 0.2) : 0;
 
-    this.wheelSpin += this.speed * dt * 2.4;
-    for (const wheel of this.mesh.userData.wheels) wheel.rotation.x = this.wheelSpin;
+    // Spin rate is ground speed over tyre radius; the sign rolls the top of
+    // the tyre forwards, towards -z.
+    this.wheelSpin -= (this.speed * dt) / 0.31;
+    this.mesh.setWheelSpin(this.wheelSpin);
+    this.mesh.setSteer(-lateralT * 0.28);
+    this.mesh.setBrake(this.input.brake ? 1 : 0);
 
-    this.mesh.userData.brakeLights.emissiveIntensity = this.input.brake ? 3.4 : 0.32;
-
-    const glow = this.mesh.userData.glow;
+    /* Underglow and lamps follow the light.
+     *
+     * An underglow in full sun is a coloured smear on the tarmac under the
+     * car, and it muddied every shadow the car sat in. It belongs to the dark,
+     * the same as the headlamps, so it takes their level; and the running
+     * lamps brighten with it, the way real tail lamps read stronger at night. */
+    const darkness = THREE.MathUtils.clamp(this.headlights / 2, 0, 1);
+    const glow = this.mesh.glow;
     if (glow) {
       const mat = glow.material as THREE.MeshBasicMaterial;
-      mat.opacity = THREE.MathUtils.clamp((this.speedFraction - 0.42) * 0.7, 0, 0.5);
+      mat.opacity = THREE.MathUtils.clamp((this.speedFraction - 0.42) * 0.7, 0, 0.5) * darkness;
     }
+    this.mesh.setTailLamps(1 + darkness * 1.5);
   }
 
   /** Headlight intensity, raised at night and in storms by the world systems. */
   setHeadlights(intensity: number): void {
     this.headlights = intensity;
-    for (const spot of this.mesh.userData.headlights) spot.intensity = intensity;
+    this.mesh.setHeadlamps(intensity);
   }
 
   private headlights = 0;
@@ -402,17 +411,11 @@ export class PlayerManager implements Manager {
   }
 
   dispose(): void {
-    this.ctx.scene.remove(this.mesh);
-    disposeGroup(this.mesh);
+    this.mesh.dispose();
   }
 }
 
-function disposeGroup(group: THREE.Object3D): void {
-  group.traverse((o) => {
-    if (o instanceof THREE.Mesh) {
-      const mat = o.material;
-      if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
-      else mat.dispose();
-    }
-  });
+/** Garage slot of a car, which also picks its registration plate. */
+function carIndex(carId: string): number {
+  return Math.max(0, CARS.findIndex((c) => c.id === carId));
 }

@@ -1,13 +1,9 @@
 import * as THREE from 'three';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { GradeShader } from './GradeShader';
+import { PostPipeline } from './post/PostPipeline';
 import { SkyDome } from './SkyDome';
+import { HorizonHills } from './sky/HorizonHills';
 import { resolveQuality, type QualitySettings } from './Quality';
-import { FILL_LAYER } from './CarFactory';
+import { FILL_LAYER } from './vehicles/VehicleFactory';
 
 /**
  * Renderer, camera, lighting and the post chain.
@@ -29,11 +25,23 @@ import { FILL_LAYER } from './CarFactory';
 const ENV_SIGNATURE_STEP = 1.5;
 const ENV_MIN_SECONDS = 2;
 
+/** Far plane for the environment capture: past the sky dome's 1400 radius. */
+const ENV_FAR = 3000;
+
+/** The lowest the shadow-casting light is allowed to stand, whatever the sky. */
+const MIN_LIGHT_ELEVATION = THREE.MathUtils.degToRad(14);
+
+/**
+ * How far out along the light direction the shadow camera stands. Only has to
+ * clear the tallest thing inside the frustum; the frustum's depth does the rest.
+ */
+const SUN_DISTANCE = 160;
+
 export class SceneRig {
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
   readonly renderer: THREE.WebGLRenderer;
-  readonly composer: EffectComposer;
+  readonly post: PostPipeline;
 
   readonly sun: THREE.DirectionalLight;
   readonly hemi: THREE.HemisphereLight;
@@ -54,9 +62,26 @@ export class SceneRig {
    */
   readonly fill: THREE.DirectionalLight;
   readonly sky: SkyDome;
+  /** Hazy headlands on the horizon, so the world does not end at a line. */
+  readonly hills: HorizonHills;
 
-  private readonly bloom: UnrealBloomPass;
-  private readonly grade: ShaderPass;
+  /**
+   * Unit vector towards the sun, as the sky draws it.
+   *
+   * One vector for the disc, the light and the environment map, so the
+   * highlight in the paint, the shadow on the road and the sun in the sky
+   * always agree about where the sun is.
+   */
+  readonly sunDirection = new THREE.Vector3(-0.6, 0.64, 0.48).normalize();
+  /**
+   * The direction the light is actually cast from.
+   *
+   * Differs from `sunDirection` only when the sun is below the horizon: at
+   * night the same light stands in for the moon, and a light under the road
+   * lights the underside of everything on it.
+   */
+  private readonly lightDirection = new THREE.Vector3().copy(this.sunDirection);
+
   private readonly fog: THREE.FogExp2;
 
   readonly quality: QualitySettings;
@@ -107,6 +132,8 @@ export class SceneRig {
   private envClock = 0;
   private envLastBuild = Number.NEGATIVE_INFINITY;
 
+  private readonly scratchColor = new THREE.Color();
+
   /** Chase-camera state, integrated rather than snapped. */
   private readonly camTarget = new THREE.Vector3();
   private camShake = 0;
@@ -116,9 +143,12 @@ export class SceneRig {
     const width = canvas.clientWidth || window.innerWidth;
     const height = canvas.clientHeight || window.innerHeight;
 
+    // No canvas multisampling: the scene is drawn into the post pipeline's target,
+    // which carries its own samples (see `msaa`), and the canvas only ever
+    // receives one full-screen quad from the output pass.
     this.renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: true,
+      antialias: false,
       powerPreference: 'high-performance',
     });
     this.quality = resolveQuality(this.renderer.getContext());
@@ -142,6 +172,8 @@ export class SceneRig {
 
     this.sky = new SkyDome(this.quality.skyDetail);
     this.scene.add(this.sky.mesh);
+    this.hills = new HorizonHills();
+    this.scene.add(this.hills.mesh);
 
     // A second dome sharing the same material, so the environment is always
     // the sky the player is actually under rather than a stale copy of it.
@@ -155,14 +187,14 @@ export class SceneRig {
     this.scene.add(this.hemi);
 
     this.sun = new THREE.DirectionalLight(0xfff0d8, 2.6);
-    this.sun.position.set(-58, 90, -40);
+    this.sun.position.copy(this.lightDirection).multiplyScalar(SUN_DISTANCE);
     this.sun.castShadow = this.quality.shadows;
     this.sun.shadow.mapSize.set(this.quality.shadowMapSize, this.quality.shadowMapSize);
     // The shadow frustum tracks the car; it only ever needs to cover the
     // stretch of road actually on screen.
     const cam = this.sun.shadow.camera;
     cam.near = 1;
-    cam.far = 320;
+    cam.far = SUN_DISTANCE * 2.4;
     cam.left = -90;
     cam.right = 90;
     cam.top = 90;
@@ -186,29 +218,19 @@ export class SceneRig {
     this.scene.add(this.sun.target);
 
     this.fill = new THREE.DirectionalLight(0xdce8ff, 1.5);
-    // Vehicles only. See FILL_LAYER in CarFactory for why this light has no
+    // Vehicles only. See FILL_LAYER in VehicleFactory for why this light has no
     // business touching the road.
     this.fill.layers.set(FILL_LAYER);
     this.fill.position.set(9, 7, 22);
     this.scene.add(this.fill);
     this.scene.add(this.fill.target);
 
-    this.composer = new EffectComposer(this.renderer);
-    this.composer.addPass(new RenderPass(this.scene, this.camera));
-
-    this.bloom = new UnrealBloomPass(
-      new THREE.Vector2(width, height),
-      this.quality.bloomStrength,
-      0.72,
-      0.82,
-    );
-    this.bloom.enabled = this.quality.bloom;
-    this.composer.addPass(this.bloom);
-
-    this.grade = new ShaderPass(GradeShader);
-    this.composer.addPass(this.grade);
-
-    this.composer.addPass(new OutputPass());
+    /* Post: the scene into one multisampled half-float target, then bloom,
+     * tone map and grade in a single pass to the canvas. See PostPipeline for
+     * why this is not an EffectComposer. */
+    this.post = new PostPipeline({ msaa: this.quality.msaa, bloom: this.quality.bloom, levels: 5 });
+    const pr = this.renderer.getPixelRatio();
+    this.post.setSize(width * pr, height * pr);
 
     window.addEventListener('resize', this.onResize);
   }
@@ -228,27 +250,42 @@ export class SceneRig {
     fogColor: number;
     fogDensity: number;
     sunElevation: number;
+    sunAzimuth: number;
     exposure: number;
     clouds: number;
   }): void {
     this.sun.color.setHex(opts.sunColor);
     this.sun.intensity = opts.sunIntensity;
-    const elev = THREE.MathUtils.clamp(opts.sunElevation, -0.3, 1);
-    this.sun.position.set(-58, 22 + elev * 88, -40);
+
+    // Elevation is a fraction of 80 degrees; azimuth is measured from straight
+    // down the road, positive to the right.
+    const elevation = THREE.MathUtils.degToRad(THREE.MathUtils.clamp(opts.sunElevation, -0.3, 1) * 80);
+    const azimuth = opts.sunAzimuth;
+    const aim = (out: THREE.Vector3, elev: number): THREE.Vector3 =>
+      out.set(Math.sin(azimuth) * Math.cos(elev), Math.sin(elev), -Math.cos(azimuth) * Math.cos(elev));
+    aim(this.sunDirection, elevation);
+    aim(this.lightDirection, Math.max(elevation, MIN_LIGHT_ELEVATION));
+    this.sky.setSunDirection(this.sunDirection.x, this.sunDirection.y, this.sunDirection.z);
 
     this.hemi.color.setHex(opts.hemiSky);
     this.hemi.groundColor.setHex(opts.hemiGround);
     this.hemi.intensity = opts.hemiIntensity;
 
-    // The camera key tracks the sun's strength rather than sitting at a fixed
-    // level: a fill that does not dim at dusk turns every night scene into a
-    // studio shot. Floored, though — at midnight the hero still has to be a car
-    // rather than a hole in the road.
-    this.fill.intensity = 0.55 + opts.sunIntensity * 0.42;
+    /* The camera key, now a night light.
+     *
+     * It existed because the sun stood ahead of the car and the only face the
+     * player ever saw was the one turned away from it. With the daytime sun
+     * behind the camera the sun is the key, and a second light from the same
+     * side only flattens the paint — so by day it is a trace. It comes back as
+     * the sun fades, because at midnight the hero still has to be a car rather
+     * than a hole in the road. */
+    const daylight = THREE.MathUtils.clamp(opts.sunIntensity / 4, 0, 1);
+    this.fill.intensity = 0.15 + (1 - daylight) * 0.75;
     this.fill.color.setHex(opts.hemiSky);
 
     this.fog.color.setHex(opts.fogColor);
     this.fog.density = opts.fogDensity;
+    this.hills.setPalette(this.fog.color, this.scratchColor.setHex(opts.skyBottom));
 
     this.sky.setPalette(opts.skyTop, opts.skyBottom, opts.horizon);
     this.sky.setClouds(opts.clouds);
@@ -259,7 +296,7 @@ export class SceneRig {
     // frames says nothing about whether there is anything new to reflect.
     this.envSignature =
       opts.skyTop * 1e-3 + opts.skyBottom * 1e-4 + opts.horizon * 1e-5 +
-      opts.sunIntensity * 40 + opts.sunElevation * 25;
+      opts.sunIntensity * 40 + opts.sunElevation * 25 + opts.sunAzimuth * 12;
   }
 
   /**
@@ -279,7 +316,7 @@ export class SceneRig {
    */
   advanceClock(dt: number): void {
     this.envClock += dt;
-    this.grade.uniforms.uTime.value += dt;
+    this.post.uniforms.uTime.value += dt;
     this.sky.advance(dt);
   }
 
@@ -295,7 +332,15 @@ export class SceneRig {
     this.envLastBuild = this.envClock;
 
     const previous = this.envTarget;
-    this.envTarget = this.pmrem.fromScene(this.envScene);
+    /* The far plane is not optional here.
+     *
+     * `fromScene` renders its cube with a far plane of 100 by default, and the
+     * dome it is capturing has a radius of 1400. Left at the default, the sky
+     * was clipped out of every face and the environment came back black — so
+     * for the whole life of this rig nothing in the game ever reflected
+     * anything. Chrome was dark, glass was dark, metallic paint was dark in
+     * shade, and the sea was a flat colour. */
+    this.envTarget = this.pmrem.fromScene(this.envScene, 0, 1, ENV_FAR);
     this.scene.environment = this.envTarget.texture;
     this.envBuilds += 1;
     // Disposed after the replacement is bound, so no frame is left pointing at
@@ -331,22 +376,26 @@ export class SceneRig {
 
   setBloom(strength: number, radius: number, threshold: number): void {
     if (!this.quality.bloom) return;
-    this.bloom.strength = strength;
-    this.bloom.radius = radius;
-    this.bloom.threshold = threshold;
+    this.post.bloomStrength = strength;
+    this.post.bloomRadius = radius;
+    this.post.bloomThreshold = threshold;
   }
 
   /** Speed-reactive grade: vignette, chromatic fringe, saturation, blur. */
   setGrade(speedFraction: number, nitro: number, wet: number): void {
     this.lastGrade = [speedFraction, nitro, wet];
-    const u = this.grade.uniforms;
-    u.uVignette.value = 0.3 + speedFraction * 0.2 + nitro * 0.14;
-    // An order of magnitude down. At the old strength every high-contrast edge
-    // in the frame — every palm, every barrier post — carried a visible rainbow
-    // fringe, which reads as a broken renderer rather than as speed.
-    u.uAberration.value = speedFraction * 0.0004 + nitro * 0.0012;
-    u.uSaturation.value = 1.1 + nitro * 0.12 - wet * 0.16;
-    u.uSpeedLines.value = nitro * 0.35;
+    const u = this.post.uniforms;
+    /* A clean frame first, speed second.
+     *
+     * The reference is a bright, open, high-key image with no darkened corners
+     * and no fringing on anything, and the effects here only earn their place
+     * as something you notice under boost. Aberration is gone outside nitro:
+     * even at a fraction of a pixel it softens every palm and lamp against the
+     * sky, which reads as a cheap lens rather than as speed. */
+    u.uVignette.value = 0.12 + speedFraction * 0.08 + nitro * 0.12;
+    u.uAberration.value = nitro * 0.0009;
+    u.uSaturation.value = 0.98 + nitro * 0.1 - wet * 0.16;
+    u.uSpeedLines.value = nitro * 0.3;
     u.uWet.value = wet;
 
     /*
@@ -357,14 +406,14 @@ export class SceneRig {
      * — a rain-lit road is a low-contrast one, and leaving the curve hard
      * through a storm made the grade fight the weather.
      */
-    u.uContrast.value = 1.08 + speedFraction * 0.1 + nitro * 0.05 - wet * 0.1;
-    u.uCurve.value = 0.3 + nitro * 0.1;
-    u.uLift.value = 0.05 - nitro * 0.012;
+    u.uContrast.value = 1.02 + speedFraction * 0.04 + nitro * 0.05 - wet * 0.1;
+    u.uCurve.value = 0.14 + nitro * 0.08;
+    u.uLift.value = 0.012;
     // Held at zero below half speed: the taps are four full-frame reads, and
     // there is nothing to smear at the pace the menu idles at.
     const blur = Math.max(0, speedFraction - 0.45) / 0.55;
     const blurAllowed = this.motionBlurOverride ?? this.quality.motionBlur;
-    u.uRadialBlur.value = blurAllowed ? blur * 0.009 + nitro * 0.015 : 0;
+    u.uRadialBlur.value = blurAllowed ? blur * 0.005 + nitro * 0.013 : 0;
   }
 
 
@@ -422,11 +471,19 @@ export class SceneRig {
      * that the body fills the bottom of the screen; the road reads as fast
      * because it is rushing past the camera, not because there is more of it.
      */
-    const back = 8.2 + speedFraction * 1.9;
-    const height = 2.45 + speedFraction * 0.55;
+    /* Closer and lower again, and narrower.
+     *
+     * The car is the subject of the frame, the way it is in the reference:
+     * about a quarter of the screen's width, its tail lamps and plate legible,
+     * with the road opening out above it. The previous framing put it at a
+     * tenth of the width, where no amount of modelling on it could be seen.
+     * The field of view comes down with the distance so the road ahead keeps
+     * its proportions instead of fish-eyeing as the camera closes in. */
+    const back = 5.35 + speedFraction * 1.1;
+    const height = 1.72 + speedFraction * 0.26;
 
     this.camTarget.set(
-      targetX * 0.74 + lateralVel * 0.09,
+      targetX * 0.8 + lateralVel * 0.08,
       targetY + height,
       targetZ + back,
     );
@@ -434,7 +491,7 @@ export class SceneRig {
     const k = 1 - Math.exp(-9.5 * dt);
     this.camera.position.lerp(this.camTarget, k);
 
-    this.camera.fov = 62 + speedFraction * 16;
+    this.camera.fov = 55 + speedFraction * 11;
     this.camera.updateProjectionMatrix();
 
     if (this.camShake > 0.001) {
@@ -447,11 +504,12 @@ export class SceneRig {
 
     // Aimed just over the roof and well down the road: looking at the car
     // itself puts the horizon off the top of the frame at this height.
-    this.camera.lookAt(targetX * 0.62, targetY + 1.15, targetZ - 26);
+    this.camera.lookAt(targetX * 0.7, targetY + 1.12, targetZ - 30);
 
-    // Keep the shadow frustum centred on the action.
-    this.sun.position.z = targetZ - 40;
-    this.sun.target.position.set(targetX, 0, targetZ - 24);
+    // Keep the shadow frustum centred on the stretch of road in frame, with
+    // the light standing off along its own direction from there.
+    this.sun.target.position.set(targetX * 0.5, 0, targetZ - 34);
+    this.sun.position.copy(this.lightDirection).multiplyScalar(SUN_DISTANCE).add(this.sun.target.position);
     this.sun.target.updateMatrixWorld();
 
     // The camera key rides with the car, offset to the side the sun is not on
@@ -460,13 +518,14 @@ export class SceneRig {
     this.fill.target.position.set(targetX, targetY + 0.6, targetZ - 6);
     this.fill.target.updateMatrixWorld();
     this.sky.mesh.position.set(targetX, 0, targetZ);
+    this.hills.follow(targetX, targetZ);
   }
 
   /**
    * Draw the frame.
    *
    * `info` is reset by hand rather than per-pass. Left on automatic, each pass
-   * in the composer clears the counters the previous one filled, so anything
+   * in the post chain clears the counters the previous one filled, so anything
    * reading `info.render` afterwards sees only the final fullscreen quad — one
    * triangle — and concludes the scene is empty. Accumulating across the whole
    * chain makes the numbers mean "submitted this frame", which is what both the
@@ -477,7 +536,7 @@ export class SceneRig {
     this.refreshEnvironment();
     this.renderer.info.autoReset = false;
     this.renderer.info.reset();
-    this.composer.render();
+    this.post.render(this.renderer, this.scene, this.camera);
     this.frameStats.calls = this.renderer.info.render.calls;
     this.frameStats.triangles = this.renderer.info.render.triangles;
   }
@@ -500,18 +559,19 @@ export class SceneRig {
     this.renderer.setSize(width, height, false);
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
-    this.composer.setSize(width, height);
-    this.bloom.setSize(width, height);
+    const pr = this.renderer.getPixelRatio();
+    this.post.setSize(width * pr, height * pr);
   };
 
   dispose(): void {
     window.removeEventListener('resize', this.onResize);
     this.canvas.removeEventListener('webglcontextlost', this.onContextLost);
     this.canvas.removeEventListener('webglcontextrestored', this.onContextRestored);
-    this.composer.dispose();
+    this.post.dispose();
     this.envTarget?.dispose();
     this.pmrem.dispose();
     this.renderer.dispose();
     this.sky.dispose();
+    this.hills.dispose();
   }
 }

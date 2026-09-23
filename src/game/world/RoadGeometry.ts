@@ -1,3 +1,4 @@
+import type { BiomeId } from '@/core/GameEvents';
 import { ROAD } from '@/game/config/Balance';
 
 /**
@@ -89,6 +90,21 @@ export function setCoastLookup(fn: (distance: number) => boolean): void {
  */
 export function isCoastAt(distance: number): boolean {
   return coastAt(distance);
+}
+
+/**
+ * The biome at a distance, for things that dress their own stretch of road —
+ * the verge a road segment is laid with, whether it has lamps. Injected for
+ * the same reason the coast lookup is.
+ */
+let biomeLookup: (distance: number) => BiomeId = () => 'coast';
+
+export function setBiomeLookup(fn: (distance: number) => BiomeId): void {
+  biomeLookup = fn;
+}
+
+export function biomeAt(distance: number): BiomeId {
+  return biomeLookup(distance);
 }
 
 /** How far the beach falls before it is safely under the water. */

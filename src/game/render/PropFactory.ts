@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import type { BiomeId } from '@/core/GameEvents';
-import { makeBuildingTexture } from './RoadTextures';
+import { PALM_VARIANTS, palmGeometry, palmMaterial } from './props/Palm';
+import { streetLampGeometry, streetLampMaterial } from './props/StreetLamp';
+import { RAILING_BAY, railingGeometry, railingMaterial } from './props/Railing';
+import { GUARDRAIL_BAY, guardrailGeometry, guardrailMaterial, pineGeometry, plantMaterial, saguaroGeometry } from './props/Roadside';
+import { BuildingMaterial } from './buildings/BuildingMaterial';
 
 /**
  * The roadside furniture, as shared geometry and materials.
@@ -50,6 +54,23 @@ export interface PropKind {
    * player every time the band is rebuilt.
    */
   readonly cadence?: number;
+  /**
+   * Offset of a laid kind along its own grid, in world units, so two kinds on
+   * the same pitch can alternate — a palm between every pair of lamps rather
+   * than growing out of the base of one.
+   */
+  readonly phase?: number;
+  /**
+   * Colours an instance can be tinted, picked per instance from its own
+   * stable slot. For kinds whose material reads the instance colour — the
+   * facade shader takes both its wall colour and its style seed from it.
+   */
+  readonly tints?: readonly number[];
+  /**
+   * Square to the road rather than turned at random: buildings. A block at a
+   * random angle to the street reads as rubble.
+   */
+  readonly aligned?: boolean;
 }
 
 interface Part {
@@ -153,31 +174,34 @@ const PAINTED = new THREE.MeshStandardMaterial({
 });
 
 /** Built lazily so the window texture is only generated if a city is visited. */
-let buildingMat: THREE.MeshStandardMaterial | null = null;
-function building(): THREE.MeshStandardMaterial {
-  if (!buildingMat) {
-    const tex = makeBuildingTexture();
-    tex.repeat.set(2, 5);
-    buildingMat = new THREE.MeshStandardMaterial({
-      map: tex, vertexColors: true, roughness: 0.78, metalness: 0.1,
-    });
-  }
-  return buildingMat;
+let facadeMat: BuildingMaterial | null = null;
+let plantsMat: THREE.MeshStandardMaterial | null = null;
+let guardMat: THREE.MeshStandardMaterial | null = null;
+
+function facades(): BuildingMaterial {
+  facadeMat ??= new BuildingMaterial([0, 4]);
+  return facadeMat;
 }
 
-function pineGeo(): THREE.BufferGeometry {
-  const trunk = new THREE.CylinderGeometry(0.22, 0.3, 2.2, 6);
-  const lower = new THREE.ConeGeometry(1.9, 3.4, 7);
-  const upper = new THREE.ConeGeometry(1.35, 2.8, 7);
-  const geo = merge([
-    { geo: trunk, matrix: at(0, 1.1, 0), colour: 0x5a4432 },
-    { geo: lower, matrix: at(0, 3.4, 0), colour: 0x2f5b38 },
-    { geo: upper, matrix: at(0, 5.2, 0), colour: 0x3a6b41 },
-  ]);
-  trunk.dispose(); lower.dispose(); upper.dispose();
-  return geo;
+function plants(): THREE.MeshStandardMaterial {
+  plantsMat ??= plantMaterial();
+  return plantsMat;
 }
 
+function guardrails(): THREE.MeshStandardMaterial {
+  guardMat ??= guardrailMaterial();
+  return guardMat;
+}
+
+/** A block of the given size in metres, standing on its base. */
+function sizedBlock(w: number, h: number, d: number): THREE.BufferGeometry {
+  const g = new THREE.BoxGeometry(w, h, d);
+  g.translate(0, h / 2, 0);
+  return g;
+}
+
+/** City walls: stone, cream, white, glass-grey and the coast's warm pastels. */
+const CITY_TINTS = [0xe8e8e4, 0xc8ccd0, 0xb8c4d0, 0xd8cbb4, 0xefd9a8, 0xe2b98a, 0xf2ead8, 0x9aa6b4] as const;
 function broadleafGeo(): THREE.BufferGeometry {
   const trunk = new THREE.CylinderGeometry(0.24, 0.34, 2.6, 6);
   const canopy = new THREE.IcosahedronGeometry(2.1, 0);
@@ -263,93 +287,6 @@ function frondGeo(length: number, width: number, droop: number): THREE.BufferGeo
 }
 
 /**
- * A palm: a leaning, segmented trunk under a crown of drooping fronds.
- *
- * The trunk is stacked rather than a single cylinder because a palm does not
- * grow straight — the lean and the slight curve in it are most of what makes a
- * row of them read as a coast road rather than as a row of poles, and a
- * segmented stack is the cheapest way to bend one.
- */
-function palmGeo(): THREE.BufferGeometry {
-  const parts: Part[] = [];
-
-  const HEIGHT = 6.2;
-  const RINGS = 7;
-  const lean = 0.42;
-  for (let i = 0; i < RINGS; i++) {
-    const t = i / RINGS;
-    const t1 = (i + 1) / RINGS;
-    const seg = new THREE.CylinderGeometry(
-      0.3 - t1 * 0.16, 0.32 - t * 0.16, (HEIGHT / RINGS) * 1.06, 7,
-    );
-    // Curve out of the ground and back toward vertical, which is the shape of
-    // a palm that has spent its life leaning away from the prevailing wind.
-    const bend = lean * t * t;
-    parts.push({
-      geo: seg,
-      matrix: new THREE.Matrix4()
-        .makeTranslation(bend * 1.5, HEIGHT * (t + t1) * 0.5, 0)
-        .multiply(new THREE.Matrix4().makeRotationZ(-lean * t * 0.8)),
-      colour: 0x6b5238,
-    });
-  }
-
-  const crownX = lean * 1.5;
-  const crownY = HEIGHT + 0.1;
-
-  /* Fifteen fronds across four pitches.
-   *
-   * Nine was a wheel: at three pitches the gaps between them were as wide as
-   * the fronds, and a crown you can see through is a shrub. A real palm crown
-   * is nearly a sphere of overlapping leaves, and the count is what buys the
-   * overlap — the reference's palms are the densest thing in its frame and
-   * ours were the sparsest in ours.
-   */
-  const frondLong = frondGeo(4.4, 0.62, 2.2);
-  const frondMid = frondGeo(3.6, 0.54, 1.8);
-  const frondShort = frondGeo(2.7, 0.44, 1.2);
-  const CROWN = 15;
-  for (let i = 0; i < CROWN; i++) {
-    // Golden-angle spacing rather than even: an even ring at any count leaves
-    // a visible rotational symmetry, and a plant does not have one.
-    const a = i * 2.39996 + 0.4;
-    const tier = i % 4;
-    const pitch = tier === 0 ? 0.72 : tier === 1 ? 0.42 : tier === 2 ? 0.1 : -0.2;
-    const geo = tier === 3 ? frondShort : tier === 2 ? frondMid : frondLong;
-    parts.push({
-      geo,
-      matrix: new THREE.Matrix4()
-        .makeTranslation(crownX, crownY, 0)
-        .multiply(new THREE.Matrix4().makeRotationY(a))
-        .multiply(new THREE.Matrix4().makeRotationX(-pitch)),
-      // Darker underneath, brighter on the upper tiers: a crown lit from above
-      // is not one flat green, and the two-tone is most of its depth.
-      /* Lifted, because a crown this dense shades itself. Nine sparse fronds
-       * each caught the sun; fifteen overlapping ones spend most of their area
-       * in each other's shadow, and at the old values the tree went from a
-       * green asterisk to a black one. */
-      colour: tier === 3 ? 0x3c8a52 : tier === 2 ? 0x489a58 : 0x5cb264,
-    });
-  }
-
-  // A few coconuts tucked under the crown.
-  const nut = new THREE.IcosahedronGeometry(0.17, 0);
-  for (let i = 0; i < 3; i++) {
-    const a = (i / 3) * Math.PI * 2;
-    parts.push({
-      geo: nut,
-      matrix: at(crownX + Math.cos(a) * 0.26, crownY - 0.24, Math.sin(a) * 0.26),
-      colour: 0x6f5a3a,
-    });
-  }
-
-  const geo = merge(parts);
-  for (const part of parts) part.geo.dispose();
-  nut.dispose();
-  return geo;
-}
-
-/**
  * A tuft of scrub grass: a handful of crossed blades.
  *
  * Cheap and numerous rather than detailed. The verge was flat colour with props
@@ -391,162 +328,11 @@ function bushGeo(): THREE.BufferGeometry {
   return geo;
 }
 
-function cactusGeo(): THREE.BufferGeometry {
-  const body = new THREE.CylinderGeometry(0.42, 0.5, 3.6, 8);
-  const arm = new THREE.CylinderGeometry(0.24, 0.26, 1.5, 6);
-  const geo = merge([
-    { geo: body, matrix: at(0, 1.8, 0), colour: 0x4d7a4a },
-    { geo: arm, matrix: new THREE.Matrix4().makeTranslation(0.62, 2.5, 0)
-      .multiply(new THREE.Matrix4().makeRotationZ(-0.85)), colour: 0x568455 },
-    { geo: arm, matrix: at(0.86, 3.1, 0), colour: 0x568455 },
-    { geo: arm, matrix: new THREE.Matrix4().makeTranslation(-0.58, 2.1, 0)
-      .multiply(new THREE.Matrix4().makeRotationZ(0.9)), colour: 0x44704a },
-  ]);
-  body.dispose(); arm.dispose();
-  return geo;
-}
-
 function rockGeo(): THREE.BufferGeometry {
   const g = new THREE.DodecahedronGeometry(1.2, 0);
   const merged = merge([{ geo: g, matrix: at(0, 0.75, 0, 1.25, 0.78, 1.05), colour: 0x8a7a66 }]);
   g.dispose();
   return merged;
-}
-
-function towerGeo(): THREE.BufferGeometry {
-  const g = new THREE.BoxGeometry(6.4, 26, 6.4);
-  const merged = merge([{ geo: g, matrix: at(0, 13, 0), colour: 0xffffff }]);
-  g.dispose();
-  return merged;
-}
-
-function blockGeo(): THREE.BufferGeometry {
-  const base = new THREE.BoxGeometry(7.6, 11, 7.6);
-  const roof = new THREE.BoxGeometry(3.2, 1.6, 3.2);
-  const geo = merge([
-    { geo: base, matrix: at(0, 5.5, 0), colour: 0x6e7480 },
-    { geo: roof, matrix: at(0, 11.8, 0), colour: 0x5a606b },
-  ]);
-  base.dispose(); roof.dispose();
-  return geo;
-}
-
-function signGeo(): THREE.BufferGeometry {
-  const post = new THREE.CylinderGeometry(0.13, 0.13, 4.4, 6);
-  const board = new THREE.BoxGeometry(3.6, 1.9, 0.16);
-  const geo = merge([
-    { geo: post, matrix: at(-1.3, 2.2, 0), colour: 0x8f97a3 },
-    { geo: post, matrix: at(1.3, 2.2, 0), colour: 0x8f97a3 },
-    { geo: board, matrix: at(0, 4.2, 0), colour: 0x2f8f5c },
-    { geo: board, matrix: at(0, 4.2, 0.09, 0.9, 0.78, 0.4), colour: 0xe8eef0 },
-  ]);
-  post.dispose(); board.dispose();
-  return geo;
-}
-
-function pylonGeo(): THREE.BufferGeometry {
-  const leg = new THREE.BoxGeometry(0.3, 14, 0.3);
-  const arm = new THREE.BoxGeometry(7, 0.32, 0.32);
-  const geo = merge([
-    { geo: leg, matrix: at(-1, 7, 0), colour: 0x9aa2ae },
-    { geo: leg, matrix: at(1, 7, 0), colour: 0x9aa2ae },
-    { geo: arm, matrix: at(0, 11.4, 0), colour: 0x8a939f },
-    { geo: arm, matrix: at(0, 13.4, 0), colour: 0x8a939f },
-  ]);
-  leg.dispose(); arm.dispose();
-  return geo;
-}
-
-/**
- * A street lamp: a tapered column, a curved arm, and a head over the road.
- *
- * The arm is what makes this read as a boulevard rather than as a fence post.
- * A bare vertical pole beside a road is ambiguous at any distance; the moment
- * it reaches out over the tarmac the scale of the whole scene is settled, which
- * is why the reference's lamp standards do so much work in its verge.
- *
- * The curve is four short segments rather than a torus. A torus section here
- * costs a ring of vertices for a shape four boxes already describe at the size
- * it appears on screen, and this kind is instanced along every coast band.
- */
-function lampGeo(): THREE.BufferGeometry {
-  const HEIGHT = 9.4;
-  const column = new THREE.CylinderGeometry(0.13, 0.22, HEIGHT, 6);
-  const base = new THREE.CylinderGeometry(0.3, 0.38, 0.7, 6);
-  const segment = new THREE.BoxGeometry(0.85, 0.16, 0.16);
-  const head = new THREE.BoxGeometry(1.5, 0.3, 0.62);
-
-  const parts: Part[] = [
-    { geo: base, matrix: at(0, 0.35, 0), colour: 0x6f7681 },
-    { geo: column, matrix: at(0, HEIGHT * 0.5 + 0.5, 0), colour: 0x9aa2ae },
-  ];
-
-  // The arm sweeps from the top of the column out over the road, each segment
-  // pitched a little further over than the last.
-  const ARC = 4;
-  for (let i = 0; i < ARC; i++) {
-    const t = (i + 0.5) / ARC;
-    const pitch = (1 - t) * 0.9;
-    parts.push({
-      geo: segment,
-      matrix: new THREE.Matrix4()
-        .makeTranslation(0.45 + t * 2.5, HEIGHT + 0.5 + Math.sin(pitch) * 0.85 - t * 0.3, 0)
-        .multiply(new THREE.Matrix4().makeRotationZ(-pitch * 0.55)),
-      colour: 0x9aa2ae,
-    });
-  }
-  parts.push({ geo: head, matrix: at(3.15, HEIGHT + 0.72, 0), colour: 0xc8ccd4 });
-
-  const geo = merge(parts);
-  column.dispose(); base.dispose(); segment.dispose(); head.dispose();
-  return geo;
-}
-
-/**
- * A run of pedestrian railing: two posts carrying two horizontal rails.
- *
- * Eight units long, and placed end to end: `cadence: 8` matches this SPAN
- * exactly, so consecutive instances butt against one another and the run reads
- * as one unbroken line to the vanishing point, the way the reference's does.
- * The two numbers have to stay equal — a pitch wider than the span opens gaps,
- * a pitch narrower makes the posts double up.
- *
- * Its value here is contrast, not silhouette. The verge is pale ground under a
- * pale sky, and once the carriageway was lightened to match the reference the
- * shoulder stripes lost most of the contrast they had been contributing. A
- * dark horizontal against pale sand puts that edge energy back where the
- * reference actually has it, rather than by darkening the road again.
- */
-function railingGeo(): THREE.BufferGeometry {
-  const SPAN = 8;
-  const HEIGHT = 1.15;
-  const post = new THREE.BoxGeometry(0.11, HEIGHT, 0.11);
-  // Spanning Z, not X, so that the one rule the placement pass applies to every
-  // cadence kind — turn local +X to face the road — leaves this running along
-  // the verge while it swings a lamp's arm out over the carriageway.
-  const rail = new THREE.BoxGeometry(0.08, 0.09, SPAN);
-
-  /* A post every two units, and only at the near end of each interval.
-   *
-   * Two posts per eight-unit section is a gate, not a railing, and once the
-   * sections were laid end to end the doubled-up posts at the joins were the
-   * only rhythm in the run. The reference's railing stands on posts far closer
-   * together than that, and that vertical repetition is most of what the verge
-   * reads as. Omitting the far post lets the next section supply it, so the
-   * spacing stays even across a join instead of pairing up.
-   */
-  const POST_PITCH = 2;
-  const parts: Part[] = [
-    { geo: rail, matrix: at(0, HEIGHT * 0.92, 0), colour: 0x343a43 },
-    { geo: rail, matrix: at(0, HEIGHT * 0.52, 0), colour: 0x343a43 },
-  ];
-  for (let z = -SPAN / 2; z < SPAN / 2; z += POST_PITCH) {
-    parts.push({ geo: post, matrix: at(0, HEIGHT / 2, z), colour: 0x2f343c });
-  }
-
-  const geo = merge(parts);
-  post.dispose(); rail.dispose();
-  return geo;
 }
 
 function duneGeo(): THREE.BufferGeometry {
@@ -566,44 +352,50 @@ export function propsForBiome(biome: BiomeId): PropKind[] {
   switch (biome) {
     case 'forest':
       return [
-        { id: 'pine', geometry: pineGeo(), material: FOLIAGE, count: 150, radius: 1.9, scale: [0.8, 1.5], offset: [3, 46], sink: 0.2 },
+        { id: 'pine-a', geometry: pineGeometry(5), material: plants(), count: 80, radius: 2.6, scale: [0.8, 1.25], offset: [4, 46], sink: 0.2 },
+        { id: 'pine-b', geometry: pineGeometry(17), material: plants(), count: 70, radius: 2.6, scale: [0.8, 1.2], offset: [5, 52], sink: 0.2 },
         { id: 'broadleaf', geometry: broadleafGeo(), material: FOLIAGE, count: 80, radius: 2.1, scale: [0.75, 1.3], offset: [4, 42], sink: 0.2 },
         { id: 'bush', geometry: bushGeo(), material: FOLIAGE, count: 110, radius: 0.9, scale: [0.7, 1.6], offset: [2, 26], sink: 0.12 },
         { id: 'scrub', geometry: scrubGeo(), material: FOLIAGE, count: 200, radius: 0.5, scale: [0.7, 1.7], offset: [1.2, 20], sink: 0.05 },
         { id: 'rock', geometry: rockGeo(), material: ROCK, count: 34, radius: 1.5, scale: [0.6, 1.4], offset: [2.5, 22], sink: 0.35 },
+        { id: 'guardrail', geometry: guardrailGeometry(), material: guardrails(), count: 264, radius: 0.12, scale: [1, 1], offset: [0.2, 0.2], sink: -0.16, cadence: GUARDRAIL_BAY },
       ];
     case 'city':
       return [
-        { id: 'tower', geometry: towerGeo(), material: building(), count: 44, radius: 3.2, scale: [0.7, 1.8], offset: [9, 56], sink: 0 },
-        { id: 'block', geometry: blockGeo(), material: CONCRETE, count: 46, radius: 3.8, scale: [0.7, 1.35], offset: [6, 40], sink: 0 },
-        { id: 'pylon', geometry: pylonGeo(), material: METAL, count: 20, radius: 1.2, scale: [0.85, 1.2], offset: [4, 16], sink: 0 },
-        { id: 'scrub', geometry: scrubGeo(), material: FOLIAGE, count: 140, radius: 0.5, scale: [0.6, 1.2], offset: [1.2, 12], sink: 0.05 },
+        // Towers and mid-rise blocks on the facade shader, squared to the street.
+        { id: 'city-tower', geometry: sizedBlock(16, 46, 16), material: facades(), count: 30, radius: 8, scale: [0.75, 1.5], offset: [8, 60], sink: 0.6, tints: CITY_TINTS, aligned: true },
+        { id: 'city-block', geometry: sizedBlock(24, 18, 18), material: facades(), count: 34, radius: 12, scale: [0.8, 1.3], offset: [6, 46], sink: 0.6, tints: CITY_TINTS, aligned: true },
+        // The boulevard furniture the coast has: lamps, a row of palms, railings.
+        { id: 'lamp', geometry: streetLampGeometry(), material: streetLampMaterial(), count: 48, radius: 0.3, scale: [1, 1], offset: [0.5, 0.5], sink: 0, cadence: 20 },
+        { id: 'palm-row', geometry: palmGeometry(PALM_VARIANTS[0]), material: palmMaterial(), count: 44, radius: 0.35, scale: [0.94, 1.06], offset: [2.2, 2.2], sink: 0.05, cadence: 20, phase: 10 },
+        { id: 'railing', geometry: railingGeometry(), material: railingMaterial(), count: 264, radius: 0.04, scale: [1, 1], offset: [0.1, 0.1], sink: -0.16, cadence: RAILING_BAY },
       ];
     case 'desert':
       return [
-        { id: 'cactus', geometry: cactusGeo(), material: FOLIAGE, count: 70, radius: 0.9, scale: [0.7, 1.5], offset: [3, 40], sink: 0.15 },
+        { id: 'saguaro-a', geometry: saguaroGeometry(3), material: plants(), count: 40, radius: 0.9, scale: [0.85, 1.25], offset: [4, 44], sink: 0.1 },
+        { id: 'saguaro-b', geometry: saguaroGeometry(11), material: plants(), count: 34, radius: 0.9, scale: [0.8, 1.2], offset: [6, 50], sink: 0.1 },
         { id: 'scrub', geometry: scrubGeo(), material: FOLIAGE, count: 170, radius: 0.5, scale: [0.6, 1.3], offset: [1.2, 30], sink: 0.05 },
         { id: 'rock', geometry: rockGeo(), material: ROCK, count: 60, radius: 1.5, scale: [0.5, 2.1], offset: [3, 52], sink: 0.35 },
         { id: 'dune', geometry: duneGeo(), material: ROCK, count: 26, radius: 8, scale: [0.9, 2.2], offset: [16, 64], sink: 0.5 },
+        { id: 'guardrail', geometry: guardrailGeometry(), material: guardrails(), count: 264, radius: 0.12, scale: [1, 1], offset: [0.2, 0.2], sink: -0.16, cadence: GUARDRAIL_BAY },
       ];
     case 'coast':
       return [
-        { id: 'palm', geometry: palmGeo(), material: FOLIAGE, count: 84, radius: 1.2, scale: [1.15, 2.15], offset: [1, 16], sink: 0.2 },
-        // Held close to the barrier with a shallow spread: a lamp standard that
-        // wanders into the scrub reads as litter, and the whole point of the
-        // kind is the near band between barrier and scenery being empty.
-        // 48 across the visible span is roughly 24 a side, a lamp every twenty
-        // units — close enough that the row recedes as a continuous rhythm to
-        // the horizon rather than as a handful of separate posts. One draw
-        // call and around two thousand triangles, against 125k on the low tier.
-        { id: 'lamp', geometry: lampGeo(), material: METAL, count: 48, radius: 1.4, scale: [0.94, 1.06], offset: [2.2, 5], sink: 0, cadence: 20 },
-        // Held tight to the barrier and at a fixed scale: a railing that varies
-        // in size along its own run stops reading as one line.
-        { id: 'railing', geometry: railingGeo(), material: METAL, count: 120, radius: 4, scale: [1, 1], offset: [1.6, 2], sink: 0, cadence: 8 },
-        { id: 'scrub', geometry: scrubGeo(), material: FOLIAGE, count: 220, radius: 0.5, scale: [0.7, 1.6], offset: [1.2, 26], sink: 0.05 },
-        { id: 'bush', geometry: bushGeo(), material: FOLIAGE, count: 90, radius: 0.9, scale: [0.6, 1.3], offset: [2, 30], sink: 0.12 },
-        { id: 'rock', geometry: rockGeo(), material: ROCK, count: 48, radius: 1.5, scale: [0.5, 1.6], offset: [3, 44], sink: 0.35 },
-        { id: 'sign', geometry: signGeo(), material: PAINTED, count: 16, radius: 1.9, scale: [0.9, 1.1], offset: [2.5, 7], sink: 0 },
+        /* Palms planted down both pavements on the lamp rhythm, halfway
+         * between standards — a boulevard, which is what the reference is —
+         * and more of them scattered through the verge behind. */
+        { id: 'palm-row', geometry: palmGeometry(PALM_VARIANTS[0]), material: palmMaterial(), count: 44, radius: 0.35, scale: [0.94, 1.06], offset: [2.2, 2.2], sink: 0.05, cadence: 20, phase: 10 },
+        { id: 'palm-tall', geometry: palmGeometry(PALM_VARIANTS[1]), material: palmMaterial(), count: 34, radius: 0.4, scale: [0.85, 1.15], offset: [6, 36], sink: 0.1 },
+        { id: 'palm-short', geometry: palmGeometry(PALM_VARIANTS[2]), material: palmMaterial(), count: 34, radius: 0.4, scale: [0.85, 1.15], offset: [5, 42], sink: 0.1 },
+        // Lamp standards at the kerb, arms out over the carriageway, one every
+        // twenty units down each side.
+        { id: 'lamp', geometry: streetLampGeometry(), material: streetLampMaterial(), count: 48, radius: 0.3, scale: [1, 1], offset: [0.5, 0.5], sink: 0, cadence: 20 },
+        // The balustrade along the kerb, standing on the pavement, at a fixed
+        // scale: a railing that varies in size along its run is not one line.
+        { id: 'railing', geometry: railingGeometry(), material: railingMaterial(), count: 264, radius: 0.04, scale: [1, 1], offset: [0.1, 0.1], sink: -0.16, cadence: RAILING_BAY },
+        // Planting on the verge behind the pavement.
+        { id: 'scrub', geometry: scrubGeo(), material: FOLIAGE, count: 200, radius: 0.5, scale: [0.7, 1.6], offset: [5.4, 26], sink: 0.05 },
+        { id: 'bush', geometry: bushGeo(), material: FOLIAGE, count: 90, radius: 0.9, scale: [0.6, 1.3], offset: [5.6, 30], sink: 0.12 },
       ];
     case 'tunnel':
       // Inside a tunnel there is nothing to see beside the road, by definition.
@@ -616,7 +408,10 @@ export function disposePropMaterials(): void {
   for (const m of [FOLIAGE, ROCK, CONCRETE, METAL, PAINTED]) {
     m.dispose();
   }
-  buildingMat?.map?.dispose();
-  buildingMat?.dispose();
-  buildingMat = null;
+  facadeMat?.dispose();
+  facadeMat = null;
+  plantsMat?.dispose();
+  plantsMat = null;
+  guardMat?.dispose();
+  guardMat = null;
 }

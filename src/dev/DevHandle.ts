@@ -1,9 +1,10 @@
+import * as THREE from 'three';
 import type { Game } from '@/game/Game';
 import type { GameEventName, GameEvents } from '@/core/GameEvents';
 import { ROAD, SCORE, SPEED } from '@/game/config/Balance';
 import { AUDIBLE_CUES } from '@/game/managers/AudioManager';
 import { HUD_ELEMENTS, SCREEN_ELEMENTS } from '@/ui/UIManager';
-import { auditVehicles } from '@/game/render/CarFactory';
+import { auditVehicles } from '@/game/render/vehicles/VehicleAudit';
 import { CARS } from '@/game/config/Cars';
 import { measureGlow } from '@/dev/GlowProbe';
 import { sampleFrame, type RegionRect, type RegionSample } from '@/dev/FrameProbe';
@@ -172,6 +173,29 @@ export interface DevHandle {
    * moves several metres between what were supposed to be the same frame.
    */
   sampleFrame(rects: Record<string, RegionRect>): Record<string, RegionSample>;
+  /**
+   * Where the player's car is in the frame, in the same top-down fractions
+   * `sampleFrame` takes: the bounding box of its body, the points its
+   * exhausts leave from, and the regions measurements of it are made in.
+   *
+   * For measurements that have to follow the car. Boxes fixed in the frame
+   * are fitted to one camera, and the next change to the chase framing moves
+   * the car out from under them while the check goes on measuring bare road.
+   * The framing also moves with speed, so call this after whatever changes
+   * the speed, not before.
+   */
+  playerOnScreen(): {
+    box: RegionRect;
+    exhausts: Array<[number, number]>;
+    regions: {
+      /** The upper middle of the car: rear deck, glass and tail, not the road. */
+      body: RegionRect;
+      /** Round the exhaust tips, reaching down the frame the way a flame points. */
+      flame: RegionRect;
+      /** The road either side of the car and behind it, where it leaves smoke. */
+      behind: RegionRect;
+    };
+  };
   /**
    * Toggle shadow casting, so the gate can measure it by difference.
    *
@@ -379,11 +403,11 @@ export function installDevHandle(game: Game, version: string): DevHandle {
     },
 
     models() {
-      return auditVehicles(CARS.map((c) => c.body));
+      return auditVehicles(CARS);
     },
 
     glowProfile() {
-      const glow = game.player.mesh.userData.glow;
+      const glow = game.player.mesh.glow;
       if (!glow) return null;
       return measureGlow(game.rig.renderer, glow);
     },
@@ -413,8 +437,7 @@ export function installDevHandle(game: Game, version: string): DevHandle {
     },
 
     setContactShadowVisible(visible) {
-      const shadow = game.player.mesh.userData.contactShadow;
-      if (shadow) shadow.visible = visible;
+      game.player.mesh.contactShadow.visible = visible;
     },
 
     setShadows(enabled) {
@@ -423,6 +446,50 @@ export function installDevHandle(game: Game, version: string): DevHandle {
 
     setDriftIntensity(value) {
       game.effects.setDriftIntensity(value);
+    },
+
+    playerOnScreen() {
+      const camera = game.rig.camera;
+      const car = game.player.mesh;
+      car.updateWorldMatrix(true, true);
+      camera.updateMatrixWorld();
+      const onScreen = (p: THREE.Vector3): [number, number] => {
+        p.project(camera);
+        return [(p.x + 1) / 2, (1 - p.y) / 2];
+      };
+      const box = new THREE.Box3().setFromObject(car.body);
+      let x0 = Infinity;
+      let y0 = Infinity;
+      let x1 = -Infinity;
+      let y1 = -Infinity;
+      for (let i = 0; i < 8; i++) {
+        const [x, y] = onScreen(new THREE.Vector3(
+          i & 1 ? box.max.x : box.min.x,
+          i & 2 ? box.max.y : box.min.y,
+          i & 4 ? box.max.z : box.min.z,
+        ));
+        x0 = Math.min(x0, x);
+        y0 = Math.min(y0, y);
+        x1 = Math.max(x1, x);
+        y1 = Math.max(y1, y);
+      }
+      const w = x1 - x0;
+      const h = y1 - y0;
+      const exhausts = car.exhausts.map((a) => onScreen(a.getWorldPosition(new THREE.Vector3())));
+      const tips = exhausts.length ? exhausts : [[(x0 + x1) / 2, y1] as [number, number]];
+      const tx0 = Math.min(...tips.map((p) => p[0]));
+      const tx1 = Math.max(...tips.map((p) => p[0]));
+      const ty0 = Math.min(...tips.map((p) => p[1]));
+      const ty1 = Math.max(...tips.map((p) => p[1]));
+      return {
+        box: [x0, y0, x1, y1],
+        exhausts,
+        regions: {
+          body: [x0 + w * 0.2, y0 + h * 0.15, x1 - w * 0.2, y0 + h * 0.6],
+          flame: [tx0 - w * 0.1, ty0 - h * 0.12, tx1 + w * 0.1, ty1 + h * 0.3],
+          behind: [x0 - w * 0.6, y0 + h * 0.4, x1 + w * 0.6, Math.min(1, y1 + h * 0.8)],
+        },
+      };
     },
 
     sampleFrame(rects) {

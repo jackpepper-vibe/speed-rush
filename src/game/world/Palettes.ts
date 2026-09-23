@@ -22,6 +22,19 @@ export interface Palette {
   fogColor: number;
   fogDensity: number;
   sunElevation: number;
+  /**
+   * Where the sun stands around the car, in radians from straight ahead (-z),
+   * positive to the right.
+   *
+   * By day it sits behind the camera's left shoulder, which is where the
+   * reference keeps it: every surface the chase camera looks at — the car's
+   * tail, the building faces, the near side of each palm — is lit, and the
+   * shadows fall across the road towards the right. A sun ahead of the car
+   * backlights all of that, which is why the hero used to render as a dark
+   * cut-out. Dawn and dusk swing it round in front, low, where a sunrise or a
+   * sunset is worth having in frame.
+   */
+  sunAzimuth: number;
   exposure: number;
   stars: number;
   /** Cloud cover, 0 clear to 1 overcast, before weather adds to it. */
@@ -47,80 +60,39 @@ export const DAY_PALETTE: Record<DayPhase, Palette> = {
     sunColor: 0xffc48a, sunIntensity: 2.2,
     skyTop: 0x2c4f8c, skyBottom: 0xf0a878, horizon: 0xffd0a0,
     hemiSky: 0x9ab4e0, hemiGround: 0x4a3f34, hemiIntensity: 0.60,
-    fogColor: 0xe0b48c, fogDensity: 0.0030, sunElevation: 0.12, exposure: 1.0,
+    fogColor: 0xe0b48c, fogDensity: 0.0030, sunElevation: 0.12, sunAzimuth: 0.55, exposure: 1.0,
     stars: 0.18, clouds: 0.34, headlights: 1.4,
   },
   day: {
-    /* Raised from 3.6 when the fill light was confined to the vehicles at
-     * iteration 26. That took better than half the scene's light away along
-     * with the flat it was laying over every shadow, so the level had to come
-     * back — and it comes back through the sun rather than the hemisphere on
-     * purpose. The sun is shadowed, so it restores the lit half of the frame
-     * and leaves the dark half dark; the hemisphere would have refilled
-     * exactly what had just been won. Landed by measurement: 4.3 -> 0.534,
-     * 4.6 -> 0.531, 4.9 -> 0.567. */
-    sunColor: 0xfff2dc, sunIntensity: 4.6,
-    // skyBottom, not skyTop, is what a chase camera actually sees: the view
-    // sits on the horizon, so the lower dome fills the frame and the zenith
-    // barely appears. At 0xa8ccec that band rendered at luminance 199, which is
-    // where our sky was piling 29% of the frame against the reference's 3%.
-    // The reference holds a deeper blue much further down towards its horizon.
-    skyTop: 0x1e5fbe, skyBottom: 0x4a80bc, horizon: 0xfff2d0,
-    /* The hemisphere is what fills shadow, so its intensity is the depth of
-     * every shadow in frame. At 0.82 it was lifting them to the point that the
-     * frame held 3.4% of its pixels below luminance 88 against the reference's
-     * 9.9%, and contrast had been drifting down since iteration 7 without
-     * anything being done about it. Landed by measurement rather than by eye:
-     * 0.82 -> 0.535, 0.68 -> 0.534, 0.60 -> 0.547, 0.50 -> 0.564. Past about
-     * 0.65 it stops buying darks and starts dragging mid-tones down into a
-     * band that is already over-full, which is why the histogram turns around
-     * while the contrast ratio keeps improving — the two disagree, and the
-     * bound is the one that governs. */
-    hemiSky: 0xbcd8ff, hemiGround: 0x45402f, hemiIntensity: 0.68,
-    // Elevation is geometry, not colour. At 0.85 the sun stood 54 degrees up
-    // and every roadside shadow fell in a puddle under the thing that cast it —
-    // the props were lit, and nothing they stood on knew they were there. The
-    // reference throws palm shadows clear across a four-lane carriageway, which
-    // takes a sun around 30 degrees. Nothing warm about it: the day palette
-    // keeps its noon colour and its noon exposure, and only the light's angle
-    // moves.
-    /* Fog is where the far half of the frame ends up, so its colour is not a
-     * mood setting — it is the luminance that every distant pixel converges
-     * to. At 0x9fc4e8 that was 191, sitting inside the 184-231 block that is
-     * over half the remaining histogram error, and a road game looking down a
-     * long straight puts a great many pixels there. Taken down into the
-     * reference's own peak at 144-159, which is also the band we are shortest
-     * in, so the same pixels stop being wrong twice. */
-    fogColor: 0x7d9cc0, fogDensity: 0.0017, sunElevation: 0.30, exposure: 1.05,
-    /* Cloud cover, and it is an area decision rather than a weather one.
-     * Iteration 10 narrowed the coverage window so the cloud that remained
-     * read as discrete banks instead of a veil, which was the right shape at
-     * the wrong quantity: cover still ran across most of the dome, and pale
-     * cloud is the bulk of the 184-231 excess that is the largest single
-     * block of the residual. The reference is clear blue broken by one bank.
-     * Taking cover down trades that excess for deep blue at 160-175, which is
-     * a band we are short in — the rare lever that pays on both sides. */
-    /* Raised from 0.07. That figure was chosen to move a histogram — pale
-     * cloud was the bulk of an excess in the 184-231 band — and it optimised
-     * the number at the cost of the picture: the reference plainly has cumulus
-     * over most of its sky, in discrete banks with blue between them, and 0.07
-     * is a clear day with a few wisps. The shape fix above is what makes this
-     * affordable; banks that are compact do not wash the dome the way smeared
-     * ones did. */
+    /* Midday on the coast, tuned by eye against the reference.
+     *
+     * The sun stands behind the camera's left shoulder (see `sunAzimuth`) at
+     * about 40 degrees, high enough to light everything the chase camera
+     * faces and low enough to throw palm shadows clear across the lanes.
+     *
+     * The fill is a pale, only slightly blue sky. Shade in the reference is a
+     * soft blue-grey rather than navy: a strongly blue hemisphere turned every
+     * shadow on the road into a pool of ink, and pulling its intensity down to
+     * deepen contrast made it worse. The ground bounce is warm, from sunlit
+     * paving and sand. */
+    sunColor: 0xfff2dc, sunIntensity: 4.4,
+    skyTop: 0x2a66bc, skyBottom: 0x7aa6d6, horizon: 0xf4f0e2,
+    hemiSky: 0xc6d6ec, hemiGround: 0x6e675a, hemiIntensity: 0.95,
+    fogColor: 0xb6c8da, fogDensity: 0.0024, sunElevation: 0.43, sunAzimuth: -2.05, exposure: 1.0,
     stars: 0, clouds: 0.26, headlights: 0,
   },
   dusk: {
     sunColor: 0xff8a4c, sunIntensity: 2.0,
     skyTop: 0x1e2a5c, skyBottom: 0xe06a48, horizon: 0xff9a5a,
     hemiSky: 0x7a86c0, hemiGround: 0x3a2f28, hemiIntensity: 0.56,
-    fogColor: 0xc06a50, fogDensity: 0.0032, sunElevation: 0.1, exposure: 1.0,
+    fogColor: 0xc06a50, fogDensity: 0.0032, sunElevation: 0.1, sunAzimuth: -0.45, exposure: 1.0,
     stars: 0.32, clouds: 0.38, headlights: 1.8,
   },
   night: {
     sunColor: 0x8aa0d8, sunIntensity: 0.35,
     skyTop: 0x05060f, skyBottom: 0x121a34, horizon: 0x1c2748,
     hemiSky: 0x28324f, hemiGround: 0x0c0e14, hemiIntensity: 0.42,
-    fogColor: 0x0c1020, fogDensity: 0.0038, sunElevation: -0.2, exposure: 1.18,
+    fogColor: 0x0c1020, fogDensity: 0.0038, sunElevation: -0.2, sunAzimuth: -1.2, exposure: 1.18,
     stars: 1, clouds: 0.24, headlights: 3.6,
   },
 };
@@ -202,6 +174,7 @@ export function blendPalette(a: Palette, b: Palette, t: number): Palette {
     fogColor: lerpHex(a.fogColor, b.fogColor),
     fogDensity: lerp(a.fogDensity, b.fogDensity),
     sunElevation: lerp(a.sunElevation, b.sunElevation),
+    sunAzimuth: lerp(a.sunAzimuth, b.sunAzimuth),
     exposure: lerp(a.exposure, b.exposure),
     stars: lerp(a.stars, b.stars),
     clouds: lerp(a.clouds, b.clouds),

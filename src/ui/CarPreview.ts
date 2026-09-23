@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildPlayerCar } from '@/game/render/CarFactory';
+import { buildPlayerCar } from '@/game/render/vehicles/VehicleFactory';
 import { CARS, type CarDef } from '@/game/config/Cars';
 
 /**
@@ -119,13 +119,12 @@ export function renderCarPreviews(defs: readonly CarDef[] = CARS): Map<string, s
     for (const def of defs) {
       if (cache.has(def.id)) continue;
 
-      const car = buildPlayerCar(def);
+      const car = buildPlayerCar(def, defs.indexOf(def));
       // The underglow is a driving effect; on a showroom turntable it is a
       // bright smear across the floor that the card has no room for.
-      const glow = car.userData.glow;
-      if (glow) glow.visible = false;
+      if (car.glow) car.glow.visible = false;
       // Headlight spots belong to the road, not to a 320px thumbnail.
-      for (const spot of car.userData.headlights) spot.intensity = 0;
+      car.setHeadlamps(0);
 
       car.rotation.y = -0.34;
       scene.add(car);

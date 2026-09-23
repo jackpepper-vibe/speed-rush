@@ -1,31 +1,29 @@
 import * as THREE from 'three';
+import { cloudTexture } from './sky/CloudPainter';
 
 /**
- * Gradient sky with cloud, a sun disc and stars.
+ * The sky: gradient, painted cumulus, a sun disc and stars.
  *
  * A shader dome rather than a cube map: the palette has to slide continuously
- * through dawn, day, dusk and night, and interpolating three colours in a
- * uniform is both cheaper and smoother than cross-fading textures. Stars fade
- * in from the same uniform that darkens the top band, so the night sky arrives
- * as one change rather than two that can disagree.
+ * through dawn, day, dusk and night, and interpolating a handful of colours in
+ * uniforms is both cheaper and smoother than cross-fading textures. The clouds
+ * are the one textured part — a panoramic band painted once (see
+ * `CloudPainter`) and coloured here from the live palette, so they turn gold at
+ * dusk and grey in a storm without being repainted.
  *
  * The dome is also what the environment map is built from, so everything here
- * ends up reflected in the car's paint. That is the argument for putting the
- * cloud in the sky shader rather than hanging billboards in front of it: a
- * cloud the paint cannot see is a cloud that stops existing the moment you
- * look at the bodywork.
+ * ends up reflected in the paint, the glass and the sea. That is the argument
+ * for putting the cloud in the sky shader rather than hanging billboards in
+ * front of it: a cloud the paint cannot see stops existing the moment you look
+ * at the bodywork.
  */
 export class SkyDome {
   readonly mesh: THREE.Mesh;
   private readonly material: THREE.ShaderMaterial;
 
   /**
-   * `detail` compiles the cloud out rather than branching past it.
-   *
-   * A uniform branch would still cost the texture of the shader — every
-   * variant's registers allocated, every octave present in the binary — and on
-   * the drivers that matter here that is most of the cost. A define means the
-   * bottom tier's sky shader genuinely is a gradient.
+   * `detail` 0 drops the storm overcast's noise, the one per-pixel loop the
+   * sky has; the painted clouds are a single texture read on every tier.
    */
   constructor(detail: 0 | 1 | 2 = 2) {
     this.material = new THREE.ShaderMaterial({
@@ -37,13 +35,14 @@ export class SkyDome {
         uTop: { value: new THREE.Color(0x2a6fc4) },
         uBottom: { value: new THREE.Color(0xbcd8f0) },
         uHorizon: { value: new THREE.Color(0xfff2d0) },
-        uSunDir: { value: new THREE.Vector3(-0.5, 0.5, -0.7).normalize() },
+        uSunDir: { value: new THREE.Vector3(-0.5, 0.5, 0.5).normalize() },
         uStars: { value: 0 },
         /** cos of the disc's angular radius. 0.9991 is about 2.4 degrees. */
         uSunSize: { value: 0.9991 },
         /** Cloud cover, 0 clear to 1 overcast, and how far they have drifted. */
         uClouds: { value: 0.45 },
         uCloudDrift: { value: 0 },
+        tClouds: { value: cloudTexture() },
       },
       vertexShader: /* glsl */ `
         varying vec3 vDir;
@@ -61,6 +60,7 @@ export class SkyDome {
         uniform float uSunSize;
         uniform float uClouds;
         uniform float uCloudDrift;
+        uniform sampler2D tClouds;
         varying vec3 vDir;
 
         float hash13(vec3 p) {
@@ -75,7 +75,6 @@ export class SkyDome {
           return fract((q.x + q.y) * q.z);
         }
 
-        /** Value noise, smoothed. The cheapest thing that is not a grid. */
         float noise2(vec2 p) {
           vec2 i = floor(p);
           vec2 f = fract(p);
@@ -86,125 +85,69 @@ export class SkyDome {
             f.y);
         }
 
-        #if CLOUD_DETAIL > 1
-        /* Three octaves. Four looks better and costs a fourth more of every
-         * sky pixel on a software rasteriser, which is what the probe and the
-         * bottom of the quality ladder both run on. */
-        float fbm(vec2 p) {
-          float v = noise2(p) * 0.5;
-          v += noise2(p * 2.03) * 0.28;
-          v += noise2(p * 4.11) * 0.14;
-          return v / 0.92;
-        }
-        #endif
-
         void main() {
           vec3 dir = normalize(vDir);
           float h = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);
 
-          // Two-stage ramp: a tight glow band at the horizon, then the long
-          // climb to the zenith colour.
+          // Deep blue overhead, paler towards a tight glow band at the horizon.
           vec3 col = mix(uBottom, uTop, smoothstep(0.48, 0.80, h));
-          /* The horizon glow, kept to the horizon.
-           *
-           * This band used to reach twenty-two degrees up at three-quarter
-           * strength, which washed the entire lower half of the sky to the same
-           * pale cream and took the blue with it. A real horizon glow is a few
-           * degrees deep; the rest of the sky is sky. */
           float band = 1.0 - smoothstep(0.0, 0.085, abs(dir.y));
           col = mix(col, uHorizon, band * 0.55);
 
           float sun = dot(dir, normalize(uSunDir));
+          float sunUp = clamp(uSunDir.y * 3.0, 0.0, 1.0);
 
-          /* Cloud, on a plane rather than on the dome.
+          /* Painted cumulus round the horizon.
            *
-           * Dividing the horizontal direction by the vertical one projects the
-           * dome onto a flat deck at a fixed height, which is what makes the
-           * cells stretch and crowd together toward the horizon the way real
-           * cloud does. Mapping the noise onto the sphere directly gives cells
-           * of even size all the way down, and the sky reads as wallpaper.
-           */
+           * Mapped by azimuth and elevation onto the band. The texture holds
+           * how lit each point is (red) and how much cloud there is (alpha);
+           * the colours come from the palette: the lit side takes the sun's
+           * warmth off the horizon colour, the shade the blue of the sky it
+           * is sitting in. */
+          if (dir.y > -0.02) {
+            float azimuth = atan(dir.x, -dir.z) / 6.2831853 + 0.5 + uCloudDrift;
+            float elevation = asin(clamp(dir.y, 0.0, 1.0));
+            vec4 c = texture2D(tClouds, vec2(azimuth, elevation / 0.62));
+            float cover = c.a * clamp(uClouds * 3.2, 0.0, 1.0);
+            // Soften the bottom edge into the horizon haze.
+            cover *= smoothstep(0.0, 0.035, dir.y);
+            // How bright the sky is: clouds are lit by it, so at night they
+            // fade to faint moonlit shapes instead of glowing white.
+            float skyLight = clamp(dot(uBottom, vec3(0.2126, 0.7152, 0.0722)) * 3.0, 0.035, 1.0);
+            vec3 lit = mix(vec3(1.0, 0.99, 0.97), uHorizon, 0.35) * (0.62 + 0.38 * sunUp) * skyLight;
+            vec3 shade = mix(uTop, uBottom, 0.6) * 0.75 + vec3(0.12) * skyLight;
+            vec3 cloud = mix(shade, lit, smoothstep(0.1, 0.95, c.r));
+            // Distant cloud takes on the horizon colour.
+            cloud = mix(cloud, uHorizon * 0.9 + uBottom * 0.2, (1.0 - smoothstep(0.02, 0.22, dir.y)) * 0.35);
+            // Silver lining on cloud standing close to the sun.
+            cloud += uHorizon * pow(max(sun, 0.0), 24.0) * 0.6 * (1.0 - c.a * 0.5);
+            col = mix(col, cloud, cover);
+          }
+
+          /* A grey blanket for rain and storms: the one place noise is the
+           * right tool, since an overcast sky has no shapes in it. */
           #if CLOUD_DETAIL > 0
-          if (uClouds > 0.01 && dir.y > 0.0) {
-            vec2 plane = dir.xz / max(dir.y, 0.06);
-            /* Cell size. Dropped from 1.45: at that frequency the deck came
-             * out as an even ripple from horizon to zenith — a blanket of
-             * identical tufts, which reads as texture. Cumulus is a few large
-             * bodies with real sky between, so the cells have to be big enough
-             * that only a handful fit across the view. */
-            vec2 p = plane * 0.78 + vec2(uCloudDrift, uCloudDrift * 0.35);
-            #if CLOUD_DETAIL > 1
-              /* Domain warp: the noise field displaced by another sample of
-               * itself. Without it the cells are round and evenly spaced, which
-               * from the ground reads as a texture rather than as weather — a
-               * cloud gets its shape from being sheared by the wind it is in.
-               * Three fbm evaluations a pixel, which only the top tier pays. */
-              /* Warp reduced from 1.6. At that strength the field was sheared
-               * so hard that every bank came out as a long thin streak lying
-               * across the sky — weather in a gale, not the compact cumulus the
-               * reference has sitting over a calm coast. Enough warp to break
-               * the roundness of the noise, not enough to smear it. */
-              vec2 warp = vec2(fbm(p * 0.55 + 4.7), fbm(p * 0.55 - 2.3)) - 0.5;
-              float n = fbm(p + warp * 0.65);
-            #else
-              // One octave, unwarped. Softer and rounder, but it is cloud, and
-              // it costs a ninth of what the full version does.
-              float n = noise2(p) * 0.78 + 0.12;
-            #endif
-
-            /* Coverage as a threshold on the noise, so a rising uClouds grows
-             * the existing clouds outward instead of fading in a grey veil.
-             *
-             * The window between the two edges is what decides whether the sky
-             * reads as weather or as haze. A wide one leaves most of the dome
-             * sitting at partial cover — a pale wash that never resolves into
-             * anything — and that wash was the single largest block of pixels
-             * in the frame. Narrow it and the same noise field gives discrete
-             * banks with sky between them. */
-            /* A tighter window than before: the edge of a cumulus is nearly
-             * hard, and a wide ramp is what turns a bank into a smudge. */
-            float cover = smoothstep(0.60 - uClouds * 0.26, 0.66 - uClouds * 0.14, n);
-            // Gone by the horizon: at a grazing angle the projection stretches
-            // to infinity and every cloud smears into a band.
-            cover *= smoothstep(0.02, 0.26, dir.y);
-            /* And gone again well before the zenith. Cumulus sits on a deck a
-             * couple of kilometres up, so from the ground it crowds the lower
-             * sky and leaves clear blue overhead. Without this the projection
-             * happily tiles cloud all the way to straight up, which is the one
-             * part of the sky that should be bluest. */
-            cover *= 1.0 - smoothstep(0.30, 0.66, dir.y);
-
-            /* Lit on the sun's side, shaded away from it, and shaded again by
-             * how deep into the cloud the sample is. One dot product and one
-             * depth term standing in for scattering — but the depth term is
-             * what stops a cloud being a flat white sticker: a real one is
-             * bright at the top and grey underneath, and that difference is
-             * most of how the eye reads it as having volume. */
-            float depth = smoothstep(0.52, 0.95, n);
-            float lit = 0.5 + 0.5 * sun;
-            vec3 base = uTop * 0.42 + uBottom * 0.30;
-            vec3 top = uHorizon * 0.62 + vec3(0.26);
-            vec3 cloud = mix(base, top, clamp(lit * 0.55 + depth * 0.7, 0.0, 1.0));
-            col = mix(col, cloud, cover * 0.86);
+          if (uClouds > 0.4 && dir.y > 0.0) {
+            vec2 plane = dir.xz / max(dir.y, 0.08) * 0.6 + vec2(uCloudDrift * 8.0, 0.0);
+            float n = noise2(plane) * 0.6 + noise2(plane * 2.1) * 0.3 + noise2(plane * 4.3) * 0.1;
+            float overcast = smoothstep(0.4, 0.75, uClouds) * (0.75 + n * 0.25);
+            vec3 grey = mix(uBottom, vec3(dot(uBottom, vec3(0.33))), 0.6) * (0.8 + n * 0.25);
+            col = mix(col, grey, overcast);
           }
           #endif
 
-          /* A sun, not a flare.
+          /* Ground below the horizon.
            *
-           * The disc was five degrees across — ten times the real thing — at
-           * 2.4x the horizon colour, which is well over the bloom threshold,
-           * so UnrealBloomPass took that area and spread it across a quarter
-           * of the frame. The corona beside it fell off as pow(sun, 26), half
-           * strength still thirteen degrees out. Together they put a white
-           * wash over the upper sky and the whole horizon band, and that wash
-           * was the largest single block of the histogram residual once cloud
-           * and fog had been dealt with at iterations 17 and 18.
-           *
-           * The target settles it: target2 has no sun in frame and no flare.
-           * Keeping a bright disc is right for a game, but it has to be the
-           * size of a sun — bloom then has a small bright thing to work from
-           * rather than a large one, which is the difference between a glint
-           * and a fogged lens. */
+           * Nothing on screen ever shows the lower half of the dome — the
+           * world covers it — but everything that reflects does. Paint, glass
+           * and chrome pick up a horizon line with darker ground under it,
+           * which is the single strongest cue that a curved surface is a
+           * polished one. A dome that stayed blue below the horizon made every
+           * flank reflect sky twice. */
+          vec3 ground = mix(uBottom, uHorizon, 0.35) * 0.32;
+          col = mix(col, ground, smoothstep(0.0, -0.08, dir.y));
+
+          // A sun the size of a sun, with a soft corona.
           col += uHorizon * smoothstep(uSunSize, 1.0, sun) * 2.4;
           col += uHorizon * pow(max(sun, 0.0), 80.0) * 0.22;
 
@@ -220,7 +163,7 @@ export class SkyDome {
       `,
     });
 
-    this.mesh = new THREE.Mesh(new THREE.SphereGeometry(1400, 24, 16), this.material);
+    this.mesh = new THREE.Mesh(new THREE.SphereGeometry(1400, 32, 20), this.material);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = -1000;
   }
@@ -248,7 +191,7 @@ export class SkyDome {
    * build against another must not be comparing the weather.
    */
   advance(dt: number): void {
-    this.material.uniforms.uCloudDrift.value += dt * 0.0065;
+    this.material.uniforms.uCloudDrift.value += dt * 0.0012;
   }
 
   setSunDirection(x: number, y: number, z: number): void {

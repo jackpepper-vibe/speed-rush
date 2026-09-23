@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { GameContext } from '@/core/Manager';
 import type { SceneRig } from '@/game/render/SceneRig';
-import { boxBetween, mergeBoxes } from '@/game/render/BoxMerge';
+import { parkedCarMaterial, trafficGeometry } from '@/game/render/vehicles/VehicleFactory';
 import { CellField, cellHash, type CellPlacement } from '@/game/world/CellField';
 import { groundReliefAt } from '@/game/world/RoadGeometry';
 import type { RoadManager } from './RoadManager';
@@ -33,25 +33,14 @@ import type { WorldLookup } from './SceneryManager';
 const NEAR_LATERAL = 24;
 const FAR_LATERAL = 46;
 
-/** Hull length and width ranges, in world units. */
-const LENGTH = [4.0, 6.4] as const;
-const WIDTH = [1.9, 2.4] as const;
-const HEIGHT = [1.5, 2.6] as const;
-
-/** Sunk, so relief across a short footprint cannot float one. */
-const SINK = 0.5;
-
 /**
- * Body colours of a parked row.
- *
- * Saturated and various on purpose, where the district's are muted. A car park
- * is the one place in a landscape where strong colour is *correct*, and the
- * reference's row is exactly that — reds and whites and blues against the
- * stucco behind it. It is also the reason this rank is worth the draw call at
- * all: sand and stucco are both pale warm neutrals, so the kerb was the only
- * band in frame with nothing to break them up.
+ * Paint of a parked row: mostly the whites, silvers, greys and blacks real
+ * cars are, with the reds and blues the reference's car park has against the
+ * stucco behind it.
  */
-const BODY_HUES = [0.00, 0.03, 0.09, 0.55, 0.60, 0.33, 0.0] as const;
+const PARKED = [
+  0xeeeeea, 0xd9dde2, 0x9aa2ac, 0x2a2e36, 0x15171b, 0xb4202a, 0x1f4a8c, 0xe8e6de, 0x5a6068, 0x7a1c24,
+] as const;
 
 export class KerbsideManager extends CellField {
   readonly name = 'kerbside';
@@ -83,35 +72,19 @@ export class KerbsideManager extends CellField {
    * Authored nose-along-Z in a unit cell so the instance matrix carries length,
    * width and height independently.
    */
-  protected buildGeometry(): THREE.BufferGeometry {
-    const parts = [
-      // Body, full length, sitting just above the ground.
-      boxBetween(-0.5, 0.5, 0.10, 0.52, -0.5, 0.5),
-      // Cabin, set back and narrower.
-      boxBetween(-0.42, 0.42, 0.52, 0.86, -0.26, 0.30),
-      // Glass: a band around the cabin, proud of it, which is what reads.
-      boxBetween(-0.44, 0.44, 0.60, 0.80, -0.24, 0.28),
-    ];
-    const merged = mergeBoxes(parts);
-    for (const p of parts) p.dispose();
-    return merged;
-  }
-
   /**
-   * One material for the whole row, tinted per instance.
-   *
-   * A little metalness and a low roughness so the row catches the sun as a line
-   * of highlights rather than a line of matte lumps — that glint is most of
-   * what says "cars" when each of them is thirty pixels wide. Not a clearcoat:
-   * these are further off than the hero and there are many more of them.
+   * Real cars, not boxes: the traffic saloon, instanced, so the whole car
+   * park is one draw call and still has glass, lamps, plates and wheels.
    */
-  protected buildMaterial(): THREE.Material {
-    return new THREE.MeshStandardMaterial({
-      color: 0xffffff, roughness: 0.34, metalness: 0.42, envMapIntensity: 1.5,
-    });
+  protected buildGeometry(): THREE.BufferGeometry {
+    // The factory owns this geometry; the field must not dispose it.
+    return trafficGeometry('sedan').clone();
   }
 
-  /** Near enough to be well inside the sun's frustum, so they cast. */
+  protected buildMaterial(): THREE.Material {
+    return parkedCarMaterial();
+  }
+
   protected override get castsShadow(): boolean {
     return this.rig.quality.shadows;
   }
@@ -138,21 +111,16 @@ export class KerbsideManager extends CellField {
     out.lateral = -(secondRow ? FAR_LATERAL - 4 + r3 * 6 : NEAR_LATERAL + r3 * 5);
     out.along = world + (r4 - 0.5) * 2.2;
 
-    const length = LENGTH[0] + r5 * (LENGTH[1] - LENGTH[0]);
-    const width = WIDTH[0] + r3 * (WIDTH[1] - WIDTH[0]);
-    const height = HEIGHT[0] + r4 * (HEIGHT[1] - HEIGHT[0]);
-
-    out.height = groundReliefAt(out.lateral, out.along) - SINK;
+    out.height = groundReliefAt(out.lateral, out.along);
     /* Nose-in to the kerb, so the row is seen end-on from the road — which is
      * both what a parked row looks like and the cheapest silhouette to read.
      * A few degrees of scatter, because nobody parks straight. */
     out.yaw = Math.PI / 2 + (r5 - 0.5) * 0.16;
-    out.scale.set(width, height, length);
-
-    const hue = BODY_HUES[Math.floor(r4 * BODY_HUES.length) % BODY_HUES.length];
-    // A quarter of them are white or silver, as a real car park is.
-    const pale = r5 > 0.74;
-    out.colour.setHSL(hue, pale ? 0.03 : 0.52 + r3 * 0.3, pale ? 0.78 : 0.34 + r2 * 0.22);
+    // Built at real size; a few percent either way so the row is not a clone.
+    const size = 0.95 + r3 * 0.1;
+    out.scale.set(size, size, size);
+    // The paint, as a real car park is: mostly white, silver, grey and black.
+    out.colour.setHex(PARKED[Math.floor(r4 * PARKED.length) % PARKED.length]);
     return true;
   }
 }

@@ -2,7 +2,9 @@ import * as THREE from 'three';
 import type { GameContext, Manager } from '@/core/Manager';
 import { Random } from '@/core/Random';
 import { makeGlowTexture, makeSmokeTexture } from '@/game/render/RoadTextures';
+import { BillboardField } from '@/game/render/BillboardField';
 import { ParticleField } from '@/game/render/ParticleField';
+import { FLAME_CORE, FLAME_ENVELOPE, FlameMaterial } from '@/game/render/effects/FlameMaterial';
 import type { PlayerManager } from './PlayerManager';
 import type { SceneRig } from '@/game/render/SceneRig';
 
@@ -34,16 +36,16 @@ const SMOKE_CAPACITY = 700;
  * Kept at a rate that leaves the live population inside SMOKE_CAPACITY: at
  * SMOKE_PUFF_PARTICLES of 3 and lives of 0.9 to 1.7 seconds this settles near
  * 400 of the 700 available, with headroom for the sparks field beside it. */
-const DRIFT_SMOKE_RATE = 105;
+const DRIFT_SMOKE_RATE = 32;
 /** Billboards per puff, spread along the car's axis so the plume has an inside. */
-const SMOKE_PUFF_PARTICLES = 3;
+const SMOKE_PUFF_PARTICLES = 2;
 const DRIFT_SPARK_RATE = 45;
 
 export class EffectsManager implements Manager {
   readonly name = 'effects';
 
   private readonly sparks: ParticleField;
-  private readonly smoke: ParticleField;
+  private readonly smoke: BillboardField;
 
   /**
    * The afterburner, as two nested cones on each pipe.
@@ -55,8 +57,8 @@ export class EffectsManager implements Manager {
    */
   private readonly flames: THREE.Mesh[] = [];
   private readonly flameRoot = new THREE.Group();
-  private readonly flameCore: THREE.MeshBasicMaterial;
-  private readonly flameEnvelope: THREE.MeshBasicMaterial;
+  private readonly flameCore = new FlameMaterial(FLAME_CORE);
+  private readonly flameEnvelope = new FlameMaterial(FLAME_ENVELOPE);
 
   /** 0..1, eased rather than switched, so the flame lights and dies. */
   private flameLevel = 0;
@@ -125,30 +127,21 @@ export class EffectsManager implements Manager {
       drag: 1.4,
       gravity: 22,
     });
-    this.smoke = new ParticleField({
+    // Camera-facing quads in metres, lit from above: see BillboardField for
+    // why smoke is not point sprites. Normal blending — smoke occludes what is
+    // behind it rather than glowing.
+    this.smoke = new BillboardField({
       capacity: SMOKE_CAPACITY,
       map: this.smokeMap,
-      // Normal blending, not additive. Smoke occludes what is behind it; the
-      // additive version glowed, which at night turned a locked wheel into a
-      // light source.
-      blending: THREE.NormalBlending,
-      drag: 2.2,
-      gravity: -1.4,
+      drag: 1.6,
+      gravity: -0.9,
     });
 
-    this.flameCore = new THREE.MeshBasicMaterial({
-      color: 0xdcf0ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending,
-      depthWrite: false, toneMapped: false,
-    });
-    this.flameEnvelope = new THREE.MeshBasicMaterial({
-      color: 0xff7a1e, transparent: true, opacity: 0, blending: THREE.AdditiveBlending,
-      depthWrite: false, toneMapped: false,
-    });
   }
 
   init(): void {
     this.ctx.scene.add(this.sparks.points);
-    this.ctx.scene.add(this.smoke.points);
+    this.ctx.scene.add(this.smoke.mesh);
     this.attachFlames();
 
     const bus = this.ctx.bus;
@@ -179,7 +172,7 @@ export class EffectsManager implements Manager {
     this.flames.length = 0;
     this.flameRoot.removeFromParent();
 
-    const anchors = this.player.mesh.userData.exhausts ?? [];
+    const anchors = this.player.mesh.exhausts;
     this.player.mesh.add(this.flameRoot);
 
     for (const anchor of anchors) {
@@ -187,7 +180,7 @@ export class EffectsManager implements Manager {
         [1, this.flameEnvelope],
         [0.52, this.flameCore],
       ] as const) {
-        const geo = new THREE.ConeGeometry(0.15 * scale, 2.1 * scale, 12, 1, true);
+        const geo = new THREE.ConeGeometry(0.15 * scale, 2.1 * scale, 16, 1, true);
         // Cones are built pointing up. Rotated to point back down the road, and
         // shifted so the mouth sits at the pipe rather than around it.
         geo.rotateX(Math.PI / 2);
@@ -247,8 +240,8 @@ export class EffectsManager implements Manager {
     const length = this.flameLevel * jitter;
 
     for (const cone of this.flames) cone.scale.set(1, 1, Math.max(0.05, length));
-    this.flameEnvelope.opacity = this.flameLevel * 0.95;
-    this.flameCore.opacity = this.flameLevel * 1.0;
+    this.flameEnvelope.update(this.flameLevel, dt);
+    this.flameCore.update(this.flameLevel, dt);
 
     // Sparks out of the pipe with the flame: the tail of an afterburner is
     // unburnt fuel, and the flecks are most of why it reads as violent.
@@ -312,9 +305,9 @@ export class EffectsManager implements Manager {
           rear + depth + (this.rng.next() - 0.5) * 0.4,
         );
         this.vel.set(
-          side * (0.6 + this.rng.next() * 1.4),
-          0.5 + this.rng.next() * 0.9,
-          3 + this.speed * 0.055,
+          side * (0.5 + this.rng.next() * 1.2),
+          0.35 + this.rng.next() * 0.8,
+          2 + this.speed * 0.08,
         );
       /* Warm grey, and light enough to be seen against the road it is on.
        *
@@ -331,19 +324,18 @@ export class EffectsManager implements Manager {
        * landed against what it sits on, and re-landing the road silently
        * un-landed this. Sunlit tyre smoke is a pale thing anyway — it is water
        * vapour far more than it is rubber. */
-        const shade = 0.58 + this.rng.next() * 0.18;
-        this.tint.setRGB(shade, shade * 0.97, shade * 0.92);
+        const shade = 0.82 + this.rng.next() * 0.12;
+        this.tint.setRGB(shade, shade * 0.98, shade * 0.95);
         this.smoke.emit({
           position: this.pos, velocity: this.vel,
-          // Tyre smoke hangs. At half a second it was gone before it could
-          // accumulate into anything with a shape.
-          life: 0.9 + this.rng.next() * 0.8,
-          size: 0.18 + this.rng.next() * 0.3,
-          sizeGrowth: 3.1,
+          // Tyre smoke hangs, and billows: metres across within a second.
+          life: 0.9 + this.rng.next() * 0.7,
+          size: 0.6 + this.rng.next() * 0.5,
+          sizeGrowth: 3.0,
           colour: this.tint,
-          // Thinner per particle because several now overlap: the mass builds
-          // from accumulation rather than from each sprite carrying it alone.
-          opacity: 0.16 + this.driftIntensity * 0.14,
+          // Thin per puff because many overlap: the mass builds from
+          // accumulation rather than from each sprite carrying it alone.
+          opacity: 0.28 + this.driftIntensity * 0.22,
         });
       }
     }
@@ -390,9 +382,9 @@ export class EffectsManager implements Manager {
         this.tint.setRGB(shade, shade * 0.95, shade * 0.88);
         this.smoke.emit({
           position: this.pos, velocity: this.vel,
-          life: 0.45 + this.rng.next() * 0.45,
-          size: 0.15 + this.rng.next() * 0.2,
-          sizeGrowth: 2.6,
+          life: 0.6 + this.rng.next() * 0.5,
+          size: 0.45 + this.rng.next() * 0.4,
+          sizeGrowth: 2.8,
           colour: this.tint,
           opacity: 0.22 + strength * 0.18,
         });
@@ -457,8 +449,8 @@ export class EffectsManager implements Manager {
         this.tint.setRGB(shade, shade * 0.93, shade * 0.88);
         this.smoke.emit({
           position: this.pos, velocity: this.vel,
-          life: 0.8 + this.rng.next() * 0.9,
-          size: 0.25 + this.rng.next() * 0.3,
+          life: 0.9 + this.rng.next() * 0.9,
+          size: 0.7 + this.rng.next() * 0.7,
           sizeGrowth: 3.2, colour: this.tint, opacity: 0.42,
         });
       }
@@ -485,7 +477,7 @@ export class EffectsManager implements Manager {
     this.visible[kind] = visible;
     if (kind === 'flame') this.flameRoot.visible = visible && this.flameLevel > 0.01;
     if (kind === 'sparks') this.sparks.points.visible = visible;
-    if (kind === 'smoke') this.smoke.points.visible = visible;
+    if (kind === 'smoke') this.smoke.mesh.visible = visible;
   }
 
   /** Hold the drift emitters open, for a measurement that needs them running. */
@@ -514,7 +506,7 @@ export class EffectsManager implements Manager {
 
   dispose(): void {
     this.sparks.points.removeFromParent();
-    this.smoke.points.removeFromParent();
+    this.smoke.mesh.removeFromParent();
     this.sparks.dispose();
     this.smoke.dispose();
     for (const cone of this.flames) cone.geometry.dispose();

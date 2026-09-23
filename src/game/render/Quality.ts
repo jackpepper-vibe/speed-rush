@@ -34,26 +34,16 @@ export interface QualitySettings {
    */
   readonly motionBlur: boolean;
   /**
-   * Ring and length segments for the player's lofted body.
+   * How much car to build.
    *
-   * The hero car is the one model on screen at all times and within a few
-   * metres of the camera, so it carries a detail budget the rest of the game
-   * does not. It still has to come down at the bottom of the ladder — the fix
-   * for a weak GPU is a cheaper hero, not a cheaper top tier.
+   * 'full' builds the player's car at hero detail and traffic at road
+   * detail. 'reduced' drops each a rung: the player's car to road detail and
+   * traffic to the level parked cars use. The player's car is the one model
+   * on screen at all times and a few metres from the camera, so it carries a
+   * budget the rest of the game does not — but the fix for a weak GPU is a
+   * cheaper hero, not a cheaper top tier.
    */
-  /**
-   * How much car a piece of traffic is worth.
-   *
-   * Separate from the hero's LOD because the two answer different questions.
-   * The hero is one mesh a metre from the camera and its budget is about how
-   * round a single silhouette needs to be; traffic is a poolful of vehicles
-   * that are mostly small and distant, and its budget is about how many.
-   * Rounder wheels and brake calipers on twenty cars is a real cost, so only
-   * the tier that has already paid for shadows and bloom takes it.
-   */
-  readonly trafficDetail: 'high' | 'low';
-  readonly heroLoftRings: number;
-  readonly heroLoftLength: number;
+  readonly vehicleDetail: 'full' | 'reduced';
   /**
    * How much work the sky is allowed to do per pixel: 0 gradient only,
    * 1 single-octave cloud, 2 three octaves with a domain warp.
@@ -66,6 +56,16 @@ export interface QualitySettings {
    * the probe crawl is a machine that drops the context in play.
    */
   readonly skyDetail: 0 | 1 | 2;
+  /**
+   * Multisample count for the scene render target.
+   *
+   * The canvas's own `antialias` flag does nothing once a post chain is in
+   * place: the scene is drawn into the composer's target, not the canvas, and
+   * that target is single-sampled unless it is asked for otherwise. Every edge
+   * in the game — palm fronds, railings, lamp arms, the car's silhouette — was
+   * being drawn aliased at every tier. Zero keeps the bottom rung cheap.
+   */
+  readonly msaa: 0 | 2 | 4;
 }
 
 const TIERS: Record<QualityTier, QualitySettings> = {
@@ -80,10 +80,9 @@ const TIERS: Record<QualityTier, QualitySettings> = {
     sceneryDensity: 0.45,
     drawDistanceScale: 0.7,
     motionBlur: false,
-    trafficDetail: 'low',
-    heroLoftRings: 18,
-    heroLoftLength: 28,
+    vehicleDetail: 'reduced',
     skyDetail: 0,
+    msaa: 0,
   },
   medium: {
     tier: 'medium',
@@ -96,10 +95,9 @@ const TIERS: Record<QualityTier, QualitySettings> = {
     sceneryDensity: 0.75,
     drawDistanceScale: 0.88,
     motionBlur: true,
-    trafficDetail: 'low',
-    heroLoftRings: 34,
-    heroLoftLength: 56,
+    vehicleDetail: 'full',
     skyDetail: 1,
+    msaa: 4,
   },
   high: {
     tier: 'high',
@@ -107,15 +105,14 @@ const TIERS: Record<QualityTier, QualitySettings> = {
     shadows: true,
     bloom: true,
     bloomStrength: 0.52,
-    maxPixelRatio: 2,
+    maxPixelRatio: 1.5,
     anisotropy: 8,
     sceneryDensity: 1,
     drawDistanceScale: 1,
     motionBlur: true,
-    trafficDetail: 'high',
-    heroLoftRings: 76,
-    heroLoftLength: 132,
+    vehicleDetail: 'full',
     skyDetail: 2,
+    msaa: 4,
   },
 };
 

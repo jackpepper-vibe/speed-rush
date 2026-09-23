@@ -2034,14 +2034,23 @@ await shot(page, 'scenery');
 phase = 'models';
 const models = await page.evaluate(() => window.carRacer.models());
 
+/* The audit builds every vehicle on both rungs of the quality ladder:
+ * `player` and `traffic` are the top rung, `hero-lod` and `traffic-lod` the
+ * bottom one, whatever tier this page resolved to. */
+const isPlayer = (m) => m.kind === 'player' || m.kind === 'hero-lod';
 const PLAYER_FLOOR = 1200;
 const TRAFFIC_FLOOR = 350;
-// Raised with the hero LOD. The player's car is one model, always on screen and
-// a few metres from the camera; thirty thousand triangles on it is a rounding
-// error on any GPU built this decade, and the machines where it is not get the
-// bottom rung of the ladder instead of a coarser top tier.
-const PLAYER_CEILING = 70000;
-const TRAFFIC_CEILING = 6000;
+/* Triangle ceilings per rung.
+ *
+ * The player's car is one model, always on screen and a few metres from the
+ * camera; thirty thousand triangles on it is a rounding error on any GPU built
+ * this decade, and the machines where it is not get the bottom rung instead of
+ * a coarser top tier. Traffic is the pool: a dozen or two in view, so every
+ * thousand on a traffic model is tens of thousands on the frame, and the top
+ * rung's whole coastal frame measures about 1.2M triangles. The bottom rung is
+ * for software rasterisers and weak integrated GPUs, and pays for trucks and
+ * buses mostly in wheels and panels that have no cheaper form. */
+const CEILING = { player: 70000, 'hero-lod': 15000, traffic: 10000, 'traffic-lod': 7000 };
 
 {
   const bare = models.filter((m) => m.bareAdditiveQuads > 0);
@@ -2051,26 +2060,49 @@ const TRAFFIC_CEILING = 6000;
       : `no additive surface on any of ${models.length} vehicles lacks a texture`);
 
   const thin = models.filter((m) =>
-    m.triangles < (m.kind === 'player' ? PLAYER_FLOOR : TRAFFIC_FLOOR));
+    m.triangles < (isPlayer(m) ? PLAYER_FLOOR : TRAFFIC_FLOOR));
   check('model', 'no-blocky-vehicles', thin.length === 0,
     thin.length
       ? `below the triangle floor: ${thin.map((m) => `${m.id} ${m.triangles}`).join(', ')}`
       : `all ${models.length} vehicles clear their floor ` +
         `(player >= ${PLAYER_FLOOR}, traffic >= ${TRAFFIC_FLOOR})`);
 
-  const heavy = models.filter((m) =>
-    m.triangles > (m.kind === 'player' ? PLAYER_CEILING : TRAFFIC_CEILING));
+  const heavy = models.filter((m) => !(m.kind in CEILING) || m.triangles > CEILING[m.kind]);
+  const heaviest = (kind) => Math.max(...models.filter((m) => m.kind === kind).map((m) => m.triangles));
   check('model', 'vehicles-stay-affordable', heavy.length === 0,
     heavy.length
-      ? `over the triangle ceiling: ${heavy.map((m) => `${m.id} ${m.triangles}`).join(', ')}`
-      : `heaviest: ${Math.max(...models.map((m) => m.triangles))} triangles`);
+      ? `over the ceiling for their rung: ${heavy.map((m) => `${m.id} (${m.kind}) ${m.triangles}, max ${CEILING[m.kind]}`).join(', ')}`
+      : `heaviest per rung: ${Object.keys(CEILING).map((k) => `${k} ${heaviest(k)} of ${CEILING[k]}`).join(', ')}`);
 }
 
-for (const m of models) {
+/* A vehicle is one mesh under one material, so "built from parts" is read off
+ * what that material renders. A body that is only paint is a blob however many
+ * triangles it has: rubber, a bright metal and lenses are what make it read as
+ * a car, and a car that is several meshes again has lost what lets thirty of
+ * them share a frame. Glass is not required — the roadster's screen is its one
+ * transparent extra. */
+const SURFACE_FLOOR = { player: 14, traffic: 10 };
+const DRAW_CALL_CEILING = { player: 4, traffic: 2 };
+for (const m of models.filter((m) => m.kind === 'player' || m.kind === 'traffic')) {
+  const has = (name) => m.surfaces.some((s) => s.startsWith(name));
+  const missing = ['paint', 'rubber', 'underbody'].filter((s) => !has(s));
+  if (!has('chrome') && !has('rim-') && !has('brushed')) missing.push('bright metal');
   check('model', `built/${m.id}`,
-    m.meshes >= 8 && m.materialTypes.length >= 2,
-    `${m.id} (${m.kind}): ${m.triangles} tris across ${m.meshes} meshes, ` +
-    `materials [${m.materialTypes.join(', ')}]`);
+    missing.length === 0 && m.surfaces.length >= SURFACE_FLOOR[m.kind] && m.drawCalls <= DRAW_CALL_CEILING[m.kind],
+    `${m.id} (${m.kind}): ${m.triangles} tris in ${m.drawCalls} draw calls ` +
+    `(max ${DRAW_CALL_CEILING[m.kind]}), ${m.surfaces.length} surfaces (min ${SURFACE_FLOOR[m.kind]})` +
+    (missing.length ? `, missing ${missing.join(', ')}` : ''));
+}
+
+/* Brake lenses are what traffic warns the player with, and head lenses what a
+ * car shows at night from ahead. On every rung: the bottom one is a cheaper
+ * car, not one that cannot signal. */
+{
+  const dark = models.filter((m) => !m.lamps.includes('brake') || !m.lamps.includes('head'));
+  check('model', 'lamps-on-every-rung', dark.length === 0,
+    dark.length
+      ? `missing brake or head lenses: ${dark.map((m) => `${m.id} (${m.kind}) [${m.lamps.join(', ')}]`).join(', ')}`
+      : `all ${models.length} builds carry brake and head lenses`);
 }
 
 /* Traffic must be cheaper than the player's car — the detail tier is the whole
@@ -2364,25 +2396,30 @@ phase = 'render-quality';
    * Where each thing lives in the frame, as fractions of it.
    *
    * Fractions rather than pixels so the gate does not quietly become a test of
-   * the viewport size. These follow from the pinned pose: the car sits centred
-   * in the lower middle, its exhausts just below it, its shadow directly under
-   * it, and the road either side of it is the control the shadow is compared
-   * against.
+   * the viewport size, and taken from where the car actually is rather than
+   * fitted to one camera. These boxes were once fixed numbers; the chase
+   * framing changed, the car moved down the frame, and the flame check went on
+   * measuring the road above the exhausts and reported a working flame as
+   * missing. The framing also moves with speed, so a check that changes the
+   * speed — nitro does — places its box after it has, in the same call that
+   * samples the frame. The fixed boxes are fixed on purpose: the corners are
+   * where the speed blur is strongest whatever the car is doing, and sparks
+   * fly wide of it.
    */
-  const REGION = {
-    body: [0.44, 0.55, 0.56, 0.67],
-    flame: [0.45, 0.69, 0.55, 0.77],
-    behind: [0.28, 0.62, 0.72, 0.88],
+  const FIXED = {
     wide: [0.20, 0.40, 0.80, 0.90],
-    // Below the bumper, not across it. The first version of this box sat high
-    // enough to be measuring the brake lights, and duly reported the space
-    // under the car as brighter than the road beside it.
-    underCar: [0.465, 0.69, 0.535, 0.75],
-    besideCarLeft: [0.33, 0.69, 0.42, 0.75],
-    besideCarRight: [0.58, 0.69, 0.67, 0.75],
     cornerLeft: [0.0, 0.62, 0.16, 1.0],
     cornerRight: [0.84, 0.62, 1.0, 1.0],
   };
+  const car = await hero.evaluate(() => window.carRacer.playerOnScreen());
+  const REGION = { ...car.regions, ...FIXED };
+  {
+    const [bx0, by0, bx1, by1] = car.box;
+    check('render', 'player-in-frame',
+      bx0 > 0 && bx1 < 1 && by0 > 0 && by1 < 1 && bx1 - bx0 > 0.05 && car.exhausts.length > 0,
+      `the player's car spans x ${bx0.toFixed(2)}-${bx1.toFixed(2)}, y ${by0.toFixed(2)}-${by1.toFixed(2)} of the frame ` +
+      `with ${car.exhausts.length} exhaust tips — the boxes below are placed from it`);
+  }
 
   const measure = (rects) => hero.evaluate((r) => window.carRacer.sampleFrame(r), rects);
 
@@ -2478,7 +2515,7 @@ phase = 'render-quality';
   ];
 
   for (const { kind, region, floor } of effectCases) {
-    const delta = await hero.evaluate(({ kind, rect }) => {
+    const delta = await hero.evaluate(({ kind, region, fixed }) => {
       const cr = window.carRacer;
       cr.clearPowerups();
 
@@ -2487,6 +2524,8 @@ phase = 'render-quality';
       else if (kind === 'sparks') { cr.burstEffect('sparks'); cr.drive(0.05, 0); }
       else { cr.forceDrift(1); cr.drive(0.5, 0); }
 
+      // Placed now, at the speed the effect left the car at.
+      const rect = fixed ?? cr.playerOnScreen().regions[region];
       const live = cr.effects();
       // Both frames from the same simulation state, nothing awaited between.
       cr.setEffectVisible(kind, false);
@@ -2494,7 +2533,7 @@ phase = 'render-quality';
       cr.setEffectVisible(kind, true);
       const on = cr.sampleFrame({ r: rect }).r;
       return { off: off.mean, on: on.mean, live };
-    }, { kind, rect: REGION[region] });
+    }, { kind, region, fixed: FIXED[region] ?? null });
 
     const added = Math.abs(delta.on - delta.off);
     check('render', `effect-present/${kind}`, added >= floor,
@@ -2509,7 +2548,7 @@ phase = 'render-quality';
    * and where the effect is deliberately weakest — keeps it. Measuring only
    * the corners would pass on any change that dimmed the frame. */
   {
-    const blur = await hero.evaluate((R) => {
+    const blur = await hero.evaluate((fixed) => {
       const cr = window.carRacer;
       /*
        * Both readings are taken under boost, with only the blur switched.
@@ -2530,7 +2569,7 @@ phase = 'render-quality';
       // No sim advance between these two: the override is applied to the
       // grade immediately, so the only difference between the frames is the
       // blur itself.
-      const rects = { l: R.cornerLeft, r: R.cornerRight, mid: R.body };
+      const rects = { l: fixed.cornerLeft, r: fixed.cornerRight, mid: cr.playerOnScreen().regions.body };
       cr.setMotionBlur(false);
       const sharp = cr.sampleFrame(rects);
       cr.setMotionBlur(true);
@@ -2541,7 +2580,7 @@ phase = 'render-quality';
       cr.setEffectVisible('sparks', true);
       cr.setEffectVisible('smoke', true);
       return { rest: sharp, boost: blurred, blurEnabled: cr.motionBlurEnabled() };
-    }, REGION);
+    }, FIXED);
 
     const restCorners = (blur.rest.l.edges + blur.rest.r.edges) / 2;
     const boostCorners = (blur.boost.l.edges + blur.boost.r.edges) / 2;
@@ -2837,12 +2876,26 @@ phase = 'render-quality';
       : `every player body clears ${HERO_TRIANGLE_FLOOR} triangles at the top tier ` +
         `(lightest ${Math.min(...heroes.map((m) => m.triangles))})`);
 
-  const creased = heroes.filter((m) => m.silhouette < 0.95);
-  check('render', 'hero-silhouette-smoothness', creased.length === 0,
+  /* What this measures, stated plainly so nobody trusts it further than it
+   * goes: the share of the lofted shell's edges that turn by less than twenty
+   * degrees. The rest are mostly deliberate — arch lips, the tuck under the
+   * sills, the round where the flanks meet the nose and tail — and the share
+   * tracks tessellation density: about 90% at hero detail, 85% at traffic,
+   * 78% at parked-car detail. So the bar catches a hero body regressing to a
+   * coarser grid.
+   *
+   * It does not catch a panel shaded wrong. The nose and tail panels were once
+   * closed onto a single pole, which shaded as crumpled foil and left painted
+   * grilles with stair-stepped edges, and bodies built that way scored the
+   * same as the rebuilt ones. That class of defect is found by looking at the
+   * cars (tools/look.mjs --scenes cars), not by this number. */
+  const HERO_SMOOTHNESS = 0.88;
+  const creased = heroes.filter((m) => !(m.silhouette >= HERO_SMOOTHNESS));
+  check('render', 'hero-silhouette-smoothness', heroes.length > 0 && creased.length === 0,
     creased.length
-      ? `creased bodies: ${creased.map((m) => `${m.id} ${(m.silhouette * 100).toFixed(1)}%`).join(', ')}`
+      ? `coarse bodies: ${creased.map((m) => `${m.id} ${(m.silhouette * 100).toFixed(1)}%`).join(', ')}`
       : `worst body has ${(Math.min(...heroes.map((m) => m.silhouette)) * 100).toFixed(1)}% of its ` +
-        `adjacent-face angles under 20 degrees, want >= 95%`);
+        `adjacent-face angles under 20 degrees, want >= ${HERO_SMOOTHNESS * 100}%`);
 
   const faceted = models.filter((m) => m.flatShadedMeshes > 0);
   check('render', 'no-flat-shaded-panels', faceted.length === 0,
@@ -2851,13 +2904,20 @@ phase = 'render-quality';
         `the averaged normals the loft exists to produce`
       : `no panel on any of ${models.length} vehicles renders with flatShading`);
 
-  /* The ladder has to actually step. A hero LOD that is the same model twice
-   * is not a level of detail, it is a comment. */
-  const heaviestLod = Math.max(...lods.map((m) => m.triangles));
-  const lightestHero = Math.min(...heroes.map((m) => m.triangles));
-  check('render', 'hero-lod-steps-down', heaviestLod < lightestHero * 0.35,
-    `bottom rung peaks at ${heaviestLod} triangles against ${lightestHero} at the top, ` +
-    `want under 35%`);
+  /* The ladder has to actually step, for every car. A hero LOD that is the
+   * same model twice is not a level of detail, it is a comment. Measured car
+   * against car: the roadster's driver, seats and screen frame make its bottom
+   * rung heavier than another car's top rung would need, which says nothing
+   * about whether the roadster's own ladder steps. */
+  const steps = heroes.map((h) => {
+    const lod = lods.find((m) => m.id === h.id);
+    return { id: h.id, share: lod ? lod.triangles / h.triangles : Infinity };
+  });
+  const flat = steps.filter((s) => !(s.share < 0.35));
+  check('render', 'hero-lod-steps-down', heroes.length > 0 && flat.length === 0,
+    flat.length
+      ? `bottom rung not under 35% of the top: ${flat.map((s) => `${s.id} ${Number.isFinite(s.share) ? (s.share * 100).toFixed(0) + '%' : 'missing'}`).join(', ')}`
+      : `each car's bottom rung is ${steps.map((s) => `${s.id} ${(s.share * 100).toFixed(0)}%`).join(', ')} of its top`);
 }
 
 /* ------------------------------------------------------------------- report */

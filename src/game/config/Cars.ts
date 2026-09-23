@@ -32,7 +32,7 @@ export interface CarDef {
   readonly glow: number;
   readonly stats: CarStats;
   /** Silhouette the mesh factory builds. */
-  readonly body: 'hatch' | 'coupe' | 'muscle' | 'super' | 'wedge' | 'hyper';
+  readonly body: 'roadster' | 'coupe' | 'muscle' | 'super' | 'wedge' | 'hyper';
   readonly blurb: string;
 }
 
@@ -54,9 +54,9 @@ export const CARS: readonly CarDef[] = [
     color: 0xe8402c,
     trim: 0x1a1a20,
     glow: 0xff5a2c,
-    body: 'hatch',
+    body: 'roadster',
     stats: { topSpeed: 1.0, accel: 1.0, grip: 1.0, boost: 1.0 },
-    blurb: 'Starter hot hatch. Honest, forgiving, slow.',
+    blurb: 'Sixties roadster, roof down. Honest, forgiving, slow.',
   },
   {
     id: 'kestrel',
@@ -67,7 +67,7 @@ export const CARS: readonly CarDef[] = [
     glow: 0x39c8ff,
     body: 'coupe',
     stats: { topSpeed: 1.07, accel: 1.04, grip: 1.12, boost: 1.0 },
-    blurb: 'Light coupe that turns in far harder than it accelerates.',
+    blurb: 'Grand tourer that turns in far harder than it accelerates.',
   },
   {
     id: 'bruiser',
@@ -78,7 +78,7 @@ export const CARS: readonly CarDef[] = [
     glow: 0xffc23a,
     body: 'muscle',
     stats: { topSpeed: 1.14, accel: 1.18, grip: 0.88, boost: 1.05 },
-    blurb: 'All torque, no manners. Straight lines only.',
+    blurb: 'American muscle. All torque, no manners. Straight lines only.',
   },
   {
     id: 'vantage',
@@ -89,7 +89,7 @@ export const CARS: readonly CarDef[] = [
     glow: 0x4dffb0,
     body: 'wedge',
     stats: { topSpeed: 1.2, accel: 1.12, grip: 1.16, boost: 1.12 },
-    blurb: 'Balanced wedge. No weakness, no drama.',
+    blurb: 'Eighties wedge. Balanced, no weakness, no drama.',
   },
   {
     id: 'phantom',

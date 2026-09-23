@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { GameContext, Manager } from '@/core/Manager';
 import type { TrafficKind } from '@/core/GameEvents';
 import { COLLISION, ROAD, SPEED, TRAFFIC } from '@/game/config/Balance';
-import { buildTrafficCar, type CarMesh } from '@/game/render/CarFactory';
+import { buildTrafficCar, trafficPaint, type Vehicle as VehicleVisual } from '@/game/render/vehicles/VehicleFactory';
 import type { RoadManager } from './RoadManager';
 import type { PlayerManager } from './PlayerManager';
 
@@ -21,7 +21,7 @@ import type { PlayerManager } from './PlayerManager';
  * per spawn is what made the original shed frames the longer you survived.
  */
 interface Vehicle {
-  mesh: CarMesh;
+  mesh: VehicleVisual;
   kind: TrafficKind;
   active: boolean;
   /** Absolute distance along the road. */
@@ -312,9 +312,13 @@ export class TrafficManager implements Manager {
    * which the pool makes rare.
    */
   private reskin(v: Vehicle, kind: TrafficKind, colorRoll: number): void {
-    if (v.kind === kind && v.mesh.parent) return;
-    this.root.remove(v.mesh);
-    disposeGroup(v.mesh);
+    if (v.kind === kind && v.mesh.parent) {
+      // Same body: a repaint is a uniform, so every car in the stream gets
+      // its own colour rather than keeping the one its pool slot was built in.
+      v.mesh.setPaint(trafficPaint(kind, colorRoll));
+      return;
+    }
+    v.mesh.dispose();
     v.mesh = buildTrafficCar(kind, colorRoll);
     this.root.add(v.mesh);
     v.kind = kind;
@@ -357,7 +361,7 @@ export class TrafficManager implements Manager {
       v.speed = Math.min(v.cruiseSpeed, v.speed + 9 * dt);
     }
 
-    v.mesh.userData.brakeLights.emissiveIntensity = v.braking ? 3.2 : 0.3;
+    v.mesh.setBrake(v.braking ? 1 : 0);
 
     // Lane-change decisions, on a timer rather than every frame.
     v.decisionTimer -= dt;
@@ -446,8 +450,8 @@ export class TrafficManager implements Manager {
     const lateral = v.laneBlend < 1 ? (ROAD.laneX(v.targetLane) - ROAD.laneX(v.lane)) : 0;
     v.mesh.rotation.y = lateral * 0.06 * (1 - Math.abs(v.laneBlend * 2 - 1));
 
-    v.wheelSpin += v.speed * dt * 2.4;
-    for (const wheel of v.mesh.userData.wheels) wheel.rotation.x = v.wheelSpin;
+    v.wheelSpin -= (v.speed * dt) / 0.34;
+    v.mesh.setWheelSpin(v.wheelSpin);
   }
 
   /* -------------------------------------------------------------- collision */
@@ -507,17 +511,7 @@ export class TrafficManager implements Manager {
 
   dispose(): void {
     this.ctx.scene.remove(this.root);
-    for (const v of this.pool) disposeGroup(v.mesh);
+    for (const v of this.pool) v.mesh.dispose();
     this.pool.length = 0;
   }
-}
-
-function disposeGroup(group: THREE.Object3D): void {
-  group.traverse((o) => {
-    if (o instanceof THREE.Mesh) {
-      const mat = o.material;
-      if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
-      else mat.dispose();
-    }
-  });
 }

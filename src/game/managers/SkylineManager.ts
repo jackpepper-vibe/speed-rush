@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { GameContext } from '@/core/Manager';
 import type { SceneRig } from '@/game/render/SceneRig';
-import { boxBetween, mergeBoxes } from '@/game/render/BoxMerge';
+import { BuildingMaterial, towerGeometry } from '@/game/render/buildings/BuildingMaterial';
 import { CellField, cellHash, type CellPlacement } from '@/game/world/CellField';
 import { groundReliefAt } from '@/game/world/RoadGeometry';
 import type { RoadManager } from './RoadManager';
@@ -29,7 +29,7 @@ const FAR_LATERAL = 400;
 
 /** Footprint and height ranges, in world units. */
 const WIDTH = [16, 38] as const;
-const HEIGHT = [24, 74] as const;
+const HEIGHT = [34, 96] as const;
 
 /**
  * Sunk a little, so relief the buildings are not modelled against cannot leave
@@ -37,6 +37,9 @@ const HEIGHT = [24, 74] as const;
  * per building, so this only has to cover the slope across a single footprint.
  */
 const SINK = 4;
+
+/** Towers: whites, stone and blue-grey glass. */
+const TOWERS = [0xe8e8e4, 0xc8ccd0, 0xb8c4d0, 0xd8cbb4, 0x9aa6b4, 0xe0d4c0] as const;
 
 export class SkylineManager extends CellField {
   readonly name = 'skyline';
@@ -69,81 +72,12 @@ export class SkylineManager extends CellField {
    * much haze, is all of them.
    */
   protected buildGeometry(): THREE.BufferGeometry {
-    /*
-     * A tower with floors, not a slab with a stick on top.
-     *
-     * Three boxes in one flat colour is what this was, and at the size it
-     * occupies on the horizon that reads as a cardboard cut-out — there is no
-     * information in it at all beyond its outline. What makes a distant
-     * building read as a building is *horizontal banding*: floor after floor
-     * of glazing catching the light differently from the spandrels between
-     * them. It is the only detail that survives being ten pixels wide.
-     *
-     * Built as alternating bands rather than painted on, because a `CellField`
-     * instances one geometry under one material and per-instance colour — a
-     * texture would need its UVs scaled per instance to avoid stretching up a
-     * tower twice as tall as its neighbour. Geometry has no such problem, and
-     * the recess on the glazing gives it a real shadow line instead of a
-     * drawn one.
-     */
-    const WALL = new THREE.Color(0xffffff);
-    const GLASS = new THREE.Color(0x8a94a2);
-    const parts: THREE.BufferGeometry[] = [];
-    const colours: THREE.Color[] = [];
-    const add = (g: THREE.BufferGeometry, c: THREE.Color): void => {
-      parts.push(g);
-      colours.push(c);
-    };
-
-    /* Five, not seven. The edge-density gate came back at 1.78x the
-     * reference against a 1.7 ceiling, and for once the number agreed with the
-     * eye: seven bands of strong contrast on every tower is more horizontal
-     * detail than the reference carries, and it reads as a zebra rather than
-     * as floors. Fewer bands at gentler contrast says the same thing quietly. */
-    const FLOORS = 5;
-    for (let i = 0; i < FLOORS; i++) {
-      const y0 = i / FLOORS;
-      const y1 = (i + 1) / FLOORS;
-      const split = y0 + (y1 - y0) * 0.5;
-      /* Coplanar with the wall, differing only in colour.
-       *
-       * The first cut inset the glazing by 0.03 to get a real shadow line, and
-       * that was wrong for a reason specific to instancing: the unit cell is
-       * scaled per instance, so a 3% inset on a tower forty units wide becomes
-       * a ledge more than a metre deep. Seven floors of that is a wedding
-       * cake, which is what the capture showed. Flush bands cost no silhouette
-       * and read as floors from the only distance this rank is ever seen at.
-       */
-      add(boxBetween(-0.5, 0.5, y0, split, -0.5, 0.5), WALL);
-      add(boxBetween(-0.5, 0.5, split, y1, -0.5, 0.5), GLASS);
-    }
-
-    // Setback and crown. A tower that goes straight up and stops is a chimney;
-    // the step is most of what gives a skyline its sawtooth.
-    add(boxBetween(-0.34, 0.34, 1, 1.06, -0.34, 0.34), WALL);
-    add(boxBetween(-0.34, 0.34, 1.06, 1.19, -0.34, 0.34), GLASS);
-    add(boxBetween(-0.37, 0.37, 1.19, 1.24, -0.37, 0.37), WALL);
-    // Mast.
-    add(boxBetween(-0.04, 0.04, 1.24, 1.44, -0.04, 0.04), WALL);
-
-    const merged = mergeBoxes(parts, colours);
-    for (const p of parts) p.dispose();
-    return merged;
+    return towerGeometry();
   }
 
-  /**
-   * Pale and chalky, because that is what distance does to a building.
-   *
-   * The tint per instance comes through `instanceColor`, which multiplies this
-   * one — so the material stays a single draw call while no two towers are
-   * quite the same concrete. Rough and barely metallic: a mirror out there
-   * would catch the sun and put a bright rectangle on the horizon, which is
-   * exactly the kind of small bright thing bloom turns into a smear.
-   */
+  /** Hotels, glass and offices: the high-rise end of the city. */
   protected buildMaterial(): THREE.Material {
-    return new THREE.MeshStandardMaterial({
-      vertexColors: true, roughness: 0.88, metalness: 0.05, envMapIntensity: 0.7,
-    });
+    return new BuildingMaterial([1, 4]);
   }
 
   protected place(cell: number, world: number, out: CellPlacement): boolean {
@@ -182,7 +116,7 @@ export class SkylineManager extends CellField {
     /* Concrete, brick and glass, all of it half-lost in haze. A narrow spread
      * on purpose: wide enough that the massing has faces, narrow enough that it
      * still reads as one city rather than as a paint chart. */
-    out.colour.setHSL(0.07 + r3 * 0.06, 0.06 + r4 * 0.10, 0.52 + r5 * 0.18);
+    out.colour.setHex(TOWERS[Math.floor(r3 * TOWERS.length) % TOWERS.length]).multiplyScalar(0.92 + r5 * 0.14);
     return true;
   }
 }
