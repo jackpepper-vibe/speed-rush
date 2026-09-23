@@ -1,4 +1,6 @@
 import type { Manager } from '@/core/Manager';
+import { isTyping } from '@/core/dom';
+import { NAME_MAX } from '@/game/SaveManager';
 import type { PowerupId, RunState } from '@/core/GameEvents';
 import { POWERUPS, SPEED } from '@/game/config/Balance';
 import { UPGRADE, type UpgradableStat } from '@/game/config/Cars';
@@ -97,16 +99,20 @@ export class UIManager implements Manager {
     // interacted yet" separately.
     document.addEventListener('pointerdown', () => this.game.audio.resume(), { once: true });
 
-    el('btn-drive').addEventListener('click', () => this.game.startCountdown(3));
+    el('btn-drive').addEventListener('click', () => this.requestDrive());
     el('btn-garage').addEventListener('click', () => {
       this.garageDirty = true;
       this.game.toGarage();
     });
     el('btn-garage-back').addEventListener('click', () => this.game.toMenu());
+    el('btn-garage-drive').addEventListener('click', () => this.requestDrive());
     el('btn-resume').addEventListener('click', () => this.game.unpause());
     el('btn-quit').addEventListener('click', () => this.game.toMenu());
-    el('btn-again').addEventListener('click', () => this.game.startCountdown(3));
+    el('btn-again').addEventListener('click', () => this.requestDrive());
+
     el('btn-menu').addEventListener('click', () => this.game.toMenu());
+
+    this.wireDriverName();
 
     const mute = el<HTMLButtonElement>('btn-mute');
     const paint = (): void => {
@@ -122,8 +128,78 @@ export class UIManager implements Manager {
     paint();
   }
 
+  /**
+   * The driver's name, for the leaderboard.
+   *
+   * Saved as it is typed, so a name entered and then left by way of the garage
+   * is not lost. Enter in the field is the same as pressing Drive.
+   */
+  private wireDriverName(): void {
+    const input = el<HTMLInputElement>('driver-name');
+    input.maxLength = NAME_MAX;
+    input.value = this.game.save.snapshot.playerName;
+    input.addEventListener('input', () => {
+      this.game.save.setName(input.value);
+      if (this.game.save.snapshot.playerName) this.setNameWanted(false);
+    });
+    // Tidy what is shown to what was stored once the player is done with it.
+    input.addEventListener('blur', () => {
+      input.value = this.game.save.snapshot.playerName;
+    });
+    el<HTMLFormElement>('driver-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      this.requestDrive();
+    });
+  }
+
+  /**
+   * Start a run — once there is a name to put on the leaderboard.
+   *
+   * Without one, the player is taken to the field rather than into the race:
+   * a run that ends on the board as "YOU" is a result that cannot be told
+   * apart from anyone else's on the same machine.
+   */
+  private requestDrive(): void {
+    if (this.game.save.snapshot.playerName) {
+      this.setNameWanted(false);
+      this.game.startCountdown(3);
+      return;
+    }
+    this.setNameWanted(true);
+    if (this.game.runState === 'menu') this.focusName();
+    else {
+      this.focusNameOnMenu = true;
+      this.game.toMenu();
+    }
+  }
+
+  /** Set when leaving another screen to ask for a name, which can only take focus once the menu is shown. */
+  private focusNameOnMenu = false;
+
+  private focusName(): void {
+    const input = el<HTMLInputElement>('driver-name');
+    input.focus();
+    input.select();
+  }
+
+  private setNameWanted(wanted: boolean): void {
+    const form = el('driver-form');
+    el('driver-hint').hidden = !wanted;
+    form.classList.remove('needs-name');
+    if (wanted) {
+      // Restart the nudge even when it is asked for twice in a row.
+      void form.offsetWidth;
+      form.classList.add('needs-name');
+    }
+  }
+
   private wireKeys(): void {
     window.addEventListener('keydown', (e) => {
+      if (isTyping(e)) {
+        // The only key the page takes back from a text field: Escape leaves it.
+        if (e.code === 'Escape') (e.target as HTMLElement).blur();
+        return;
+      }
       if (e.code === 'Escape') {
         e.preventDefault();
         if (this.game.runState === 'gameover' || this.game.runState === 'garage') this.game.toMenu();
@@ -204,7 +280,13 @@ export class UIManager implements Manager {
       el(id).hidden = active[state] !== id;
     }
 
-    if (state === 'menu') this.syncMenu();
+    if (state === 'menu') {
+      this.syncMenu();
+      if (this.focusNameOnMenu) {
+        this.focusNameOnMenu = false;
+        this.focusName();
+      }
+    }
     if (state === 'garage') this.renderGarage();
   }
 
@@ -313,8 +395,12 @@ export class UIManager implements Manager {
     // should never pay for it.
     renderCarPreviews();
     const list = el('garage-list');
+    const roster = this.game.garage.list();
+    // Named, so it is plain what you are about to take out.
+    const equipped = roster.find((e) => e.equipped);
+    this.text('btn-garage-drive', equipped ? `Drive ${equipped.def.name}` : 'Drive');
 
-    list.replaceChildren(...this.game.garage.list().map((entry) => {
+    list.replaceChildren(...roster.map((entry) => {
       const li = document.createElement('li');
       li.className = `car${entry.equipped ? ' is-equipped' : ''}`;
       li.dataset.car = entry.def.id;

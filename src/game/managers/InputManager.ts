@@ -1,4 +1,5 @@
 import type { Manager } from '@/core/Manager';
+import { isTyping } from '@/core/dom';
 import type { PlayerInput } from './PlayerManager';
 
 /**
@@ -49,6 +50,7 @@ export class InputManager implements Manager {
   }
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {
+    if (isTyping(e)) return;
     // Arrow keys and space scroll the page otherwise, which fights the camera.
     if (STEERING_KEYS.has(e.code)) e.preventDefault();
     this.pressed.add(e.code);

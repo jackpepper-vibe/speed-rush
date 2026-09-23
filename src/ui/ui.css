@@ -225,9 +225,54 @@ body {
 
 /* ---------------------------------------------------------------- garage */
 
-.screen-wide { align-content: start; padding-top: clamp(24px, 6vh, 64px); }
-.screen-head {
-  display: flex; align-items: baseline; gap: 18px; justify-content: center; flex-wrap: wrap;
+.screen-wide { align-content: start; padding-top: 0; }
+
+/* Pinned while the roster scrolls under it, so leaving the garage — back, or
+ * straight onto the road in what you just equipped — is never a scroll away. */
+.garage-head {
+  position: sticky; top: 0; z-index: 2;
+  width: min(760px, 94vw);
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px;
+  padding: clamp(16px, 4vh, 40px) 0 14px;
+  /* Solid, and wider than the list, so the cards scroll away under it rather
+   * than showing through it. */
+  background: rgb(6, 7, 12);
+  box-shadow: 0 0 0 100vmax rgb(6, 7, 12), 0 14px 18px -6px rgba(0, 0, 0, 0.7);
+  clip-path: inset(0 -100vmax -24px -100vmax);
+  border-bottom: 1px solid var(--edge);
+}
+.garage-head #btn-garage-back { justify-self: start; }
+.garage-head #btn-garage-drive { justify-self: end; white-space: nowrap; }
+.garage-title { display: grid; justify-items: center; gap: 4px; }
+@media (max-width: 520px) {
+  .garage-head .btn { padding-inline: 14px; }
+}
+
+/* ---------------------------------------------------------------- driver */
+
+.driver { display: grid; justify-items: center; gap: 6px; }
+.driver label {
+  font-size: 9.5px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--faint);
+}
+.driver input {
+  font: inherit; font-weight: 800; font-size: 1.05rem; letter-spacing: 0.08em;
+  text-transform: uppercase; text-align: center;
+  width: min(260px, 80vw); padding: 10px 14px; border-radius: 11px;
+  color: var(--ink); background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--edge); outline: none;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.driver input::placeholder { color: var(--faint); font-weight: 600; letter-spacing: 0.04em; }
+.driver input:focus { border-color: var(--hot-soft); background: rgba(255, 255, 255, 0.1); }
+.driver.needs-name input { border-color: var(--hot); animation: nudge 0.32s ease; }
+.driver-hint { color: var(--hot-soft); font-size: 0.8rem; font-weight: 700; }
+.driver-hint[hidden] { display: none; }
+@keyframes nudge {
+  25% { transform: translateX(-6px); }
+  75% { transform: translateX(6px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .driver.needs-name input { animation: none; }
 }
 
 .garage-list {

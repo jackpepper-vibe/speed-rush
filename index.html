@@ -56,6 +56,12 @@
       <h1 class="title">Speed<span>Rush</span></h1>
       <p class="tagline">Five lanes. Traffic that thinks for itself.</p>
       <div class="wallet"><i class="coin-dot"></i><b id="menu-coins">0</b></div>
+      <form id="driver-form" class="driver" autocomplete="off">
+        <label for="driver-name">Driver</label>
+        <input id="driver-name" name="driver" type="text" maxlength="12" placeholder="Enter your name"
+          spellcheck="false" autocapitalize="characters" enterkeyhint="go" />
+        <p id="driver-hint" class="driver-hint" role="alert" hidden>Enter a name for the leaderboard</p>
+      </form>
       <div class="actions">
         <button id="btn-drive" class="btn btn-primary" type="button">Drive</button>
         <button id="btn-garage" class="btn" type="button">Garage</button>
@@ -74,12 +80,15 @@
     </section>
 
     <section id="screen-garage" class="screen screen-wide" hidden>
-      <header class="screen-head">
-        <h2>Garage</h2>
-        <div class="wallet"><i class="coin-dot"></i><b id="garage-coins">0</b></div>
+      <header class="garage-head">
+        <button id="btn-garage-back" class="btn btn-ghost" type="button">Back</button>
+        <div class="garage-title">
+          <h2>Garage</h2>
+          <div class="wallet"><i class="coin-dot"></i><b id="garage-coins">0</b></div>
+        </div>
+        <button id="btn-garage-drive" class="btn btn-primary" type="button">Drive</button>
       </header>
       <ul id="garage-list" class="garage-list"></ul>
-      <button id="btn-garage-back" class="btn btn-ghost" type="button">Back</button>
     </section>
 
     <section id="screen-pause" class="screen" hidden>

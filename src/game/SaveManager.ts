@@ -60,7 +60,7 @@ export class SaveManager {
         coins: num(parsed.coins, 0),
         best: num(parsed.best, 0),
         bestDistance: num(parsed.bestDistance, 0),
-        playerName: typeof parsed.playerName === 'string' ? parsed.playerName.slice(0, 12) : '',
+        playerName: typeof parsed.playerName === 'string' ? cleanName(parsed.playerName) : '',
         activeCar: typeof parsed.activeCar === 'string' ? parsed.activeCar : 'dart',
         owned: Array.isArray(parsed.owned) ? parsed.owned.filter((c) => typeof c === 'string') : ['dart'],
         upgrades: typeof parsed.upgrades === 'object' && parsed.upgrades ? parsed.upgrades : {},
@@ -149,7 +149,9 @@ export class SaveManager {
   }
 
   setName(name: string): void {
-    this.data.playerName = name.slice(0, 12);
+    const clean = cleanName(name);
+    if (clean === this.data.playerName) return;
+    this.data.playerName = clean;
     this.flush();
   }
 
@@ -188,4 +190,17 @@ function safeStorage(): Storage | null {
   } catch {
     return null;
   }
+}
+
+/** Longest name the leaderboard has room for. */
+export const NAME_MAX = 12;
+
+/**
+ * A driver name as the leaderboard stores it: no control characters, runs of
+ * whitespace collapsed, trimmed, cut to what the board has room for, and in
+ * capitals, the way an arcade board and the name field both show it.
+ */
+export function cleanName(raw: string): string {
+  // eslint-disable-next-line no-control-regex
+  return raw.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim().slice(0, NAME_MAX).toUpperCase();
 }
