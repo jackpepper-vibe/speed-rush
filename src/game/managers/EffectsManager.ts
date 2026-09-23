@@ -6,6 +6,10 @@ import { BillboardField } from '@/game/render/BillboardField';
 import { ParticleField } from '@/game/render/ParticleField';
 import { FLAME_CORE, FLAME_ENVELOPE, FlameMaterial } from '@/game/render/effects/FlameMaterial';
 import type { PlayerManager } from './PlayerManager';
+import type { PowerupManager } from './PowerupManager';
+import { PICKUPS } from '@/game/config/Balance';
+import { POWERUP_INFO } from '@/game/config/Powerups';
+import { PowerupAura } from '@/game/render/effects/PowerupAura';
 import type { SceneRig } from '@/game/render/SceneRig';
 
 /**
@@ -117,6 +121,7 @@ export class EffectsManager implements Manager {
     private readonly ctx: GameContext,
     private readonly player: PlayerManager,
     private readonly rig: SceneRig,
+    private readonly powerups: PowerupManager,
   ) {
     this.sparkMap = makeGlowTexture();
     this.smokeMap = makeSmokeTexture();
@@ -145,6 +150,9 @@ export class EffectsManager implements Manager {
     this.attachFlames();
 
     const bus = this.ctx.bus;
+    bus.on('powerup:blocked-crash', ({ id }) => {
+      if (id === 'shield') this.aura.hit();
+    });
     bus.on('powerup:activate', ({ id }) => {
       if (id === 'nitro') this.flameTarget = 1;
     });
@@ -175,6 +183,7 @@ export class EffectsManager implements Manager {
     const anchors = this.player.mesh.exhausts;
     // On the frame with the pipes, so the flame leans with a bike.
     this.player.mesh.frame.add(this.flameRoot);
+    this.aura.attach(this.player.mesh);
 
     for (const anchor of anchors) {
       for (const [scale, material] of [
@@ -200,6 +209,11 @@ export class EffectsManager implements Manager {
     this.attachFlames();
   }
 
+  /** Bubbles and rings on the car for whatever power-ups are running. */
+  private readonly aura = new PowerupAura(
+    POWERUP_INFO.shield.colour, POWERUP_INFO.ghost.colour, POWERUP_INFO.magnet.colour, PICKUPS.magnetRadius,
+  );
+
   /** Pin the drift intensity, or pass null to hand it back to the cue. */
   setDriftIntensity(value: number | null): void {
     this.driftOverride = value;
@@ -218,6 +232,11 @@ export class EffectsManager implements Manager {
     }
 
     this.updateFlame(dt);
+    this.aura.update(dt, {
+      shield: this.powerups.timeLeft('shield'),
+      ghost: this.powerups.timeLeft('ghost'),
+      magnet: this.powerups.timeLeft('magnet'),
+    });
     if (this.driftIntensity > 0.02) this.emitDrift(dt);
 
     this.sparks.update(dt);
@@ -520,6 +539,7 @@ export class EffectsManager implements Manager {
     this.flameRoot.removeFromParent();
     this.flameCore.dispose();
     this.flameEnvelope.dispose();
+    this.aura.dispose();
     this.sparkMap.dispose();
     this.smokeMap.dispose();
   }

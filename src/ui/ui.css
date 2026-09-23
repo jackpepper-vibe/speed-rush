@@ -112,24 +112,92 @@ body {
   transform-origin: left center;
 }
 
+/* Active power-ups: a column of cards down the left, clear of the car and of
+ * the score above them. Each names what is running, says what it does, and
+ * counts down round its icon. */
 .powerups {
-  position: absolute; bottom: clamp(14px, 3vw, 32px); left: 50%;
-  transform: translateX(-50%);
-  display: flex; gap: 9px;
+  position: absolute; left: clamp(12px, 2.4vw, 30px); top: clamp(120px, 26vh, 220px);
+  display: grid; gap: 10px; justify-items: start;
 }
 .pu {
-  width: 54px; display: grid; justify-items: center; gap: 4px;
-  padding: 7px 4px 6px; border-radius: 11px;
-  background: var(--panel); border: 1px solid var(--edge);
-  box-shadow: 0 0 16px color-mix(in srgb, var(--pu) 45%, transparent);
+  display: grid; grid-template-columns: 46px auto auto; align-items: center; gap: 10px;
+  padding: 7px 14px 7px 7px; border-radius: 30px;
+  background: rgba(8, 10, 17, 0.72);
+  border: 1px solid color-mix(in srgb, var(--pu) 55%, transparent);
+  box-shadow: 0 0 22px color-mix(in srgb, var(--pu) 35%, transparent), inset 0 0 12px color-mix(in srgb, var(--pu) 14%, transparent);
+  backdrop-filter: blur(6px);
+  animation: pu-in 0.34s cubic-bezier(0.2, 1.4, 0.4, 1) both;
 }
-.pu-name {
-  font-size: 8.5px; letter-spacing: 0.13em; text-transform: uppercase;
-  color: var(--pu); font-weight: 700;
+.pu-dial { position: relative; width: 46px; height: 46px; display: grid; place-items: center; }
+.pu-ring { position: absolute; inset: 0; transform: rotate(-90deg); }
+.pu-ring circle { fill: none; stroke-width: 3.2; }
+.pu-ring-track { stroke: rgba(255, 255, 255, 0.12); }
+.pu-ring-fill { stroke: var(--pu); stroke-linecap: round; filter: drop-shadow(0 0 4px var(--pu)); }
+.pu-dial .pu-glyph { width: 24px; height: 24px; color: var(--pu); filter: drop-shadow(0 0 6px var(--pu)); }
+.pu-text { display: grid; gap: 1px; }
+.pu-name { font-size: 0.86rem; font-weight: 900; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink); }
+.pu-tag { font-size: 0.7rem; color: var(--dim); }
+.pu-time { font-size: 1.05rem; font-weight: 900; color: var(--pu); min-width: 2.6em; text-align: right; font-variant-numeric: tabular-nums; }
+/* The last two seconds: it is about to go, and the player should know. */
+.pu.ending { animation: pu-ending 0.5s ease-in-out infinite alternate; }
+@keyframes pu-in { from { opacity: 0; transform: translateX(-18px) scale(0.92); } }
+@keyframes pu-ending { to { opacity: 0.35; } }
+
+/* The announcement when one is collected, and the smaller notes that follow. */
+.announce {
+  position: absolute; left: 50%; top: clamp(96px, 20vh, 170px); transform: translateX(-50%);
+  display: grid; justify-items: center; pointer-events: none;
 }
-.pu-time { font-size: 0.8rem; font-weight: 800; color: var(--ink); }
-.pu-track { width: 38px; height: 3px; border-radius: 2px; background: rgba(255, 255, 255, 0.16); overflow: hidden; }
-.pu-bar { display: block; height: 100%; background: var(--pu); transform-origin: left center; }
+.announce-card {
+  display: grid; grid-template-columns: auto auto; align-items: center; gap: 14px;
+  padding: 10px 26px 10px 12px; border-radius: 40px;
+  background: rgba(8, 10, 17, 0.78);
+  border: 1px solid color-mix(in srgb, var(--pu) 70%, transparent);
+  box-shadow: 0 0 44px color-mix(in srgb, var(--pu) 45%, transparent);
+  backdrop-filter: blur(8px);
+  animation: announce 2.2s cubic-bezier(0.2, 1.2, 0.3, 1) both;
+}
+.announce-badge {
+  width: 58px; height: 58px; border-radius: 50%; display: grid; place-items: center;
+  background: radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--pu) 45%, #000), rgba(0, 0, 0, 0.4));
+  border: 2px solid var(--pu); box-shadow: 0 0 22px var(--pu);
+}
+.announce-badge .pu-glyph { width: 32px; height: 32px; color: #fff; filter: drop-shadow(0 0 6px var(--pu)); }
+.announce-title {
+  font-size: clamp(1.5rem, 3.6vw, 2.3rem); font-weight: 900; letter-spacing: 0.04em;
+  text-transform: uppercase; line-height: 1; color: #fff;
+  text-shadow: 0 0 22px var(--pu);
+}
+.announce-sub { font-size: 0.9rem; font-weight: 700; color: var(--pu); margin-top: 3px; }
+.announce-card.minor { padding: 6px 18px 6px 8px; gap: 10px; animation-duration: 1.5s; }
+.announce-card.minor .announce-badge { width: 34px; height: 34px; border-width: 1.5px; }
+.announce-card.minor .announce-badge .pu-glyph { width: 19px; height: 19px; }
+.announce-card.minor .announce-title { font-size: 1rem; }
+@keyframes announce {
+  0% { opacity: 0; transform: translateY(-10px) scale(0.7); }
+  12% { opacity: 1; transform: none; }
+  82% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translateY(-8px) scale(0.96); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pu, .announce-card { animation-name: fade-only; }
+  .pu.ending { animation: none; opacity: 0.6; }
+}
+@keyframes fade-only { 0%, 100% { opacity: 0; } 12%, 82% { opacity: 1; } }
+
+/* Slow-mo: the edges of the frame go cold and green while time is slowed. */
+.veil {
+  position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  background: radial-gradient(ellipse at 50% 55%, transparent 52%, rgba(60, 240, 160, 0.28) 100%);
+  box-shadow: inset 0 0 120px rgba(40, 200, 140, 0.35);
+  transition: opacity 0.35s ease;
+}
+.veil.on { opacity: 1; }
+
+@media (max-width: 640px) {
+  .pu-tag { display: none; }
+  .powerups { top: auto; bottom: 16px; }
+}
 
 .countdown {
   position: absolute; inset: 0; display: grid; place-content: center;

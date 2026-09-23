@@ -1,14 +1,16 @@
 import * as THREE from 'three';
 import type { GameContext, Manager } from '@/core/Manager';
-import type { PickupId, PowerupId } from '@/core/GameEvents';
+import type { PickupId } from '@/core/GameEvents';
 import { PICKUPS, ROAD } from '@/game/config/Balance';
+import { POWERUP_IDS } from '@/game/config/Powerups';
+import { fitSpan, PowerupTokens, type PowerupToken } from '@/game/render/pickups/PowerupTokens';
 import { makeGlowTexture } from '@/game/render/RoadTextures';
 import type { RoadManager } from './RoadManager';
 import type { PlayerManager } from './PlayerManager';
 import type { PowerupManager } from './PowerupManager';
 
 /**
- * Coins, gems and power-up crates.
+ * Coins, gems and power-ups.
  *
  * Coins are laid in runs along a lane rather than scattered, because a line of
  * them is an instruction: it tells the player where the designer thinks the
@@ -20,7 +22,10 @@ import type { PowerupManager } from './PowerupManager';
  * per-pickup allocation is felt.
  */
 interface Pickup {
+  /** The body of a coin or a gem; hidden while this entry is a power-up. */
   mesh: THREE.Mesh;
+  /** The token standing for a power-up; null for coins and gems. */
+  token: PowerupToken | null;
   kind: PickupId;
   active: boolean;
   /** Absolute distance along the road. */
@@ -31,127 +36,8 @@ interface Pickup {
   spin: number;
 }
 
-const POWERUP_IDS: readonly PowerupId[] = ['shield', 'nitro', 'magnet', 'ghost', 'slowmo'];
-
-const POWERUP_COLOR: Record<PowerupId, number> = {
-  shield: 0x39c8ff,
-  nitro: 0xff6a1a,
-  magnet: 0xff44dd,
-  ghost: 0xb98cff,
-  slowmo: 0x6cf0a8,
-};
-
-
-/**
- * A body per power-up, instead of one cube in five colours.
- *
- * The crate was a rounded box tinted by `POWERUP_COLOR`, which makes the colour
- * carry the entire message: a player who has not memorised the palette has to
- * pick the thing up to find out what it was, and a colour-blind one never finds
- * out at all. A silhouette reads at distance, reads in a mirror, reads under the
- * speed grade's vignette, and survives being half behind another car.
- *
- * Four of the five are solids of revolution, which is not a coincidence — a
- * pickup spins about its vertical axis, so a lathed body presents the same
- * outline from every angle and never turns edge-on and vanishes. The magnet is
- * the exception because a horseshoe is the whole point of it, and it is the one
- * shape here that is *supposed* to swing through its own profile as it turns.
- *
- * Authored at whatever size reads best as a profile; `makePowerupGeometry`
- * normalises the result. Nothing here should be tuned for scale.
- */
-function powerupProfile(id: PowerupId): THREE.BufferGeometry {
-  const lathe = (profile: readonly [number, number][], segments: number): THREE.BufferGeometry => {
-    const g = new THREE.LatheGeometry(profile.map(([x, y]) => new THREE.Vector2(x, y)), segments);
-    g.computeVertexNormals();
-    return g;
-  };
-
-  switch (id) {
-    /* A buckler: domed face, thick rolled rim, seen edge-on as a lens. */
-    case 'shield':
-      return lathe([
-        [0.00, -0.17], [0.30, -0.15], [0.50, -0.09], [0.58, 0.00],
-        [0.50, 0.12], [0.30, 0.21], [0.00, 0.25],
-      ], 22);
-
-    /* A gas bottle: cylindrical body, domed shoulder, a stub of a valve. */
-    case 'nitro':
-      return lathe([
-        [0.00, -0.52], [0.30, -0.52], [0.34, -0.46], [0.34, 0.22],
-        [0.30, 0.38], [0.20, 0.46], [0.09, 0.50], [0.09, 0.62], [0.00, 0.62],
-      ], 18);
-
-    /* A horseshoe magnet. Half a torus, and the only shape here that is meant
-     * to change outline as it spins. */
-    case 'magnet':
-      return new THREE.TorusGeometry(0.40, 0.15, 10, 20, Math.PI);
-
-    /* A bed-sheet ghost: round head, a skirt that flares and stops open, so the
-     * hollow underside is part of the read. */
-    case 'ghost':
-      return lathe([
-        [0.00, 0.52], [0.22, 0.48], [0.34, 0.34], [0.38, 0.10],
-        [0.40, -0.14], [0.46, -0.34], [0.42, -0.40], [0.30, -0.36], [0.00, -0.34],
-      ], 18);
-
-    /* An hourglass, which is the one object that means "time" at any size. */
-    case 'slowmo':
-    default:
-      return lathe([
-        [0.00, -0.50], [0.38, -0.50], [0.38, -0.42], [0.14, -0.30],
-        [0.05, 0.00], [0.14, 0.30], [0.38, 0.42], [0.38, 0.50], [0.00, 0.50],
-      ], 16);
-  }
-}
-
-/**
- * How wide a pickup stands, and why it is allowed to be this wide.
- *
- * The bound is the trigger, and the trigger is lateral: `testCollect` compares
- * `|pickup.x - player.x|` against `PICKUPS.collectRadius`, so a pickup is
- * collected anywhere within 1.9 units either side of its centre. The rule the
- * previous pass wrote down — never look bigger than the thing that catches you,
- * or a miss feels stolen — is right, and it was being kept by a margin of
- * nearly four. Every power-up was authored around a one-unit span inside a
- * 3.8-unit trigger, in a lane 4.2 wide.
- *
- * Measured rather than argued: laid eleven units ahead, which is point blank,
- * a magnet came out roughly thirty pixels across in a 1280-wide frame. At the
- * distance you actually decide whether to take one it is a coloured speck, so
- * the shield, the bottle, the horseshoe and the hourglass — all of them real
- * lathed bodies — were doing no work whatsoever. Two units of span is still
- * comfortably inside the trigger and nearly four times the screen area.
- *
- * Normalising every power-up to the same figure is deliberate. They are read at
- * a glance and chosen against each other, so one being half the size of another
- * is a readability difference the player has to pay for, not a character note.
- */
-const POWERUP_SPAN = 2.0;
-
 /** The gem sits between a coin and a power-up, and is sized between them. */
 const GEM_SPAN = 1.5;
-
-/**
- * Scale a geometry so its largest dimension is exactly `span`.
- *
- * Applied to the geometry rather than to the mesh so the pool can keep swapping
- * a single shared body in without also having to remember a per-kind scale —
- * the swap in `take` sets `geometry` and nothing else, and that is worth
- * keeping true.
- */
-function fitSpan(geo: THREE.BufferGeometry, span: number): THREE.BufferGeometry {
-  geo.computeBoundingBox();
-  const b = geo.boundingBox!;
-  const widest = Math.max(b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z);
-  if (widest > 0) geo.scale(span / widest, span / widest, span / widest);
-  geo.computeBoundingSphere();
-  return geo;
-}
-
-function makePowerupGeometry(id: PowerupId): THREE.BufferGeometry {
-  return fitSpan(powerupProfile(id), POWERUP_SPAN);
-}
 
 /**
  * A struck coin: domed faces, a rounded rim, standing on edge.
@@ -211,6 +97,7 @@ export class PickupManager implements Manager {
   private readonly materials: THREE.Material[] = [];
   private readonly geometries: THREE.BufferGeometry[] = [];
   private glowTex!: THREE.Texture;
+  private tokens!: PowerupTokens;
 
   private nextCoinDistance = 0;
   private nextPowerupDistance = 0;
@@ -232,6 +119,8 @@ export class PickupManager implements Manager {
   init(): void {
     this.ctx.scene.add(this.root);
     this.glowTex = makeGlowTexture();
+    this.tokens = new PowerupTokens(this.glowTex);
+    this.ctx.scene.add(this.tokens.root);
 
     const coinGeo = makeCoinGeometry();
     const gemGeo = makeGemGeometry();
@@ -273,39 +162,19 @@ export class PickupManager implements Manager {
       const mesh = new THREE.Mesh(coinGeo, coinMat);
       mesh.visible = false;
       this.root.add(mesh);
-      this.pool.push({ mesh, kind: 'coin', active: false, distance: 0, x: 0, magnetised: false, spin: 0 });
+      this.pool.push({ mesh, token: null, kind: 'coin', active: false, distance: 0, x: 0, magnetised: false, spin: 0 });
     }
 
-    // Distinct bodies for the kinds that are not coins, built once and swapped in.
     this.coinGeo = coinGeo;
     this.coinMat = coinMat;
     this.gemGeo = gemGeo;
     this.gemMat = gemMat;
-    for (const id of POWERUP_IDS) {
-      const geo = makePowerupGeometry(id);
-      this.crateGeo.set(id, geo);
-      this.geometries.push(geo);
-      const mat = new THREE.MeshStandardMaterial({
-        color: POWERUP_COLOR[id],
-        emissive: POWERUP_COLOR[id],
-        // Down from 1.4. At full emissive a crate is a solid block of its own
-        // colour with no form at all — the bevel might as well not be there.
-        emissiveIntensity: 0.55,
-        roughness: 0.28,
-        metalness: 0.4,
-        envMapIntensity: 1.8,
-      });
-      this.crateMat.set(id, mat);
-      this.materials.push(mat);
-    }
   }
 
   private coinGeo!: THREE.BufferGeometry;
   private coinMat!: THREE.Material;
   private gemGeo!: THREE.BufferGeometry;
   private gemMat!: THREE.Material;
-  private readonly crateGeo = new Map<PowerupId, THREE.BufferGeometry>();
-  private readonly crateMat = new Map<PowerupId, THREE.Material>();
 
   /** Live pickups in road space, for assertions and for the HUD. */
   snapshot(): { kind: PickupId; x: number; ahead: number; magnetised: boolean }[] {
@@ -325,6 +194,7 @@ export class PickupManager implements Manager {
       this.layPowerups(distance);
     }
 
+    this.tokens.update(dt);
     const magnetOn = this.powerups.isActive('magnet');
     for (const p of this.pool) {
       if (!p.active) continue;
@@ -386,24 +256,22 @@ export class PickupManager implements Manager {
     const p = this.pool.find((e) => !e.active);
     if (!p) return null;
 
+    if (kind === 'coin' || kind === 'gem') {
+      p.mesh.geometry = kind === 'coin' ? this.coinGeo : this.gemGeo;
+      p.mesh.material = kind === 'coin' ? this.coinMat : this.gemMat;
+      p.mesh.visible = true;
+    } else {
+      const token = this.tokens.acquire(kind);
+      if (!token) return null;
+      p.token = token;
+    }
+
     p.active = true;
     p.kind = kind;
     p.distance = distance;
     p.x = x;
     p.magnetised = false;
     p.spin = 0;
-    p.mesh.visible = true;
-
-    if (kind === 'coin') {
-      p.mesh.geometry = this.coinGeo;
-      p.mesh.material = this.coinMat;
-    } else if (kind === 'gem') {
-      p.mesh.geometry = this.gemGeo;
-      p.mesh.material = this.gemMat;
-    } else {
-      p.mesh.geometry = this.crateGeo.get(kind)!;
-      p.mesh.material = this.crateMat.get(kind)!;
-    }
     return p;
   }
 
@@ -444,11 +312,16 @@ export class PickupManager implements Manager {
      * span plus a little daylight is the floor, and a power-up sitting at
      * roughly windscreen height is also the one a driver is looking at.
      */
-    const hover = p.kind === 'coin' ? 1.15 : p.kind === 'gem' ? 1.2 : 1.35;
+    if (p.token) {
+      this.scratch.x += p.x;
+      p.token.place(this.scratch, this.tokens.clock);
+      return;
+    }
+    const hover = p.kind === 'coin' ? 1.15 : 1.2;
     p.spin += dt * (p.kind === 'coin' ? 3.4 : 1.6);
     p.mesh.position.set(this.scratch.x + p.x, this.scratch.y + hover, this.scratch.z);
     p.mesh.rotation.y = p.spin;
-    if (p.kind !== 'coin') p.mesh.rotation.x = p.spin * 0.6;
+    if (p.kind === 'gem') p.mesh.rotation.x = p.spin * 0.6;
     else p.mesh.rotation.z = 0.22;
   }
 
@@ -457,31 +330,37 @@ export class PickupManager implements Manager {
 
     // Past the car and gone.
     if (ahead < -12) {
-      p.active = false;
-      p.mesh.visible = false;
+      this.release(p);
       return;
     }
 
     const dx = Math.abs(p.x - this.player.x);
     if (dx > PICKUPS.collectRadius || Math.abs(ahead) > PICKUPS.collectRadius + 1.6) return;
 
-    p.active = false;
-    p.mesh.visible = false;
+    const position = p.token ? p.token.emblemWorld : p.mesh.position.clone();
+    this.release(p);
 
     const value =
       p.kind === 'coin' ? PICKUPS.coinValue : p.kind === 'gem' ? PICKUPS.gemValue : 0;
-    this.ctx.bus.emit('pickup:collect', { kind: p.kind, value, position: p.mesh.position.clone() });
+    this.ctx.bus.emit('pickup:collect', { kind: p.kind, value, position });
 
     if (p.kind !== 'coin' && p.kind !== 'gem') {
       this.powerups.activate(p.kind);
     }
   }
 
-  reset(): void {
-    for (const p of this.pool) {
-      p.active = false;
-      p.mesh.visible = false;
+  /** Return an entry to the pool, and its token if it had one. */
+  private release(p: Pickup): void {
+    p.active = false;
+    p.mesh.visible = false;
+    if (p.token) {
+      this.tokens.release(p.token);
+      p.token = null;
     }
+  }
+
+  reset(): void {
+    for (const p of this.pool) this.release(p);
     this.nextCoinDistance = 0;
     this.nextPowerupDistance = PICKUPS.powerupSpacing * 0.5;
   }
@@ -490,6 +369,7 @@ export class PickupManager implements Manager {
     this.ctx.scene.remove(this.root);
     for (const g of this.geometries) g.dispose();
     for (const m of this.materials) m.dispose();
+    this.tokens.dispose();
     this.glowTex.dispose();
     this.pool.length = 0;
   }

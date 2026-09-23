@@ -20,6 +20,12 @@ export class PowerupManager implements Manager {
   readonly name = 'powerups';
 
   private readonly remaining = new Map<PowerupId, number>();
+  /**
+   * What each effect had left the last time it was started or extended: the
+   * whole of the bar the HUD counts down. Against the base duration an
+   * extended or nitro-boosted effect read as more than full.
+   */
+  private readonly full = new Map<PowerupId, number>();
 
   /**
    * Invulnerability left over from an absorbed impact.
@@ -48,10 +54,18 @@ export class PowerupManager implements Manager {
     return this.timeLeft(id) > 0;
   }
 
-  /** Fraction of the full duration remaining, for the HUD's countdown bars. */
+  /** Fraction of the effect still to run, 1 when just started or extended. */
   fraction(id: PowerupId): number {
-    return this.timeLeft(id) / POWERUPS[id];
+    const full = this.full.get(id) ?? 0;
+    return full > 0 ? Math.min(1, this.timeLeft(id) / full) : 0;
   }
+
+  /** Whether the effect was already running when it was last collected. */
+  wasExtended(id: PowerupId): boolean {
+    return this.extended.has(id);
+  }
+
+  private readonly extended = new Set<PowerupId>();
 
   get active(): PowerupId[] {
     return [...this.remaining.entries()].filter(([, t]) => t > 0).map(([id]) => id);
@@ -61,7 +75,11 @@ export class PowerupManager implements Manager {
   activate(id: PowerupId): void {
     const boost = id === 'nitro' ? this.player.boostDuration : 1;
     const duration = POWERUPS[id] * boost;
-    this.remaining.set(id, this.timeLeft(id) + duration);
+    if (this.isActive(id)) this.extended.add(id);
+    else this.extended.delete(id);
+    const next = this.timeLeft(id) + duration;
+    this.remaining.set(id, next);
+    this.full.set(id, next);
     this.ctx.bus.emit('powerup:activate', { id, duration });
   }
 
@@ -119,6 +137,8 @@ export class PowerupManager implements Manager {
 
   reset(): void {
     this.remaining.clear();
+    this.full.clear();
+    this.extended.clear();
     this.grace = 0;
     this.player.setBoost(1);
   }

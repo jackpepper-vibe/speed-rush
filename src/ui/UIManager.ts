@@ -2,10 +2,12 @@ import type { Manager } from '@/core/Manager';
 import { isTyping } from '@/core/dom';
 import { NAME_MAX } from '@/game/SaveManager';
 import type { PowerupId, RunState } from '@/core/GameEvents';
-import { POWERUPS, SPEED } from '@/game/config/Balance';
+import { SPEED } from '@/game/config/Balance';
+import { POWERUP_INFO, powerupCss } from '@/game/config/Powerups';
 import { UPGRADE, type UpgradableStat } from '@/game/config/Cars';
 import type { Game } from '@/game/Game';
 import { previewFor, renderCarPreviews } from './CarPreview';
+import { powerupIcon } from './PowerupIcons';
 
 /**
  * The interface: HUD, menu, garage, pause and results.
@@ -33,13 +35,10 @@ export const SCREEN_ELEMENTS = [
   'screen-menu', 'screen-garage', 'screen-pause', 'screen-gameover', 'screen-leaderboard',
 ] as const;
 
-const POWERUP_COLOUR: Record<PowerupId, string> = {
-  shield: '#39c8ff',
-  nitro: '#ff6a1a',
-  magnet: '#ff44dd',
-  ghost: '#b98cff',
-  slowmo: '#6cf0a8',
-};
+/** Seconds left at which a power-up card starts to flash. */
+const ENDING_SECONDS = 2;
+/** Circumference of the countdown ring on a power-up card (r = 19). */
+const RING = 2 * Math.PI * 19;
 
 const STAT_ORDER: UpgradableStat[] = ['topSpeed', 'accel', 'grip', 'boost'];
 const STAT_LABEL: Record<UpgradableStat, string> = {
@@ -68,6 +67,10 @@ export class UIManager implements Manager {
   private readonly comboBar = el('hud-combo-bar');
   private readonly powerupRow = el('hud-powerups');
   private readonly flash = el('hud-flash');
+  private readonly announcer = el('hud-announce');
+  private readonly veil = el('hud-veil');
+  /** Set when a shield is spent on a crash, so its expiry is not announced over the save. */
+  private shieldSpent = false;
 
   private lastState: RunState | null = null;
   private accumulator = 0;
@@ -228,6 +231,29 @@ export class UIManager implements Manager {
       setTimeout(() => this.flash.classList.remove('on'), 90);
     });
 
+    this.game.bus.on('powerup:activate', ({ id }) => {
+      const info = POWERUP_INFO[id];
+      this.announce(id, info.label, this.game.powerups.wasExtended(id) ? 'Extended' : info.tagline);
+    });
+    this.game.bus.on('powerup:blocked-crash', ({ id }) => {
+      // A ghost blocks every contact for its whole run; only the shield's save
+      // is an event worth a banner.
+      if (id !== 'shield') return;
+      this.shieldSpent = true;
+      this.announce('shield', 'Saved!', 'Shield used up');
+    });
+    this.game.bus.on('powerup:expire', ({ id }) => {
+      if (id === 'shield' && this.shieldSpent) {
+        this.shieldSpent = false;
+        return;
+      }
+      this.announce(id, `${POWERUP_INFO[id].label} over`, null, true);
+    });
+    this.game.bus.on('run:start', () => {
+      this.shieldSpent = false;
+      this.announcer.replaceChildren();
+    });
+
     this.game.bus.on('run:end', ({ score, distance, coins }) => {
       this.text('result-score', score.toLocaleString());
       this.text('result-distance', metres(distance));
@@ -325,30 +351,70 @@ export class UIManager implements Manager {
    * throw away the CSS transitions and churn the layout for no reason.
    */
   private syncPowerups(): void {
-    const active = this.game.powerups.active;
+    const powerups = this.game.powerups;
+    const active = powerups.active;
     const signature = active.join(',');
     if (this.written.get('__pu') !== signature) {
       this.written.set('__pu', signature);
       this.powerupRow.replaceChildren(...active.map((id) => {
-        const slot = document.createElement('div');
-        slot.className = 'pu';
-        slot.dataset.powerup = id;
-        slot.style.setProperty('--pu', POWERUP_COLOUR[id]);
-        slot.innerHTML =
-          `<span class="pu-name">${id}</span>` +
-          `<b class="pu-time" data-time="${id}">0.0</b>` +
-          `<span class="pu-track"><i class="pu-bar" data-bar="${id}"></i></span>`;
-        return slot;
+        const info = POWERUP_INFO[id];
+        const card = document.createElement('div');
+        card.className = 'pu';
+        card.dataset.powerup = id;
+        card.style.setProperty('--pu', powerupCss(id));
+        card.innerHTML =
+          '<span class="pu-dial">' +
+          '<svg class="pu-ring" viewBox="0 0 46 46" aria-hidden="true">' +
+          '<circle class="pu-ring-track" cx="23" cy="23" r="19"/>' +
+          `<circle class="pu-ring-fill" data-ring="${id}" cx="23" cy="23" r="19" stroke-dasharray="${RING.toFixed(2)}"/>` +
+          '</svg>' +
+          powerupIcon(id) +
+          '</span>' +
+          `<span class="pu-text"><b class="pu-name">${info.label}</b><span class="pu-tag">${info.tagline}</span></span>` +
+          `<b class="pu-time" data-time="${id}">0.0</b>`;
+        return card;
       }));
     }
 
     for (const id of active) {
-      const left = this.game.powerups.timeLeft(id);
-      const time = this.powerupRow.querySelector<HTMLElement>(`[data-time="${id}"]`);
+      const left = powerups.timeLeft(id);
+      const card = this.powerupRow.querySelector<HTMLElement>(`[data-powerup="${id}"]`);
+      card?.classList.toggle('ending', left < ENDING_SECONDS);
+      const time = card?.querySelector<HTMLElement>(`[data-time="${id}"]`);
       if (time) time.textContent = left.toFixed(1);
-      const bar = this.powerupRow.querySelector<HTMLElement>(`[data-bar="${id}"]`);
-      if (bar) bar.style.transform = `scaleX(${Math.min(1, left / POWERUPS[id]).toFixed(3)})`;
+      const ring = card?.querySelector<SVGCircleElement>(`[data-ring="${id}"]`);
+      if (ring) ring.style.strokeDashoffset = (RING * (1 - powerups.fraction(id))).toFixed(2);
     }
+
+    this.veil.classList.toggle('on', powerups.isActive('slowmo'));
+  }
+
+  /**
+   * Put a banner up: what was just collected and what it does, or a smaller
+   * note that one has ended. The newest replaces whatever is showing, so a
+   * burst of pickups never stacks banners over the road.
+   */
+  private announce(id: PowerupId, title: string, sub: string | null, minor = false): void {
+    const card = document.createElement('div');
+    card.className = `announce-card${minor ? ' minor' : ''}`;
+    card.style.setProperty('--pu', powerupCss(id));
+    const badge = document.createElement('span');
+    badge.className = 'announce-badge';
+    badge.innerHTML = powerupIcon(id);
+    const text = document.createElement('span');
+    const head = document.createElement('div');
+    head.className = 'announce-title';
+    head.textContent = title;
+    text.append(head);
+    if (sub) {
+      const line = document.createElement('div');
+      line.className = 'announce-sub';
+      line.textContent = sub;
+      text.append(line);
+    }
+    card.append(badge, text);
+    card.addEventListener('animationend', () => card.remove());
+    this.announcer.replaceChildren(card);
   }
 
   private syncMenu(): void {

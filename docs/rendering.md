@@ -176,6 +176,27 @@ glow. Storm overcast is noise laid over the top.
 `HorizonHills` is a ring of low hills 1250 m out. It takes the fog colour and
 closes the gap where the sea met the sky.
 
+## Power-ups
+
+Every surface that shows a power-up reads one catalogue:
+`config/Powerups.ts` holds each power-up's name, one-line description and
+colour, and `ui/PowerupIcons.ts` holds an icon matching its road silhouette.
+
+- On the road, each is a token (`render/pickups/PowerupTokens.ts`): an upright
+  glossy emblem, a spinning halo, a beacon of light rising above it, and a pool
+  of its colour on the tarmac.
+- Collecting one raises a banner naming it and saying what it does ("Extended"
+  if it was already running). Shorter notes mark a shield saving you and a
+  power-up ending.
+- Running power-ups are cards down the left of the HUD, each with a countdown
+  ring. A card flashes in its last two seconds.
+- On the car (`render/effects/PowerupAura.ts`):
+  - shield: a hexagon bubble that flares when it takes a hit
+  - ghost: a purple bubble with drifting wisps
+  - magnet: rings sweeping out to the edge of its pull
+  - slow-mo: tints the edges of the frame
+  - nitro: its flame
+
 ## Night
 
 `NightLights.ts` is a small registry. Street lamps, lit windows and the road's

@@ -123,7 +123,7 @@ export class Game {
     this.kerbside = this.managers.add(new KerbsideManager(ctx, this.road, this.rig, this.world));
     // After the player, whose exhaust anchors the flame hangs off, and after
     // the rig, which it asks to shake on a crash.
-    this.effects = this.managers.add(new EffectsManager(ctx, this.player, this.rig));
+    this.effects = this.managers.add(new EffectsManager(ctx, this.player, this.rig, this.powerups));
     // Last in the order: it scores what the managers before it just did.
     this.scoring = this.managers.add(new ScoreManager(ctx));
     // Not a simulation; registered so it shares the same lifecycle and bus.
