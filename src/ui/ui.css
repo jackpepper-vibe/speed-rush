@@ -219,7 +219,10 @@ body {
 
 .screen {
   position: absolute; inset: 0;
-  display: grid; align-content: center; justify-items: center;
+  /* `safe`: centred while it fits, top-aligned once it does not. Plain `center`
+   * pushes an overflowing screen above the scroll origin, where the title
+   * cannot be scrolled back into view on a short window. */
+  display: grid; align-content: safe center; justify-items: center;
   gap: 18px; padding: clamp(20px, 5vw, 56px);
   background: radial-gradient(ellipse at 50% 40%, rgba(8, 10, 17, 0.82), rgba(3, 4, 8, 0.96));
   backdrop-filter: blur(7px);
