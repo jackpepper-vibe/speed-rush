@@ -75,7 +75,7 @@
         <div><dt>Runs</dt><dd id="menu-runs">0</dd></div>
       </dl>
       <table id="screen-leaderboard" class="leaderboard">
-        <caption>Best runs</caption>
+        <caption>World leaderboard <span id="leaderboard-status" class="lb-status" hidden></span></caption>
         <tbody id="leaderboard-rows"></tbody>
       </table>
       <p class="keys">Arrow keys or A / D to steer &middot; Space to brake &middot; Esc to pause</p>
@@ -109,6 +109,7 @@
         <div><dt>Coins</dt><dd id="result-coins">0</dd></div>
       </dl>
       <p id="result-best" class="result-best" hidden>New best!</p>
+      <p id="result-rank" class="result-rank" role="status" hidden></p>
       <div class="actions">
         <button id="btn-again" class="btn btn-primary" type="button">Again</button>
         <button id="btn-menu" class="btn" type="button">Menu</button>

@@ -1,6 +1,6 @@
 import type { Manager } from '@/core/Manager';
 import { isTyping } from '@/core/dom';
-import { NAME_MAX } from '@/game/SaveManager';
+import { BOARD_SIZE, NAME_MAX } from '@shared/leaderboard';
 import type { PowerupId, RunState } from '@/core/GameEvents';
 import { SPEED } from '@/game/config/Balance';
 import { POWERUP_INFO, powerupCss } from '@/game/config/Powerups';
@@ -77,6 +77,8 @@ export class UIManager implements Manager {
   /** Text already written, so an unchanged value is not re-assigned. */
   private readonly written = new Map<string, string>();
   private garageDirty = true;
+  /** Set between the end of a run and the server placing it, for the results screen. */
+  private awaitingRank = false;
 
   constructor(private readonly game: Game) {}
 
@@ -259,7 +261,26 @@ export class UIManager implements Manager {
       this.text('result-distance', metres(distance));
       this.text('result-coins', coins.toLocaleString());
       el('result-best').hidden = score < this.game.save.snapshot.best || score === 0;
+      el('result-rank').hidden = true;
+      this.awaitingRank = score > 0;
       this.garageDirty = true;
+    });
+
+    this.game.bus.on('leaderboard:update', () => this.renderLeaderboard());
+
+    this.game.bus.on('leaderboard:submitted', ({ outcome, rank, improved }) => {
+      // Only the run on the results screen; a queued run sent later from the
+      // menu has nowhere to report to.
+      if (!this.awaitingRank || this.game.runState !== 'gameover') return;
+      this.awaitingRank = false;
+      if (outcome === 'placed' && rank !== null) {
+        this.showRank(improved ? `Your best yet — <b>#${rank}</b> on the leaderboard`
+          : `Your best stands at <b>#${rank}</b> on the leaderboard`);
+      } else if (outcome === 'queued') {
+        // Said plainly, rather than leave the player waiting for a placing
+        // that is not coming until they are back online.
+        this.showRank('Offline — your run will be posted when you reconnect');
+      }
     });
 
     for (const cue of ['garage:purchase', 'garage:upgrade', 'garage:equip'] as const) {
@@ -268,6 +289,13 @@ export class UIManager implements Manager {
         this.renderGarage();
       });
     }
+  }
+
+  /** `html` is built here from numbers and fixed text only, never from player input. */
+  private showRank(html: string): void {
+    const line = el('result-rank');
+    line.innerHTML = html;
+    line.hidden = false;
   }
 
   /* ----------------------------------------------------------------- frame */
@@ -307,6 +335,8 @@ export class UIManager implements Manager {
     }
 
     if (state === 'menu') {
+      // Other drivers may have posted since this board was fetched.
+      void this.game.leaderboard.refresh();
       this.syncMenu();
       if (this.focusNameOnMenu) {
         this.focusNameOnMenu = false;
@@ -426,19 +456,33 @@ export class UIManager implements Manager {
     this.renderLeaderboard();
   }
 
+  /**
+   * The shared board. Redrawn when the service announces a change, and on the
+   * menu's own sync as a backstop; the signature keeps either from rebuilding
+   * a table that has not changed.
+   */
   private renderLeaderboard(): void {
-    const rows = this.game.save.snapshot.leaderboard;
-    const signature = rows.map((r) => `${r.name}:${r.score}`).join('|');
+    const board = this.game.leaderboard;
+    const rows = board.rows;
+    const you = this.game.save.snapshot.playerName;
+    const signature = `${board.status}|${you}|${rows.map((r) => `${r.name}:${r.score}`).join('|')}`;
     if (this.written.get('__lb') === signature) return;
     this.written.set('__lb', signature);
 
+    const status = el('leaderboard-status');
+    status.hidden = board.status !== 'offline';
+    status.textContent = '· offline';
+
     const body = el('leaderboard-rows');
     if (rows.length === 0) {
-      body.innerHTML = '<tr><td class="lb-empty" colspan="3">No runs yet</td></tr>';
+      const message = board.status === 'loading' ? 'Loading…'
+        : board.status === 'offline' ? 'Leaderboard unavailable' : 'No runs yet — set the first';
+      body.innerHTML = `<tr><td class="lb-empty" colspan="3">${message}</td></tr>`;
       return;
     }
-    body.replaceChildren(...rows.slice(0, 8).map((row, i) => {
+    body.replaceChildren(...rows.slice(0, BOARD_SIZE).map((row, i) => {
       const tr = document.createElement('tr');
+      if (you && row.name === you) tr.className = 'lb-you';
       tr.innerHTML =
         `<td class="lb-rank">${i + 1}</td>` +
         `<td class="lb-name"></td>` +

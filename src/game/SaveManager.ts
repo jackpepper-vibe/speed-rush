@@ -1,4 +1,5 @@
 import type { UpgradableStat } from '@/game/config/Cars';
+import { cleanName } from '@shared/leaderboard';
 
 export interface SaveData {
   version: number;
@@ -11,8 +12,7 @@ export interface SaveData {
   upgrades: Record<string, Partial<Record<UpgradableStat, number>>>;
   runs: number;
   muted: boolean;
-  leaderboard: { name: string; score: number; distance: number; at: number }[];
-  /** Which leaderboard season the scores in this save belong to. */
+  /** Which records season the best score and distance in this save belong to. */
   season: number;
 }
 
@@ -20,14 +20,17 @@ const KEY = 'speedrush.v2';
 const CURRENT_VERSION = 2;
 
 /**
- * The leaderboard season. Raising it clears every player's board, best score
+ * The personal-records season. Raising it clears every player's best score
  * and furthest distance once, the next time their save is loaded, and nothing
  * else: coins, cars, upgrades and the name are theirs to keep.
  *
- * 2: the board was full of scores set when the game was easier, which a
- * player on the current game could not fairly beat.
+ * 2: records set when the game was easier, which a player on the current game
+ * could not fairly beat.
+ *
+ * The shared leaderboard has its own season, on the server's side, in
+ * `shared/leaderboard.ts`.
  */
-const LEADERBOARD_SEASON = 2;
+const RECORDS_SEASON = 2;
 
 function blank(): SaveData {
   return {
@@ -41,8 +44,7 @@ function blank(): SaveData {
     upgrades: {},
     runs: 0,
     muted: false,
-    leaderboard: [],
-    season: LEADERBOARD_SEASON,
+    season: RECORDS_SEASON,
   };
 }
 
@@ -70,8 +72,8 @@ export class SaveManager {
       const raw = this.storage.getItem(KEY);
       if (!raw) return fallback;
       const parsed = JSON.parse(raw) as Partial<SaveData>;
-      // Scores from an earlier season do not carry over; the rest of the save does.
-      const current = parsed.season === LEADERBOARD_SEASON;
+      // Records from an earlier season do not carry over; the rest of the save does.
+      const current = parsed.season === RECORDS_SEASON;
       return {
         version: CURRENT_VERSION,
         coins: num(parsed.coins, 0),
@@ -83,8 +85,7 @@ export class SaveManager {
         upgrades: typeof parsed.upgrades === 'object' && parsed.upgrades ? parsed.upgrades : {},
         runs: num(parsed.runs, 0),
         muted: parsed.muted === true,
-        leaderboard: current && Array.isArray(parsed.leaderboard) ? parsed.leaderboard.slice(0, 10) : [],
-        season: LEADERBOARD_SEASON,
+        season: RECORDS_SEASON,
       };
     } catch {
       return fallback;
@@ -179,12 +180,6 @@ export class SaveManager {
     const isBest = score > this.data.best;
     if (isBest) this.data.best = score;
     if (distance > this.data.bestDistance) this.data.bestDistance = distance;
-
-    const name = this.data.playerName || 'YOU';
-    this.data.leaderboard.push({ name, score, distance, at: Date.now() });
-    this.data.leaderboard.sort((a, b) => b.score - a.score);
-    this.data.leaderboard = this.data.leaderboard.slice(0, 10);
-
     this.flush();
     return isBest;
   }
@@ -208,17 +203,4 @@ function safeStorage(): Storage | null {
   } catch {
     return null;
   }
-}
-
-/** Longest name the leaderboard has room for. */
-export const NAME_MAX = 12;
-
-/**
- * A driver name as the leaderboard stores it: no control characters, runs of
- * whitespace collapsed, trimmed, cut to what the board has room for, and in
- * capitals, the way an arcade board and the name field both show it.
- */
-export function cleanName(raw: string): string {
-  // eslint-disable-next-line no-control-regex
-  return raw.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim().slice(0, NAME_MAX).toUpperCase();
 }

@@ -24,6 +24,7 @@ import { DistrictManager } from '@/game/managers/DistrictManager';
 import { KerbsideManager } from '@/game/managers/KerbsideManager';
 import { EffectsManager } from '@/game/managers/EffectsManager';
 import { SaveManager } from '@/game/SaveManager';
+import { LeaderboardService } from '@/game/LeaderboardService';
 import { SPEED } from '@/game/config/Balance';
 
 /**
@@ -42,6 +43,8 @@ export class Game {
   readonly bus = new EventBus<GameEvents>();
   readonly rig: SceneRig;
   readonly save = new SaveManager();
+  /** The shared board every player sees. Talks to `/api/scores`. */
+  readonly leaderboard = new LeaderboardService(this.bus);
   readonly rng: Random;
 
   readonly road: RoadManager;
@@ -179,6 +182,9 @@ export class Game {
     });
 
     this.loop = new GameLoop(this.tick, this.render);
+
+    // In the background: the menu shows the cached board until this lands.
+    void this.leaderboard.refresh(true);
   }
 
   /* ------------------------------------------------------------- lifecycle */
@@ -299,15 +305,17 @@ export class Game {
     this.state = 'gameover';
     const distance = this.road.travelled;
     const coins = this.scoring.runCoins;
+    const score = Math.round(this.scoring.score);
+    const metres = Math.round(distance);
     this.save.addCoins(coins);
-    this.save.recordRun(Math.round(this.scoring.score), Math.round(distance));
-    this.bus.emit('run:end', {
-      score: Math.round(this.scoring.score),
-      distance: Math.round(distance),
-      coins,
-      cause,
-    });
+    this.save.recordRun(score, metres);
+    this.bus.emit('run:end', { score, distance: metres, coins, cause });
     this.bus.emit('save:write', { coins: this.save.coins, best: this.save.snapshot.best });
+
+    // The interface will not start a run without a name, so a nameless run is
+    // one driven through the dev handle, and it has no place on a public board.
+    const name = this.save.snapshot.playerName;
+    if (name && score > 0) void this.leaderboard.submit({ name, score, distance: metres });
   }
 
   /* ----------------------------------------------------------------- frame */

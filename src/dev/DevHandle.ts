@@ -39,6 +39,7 @@ export const RECORDED_EVENTS: GameEventName[] = [
   'biome:change', 'weather:change', 'daynight:change',
   'world:tunnel-enter', 'world:tunnel-exit',
   'garage:purchase', 'garage:equip', 'garage:upgrade', 'save:write',
+  'leaderboard:update', 'leaderboard:submitted',
 ];
 
 export interface CueRecord {
@@ -262,8 +263,14 @@ export interface DevHandle {
   upgradeCar(carId: string, stat: string): boolean;
   /** Grant coins, so a purchase can be tested without grinding for them. */
   grantCoins(n: number): number;
-  /** Wipe the save slot, for a test that needs a fresh wallet and garage. */
+  /** Wipe the save slot and the cached board, for a test that needs a fresh start. */
   resetSave(): void;
+  /** Set the driver's name, as typing it on the menu would. */
+  setDriverName(name: string): void;
+  /** The board on hand and where it came from. */
+  leaderboard(): { status: string; rows: { name: string; score: number; distance: number }[] };
+  /** Fetch the board now, sending any queued runs first. Resolves once it has settled. */
+  refreshLeaderboard(): Promise<void>;
 
   /** A flat readout of everything worth asserting on. */
   state(): Record<string, unknown>;
@@ -571,6 +578,19 @@ export function installDevHandle(game: Game, version: string): DevHandle {
 
     resetSave() {
       game.save.clear();
+      game.leaderboard.clear();
+    },
+
+    setDriverName(name) {
+      game.save.setName(name);
+    },
+
+    leaderboard() {
+      return { status: game.leaderboard.status, rows: game.leaderboard.rows.map((r) => ({ ...r })) };
+    },
+
+    refreshLeaderboard() {
+      return game.leaderboard.refresh(true);
     },
 
     setTrafficSpawning(enabled) {

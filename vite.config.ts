@@ -4,7 +4,11 @@ import { fileURLToPath, URL } from 'node:url';
 export default defineConfig({
   base: './',
   resolve: {
-    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+      // Code the game shares with the serverless functions in api/.
+      '@shared': fileURLToPath(new URL('./shared', import.meta.url)),
+    },
   },
   server: { port: 5180, strictPort: true },
   build: { target: 'es2022', outDir: 'dist', sourcemap: true },

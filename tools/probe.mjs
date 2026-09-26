@@ -125,6 +125,8 @@ const CHECKED_CUES = new Set([
   'garage:equip',
   'garage:upgrade',
   'save:write',
+  'leaderboard:update',
+  'leaderboard:submitted',
 ]);
 
 /** Empty: every declared cue now has an assertion. */
@@ -200,8 +202,42 @@ const noise = [];
  * exhausting it and reporting a shader failure against whichever scenario
  * happened to be loaded.
  */
-async function freshPage(url = opt.url, viewport = { width: 1000, height: 560 }) {
+/**
+ * A stand-in for the `/api/scores` function, which the Vite dev server does not
+ * run. In memory and per page, answering in the same shape as the real one:
+ * one row per driver, kept only when beaten. `offline` makes it drop requests,
+ * as a lost connection would; `posts` records every submission it received.
+ */
+function fakeScoresServer(seed = []) {
+  const server = { board: seed.map((r) => ({ ...r })), posts: [], offline: false };
+  const top = () => [...server.board].sort((a, b) => b.score - a.score).slice(0, 10);
+  server.handle = async (route) => {
+    if (server.offline) return route.abort('internetdisconnected');
+    const req = route.request();
+    const json = (status, body) => route.fulfill({
+      status, contentType: 'application/json', body: JSON.stringify({ season: 1, ...body }),
+    });
+    if (req.method() === 'GET') return json(200, { ok: true, board: top() });
+    if (req.method() !== 'POST') return json(405, { ok: false, board: [], error: 'method not allowed' });
+    const entry = JSON.parse(req.postData() || '{}');
+    server.posts.push(entry);
+    const existing = server.board.find((r) => r.name === entry.name);
+    const improved = !existing || existing.score < entry.score;
+    if (improved) {
+      server.board = server.board.filter((r) => r.name !== entry.name);
+      server.board.push({ name: entry.name, score: entry.score, distance: entry.distance });
+    }
+    const best = server.board.find((r) => r.name === entry.name).score;
+    const rank = server.board.filter((r) => r.score > best).length + 1;
+    return json(200, { ok: true, improved, rank, board: top() });
+  };
+  return server;
+}
+
+async function freshPage(url = opt.url, viewport = { width: 1000, height: 560 }, scores = fakeScoresServer()) {
   const page = await browser.newPage({ viewport });
+  page.scores = scores;
+  await page.route('**/api/scores', (route) => scores.handle(route));
   page.on('pageerror', (e) => noise.push({ phase, level: 'pageerror', text: String(e).slice(0, 300) }));
   page.on('console', (m) => {
     const level = m.type();
@@ -1769,6 +1805,8 @@ const uiIds = await page.evaluate(() => window.carRacer.uiElements());
     const cr = window.carRacer;
     const read = (id) => document.getElementById(id).textContent.trim();
     cr.resetSave();
+    // The interface will not start a nameless run, and the game does not post one.
+    cr.setDriverName('Probe');
     cr.setCollisions(false);
     cr.startRun(31);
     cr.drive(12, 0);
@@ -1793,6 +1831,135 @@ const uiIds = await page.evaluate(() => window.carRacer.uiElements());
     `results read ${results.shown.score}, run scored ${results.score}`);
   check('ui', 'leaderboard-lists-the-run', results.rows >= 1 && !results.empty,
     `${results.rows} leaderboard rows after one run, empty-state shown: ${results.empty}`);
+}
+
+/* The shared leaderboard, against the stand-in server.
+ *
+ * Three things a player relies on: the board shown is the server's, a finished
+ * run is posted and placed, and a run finished offline is kept and posted once
+ * the connection returns rather than lost. */
+phase = 'leaderboard';
+{
+  const scores = page.scores;
+  // The run above posts in the background; let it land before the board is
+  // replaced, so it cannot arrive afterwards and shift the placings.
+  await page.evaluate(async () => {
+    await window.carRacer.refreshLeaderboard();
+    await new Promise((r) => setTimeout(r, 300));
+  });
+  const seeded = [
+    { name: 'ACE', score: 900000, distance: 40000 },
+    { name: 'MAX', score: 5000, distance: 2000 },
+    { name: 'SUE', score: 2500, distance: 1000 },
+  ];
+  scores.board = seeded.map((r) => ({ ...r }));
+  scores.posts = [];
+  scores.offline = false;
+
+  /** Resolve once `cue` has fired, advancing the page's clock while it waits. */
+  const settle = (cue) => page.evaluate(async (name) => {
+    const cr = window.carRacer;
+    for (let i = 0; i < 100 && cr.cues[name].count === 0; i++) await new Promise((r) => setTimeout(r, 50));
+    cr.step(3);
+    return JSON.parse(JSON.stringify(cr.cues[name]));
+  }, cue);
+
+  const fetched = await page.evaluate(async () => {
+    const cr = window.carRacer;
+    cr.resetSave();
+    cr.setDriverName('Racer');
+    cr.clearCues();
+    cr.toMenu();
+    await cr.refreshLeaderboard();
+    cr.step(3);
+    return {
+      board: cr.leaderboard(),
+      shown: [...document.querySelectorAll('#leaderboard-rows .lb-name')].map((n) => n.textContent),
+      update: JSON.parse(JSON.stringify(cr.cues['leaderboard:update'])),
+    };
+  });
+  check('leaderboard', 'shows-the-servers-board',
+    fetched.board.status === 'live' && fetched.shown.join(',') === 'ACE,MAX,SUE',
+    `status ${fetched.board.status}, rows shown: ${fetched.shown.join(', ') || 'none'}`);
+  check('leaderboard', 'update-cue-reports-the-board',
+    fetched.update.count > 0 && fetched.update.last?.status === 'live' && fetched.update.last?.rows === 3,
+    `leaderboard:update x${fetched.update.count}, last ${JSON.stringify(fetched.update.last)}`);
+
+  // A run, posted and placed.
+  const run = await page.evaluate(() => {
+    const cr = window.carRacer;
+    cr.clearCues();
+    cr.setCollisions(false);
+    cr.startRun(77);
+    cr.drive(10, 0);
+    const score = Math.round(cr.state().score);
+    cr.endRun();
+    return { score };
+  });
+  const placed = await settle('leaderboard:submitted');
+  const expectedRank = seeded.filter((r) => r.score > run.score).length + 1;
+  const placedUi = await page.evaluate(() => {
+    const line = document.getElementById('result-rank');
+    return { hidden: line.hidden, text: line.textContent };
+  });
+  check('leaderboard', 'run-is-posted',
+    scores.posts.length === 1 && scores.posts[0].name === 'RACER' && scores.posts[0].score === run.score,
+    `server received ${JSON.stringify(scores.posts)} for a run of ${run.score}`);
+  check('leaderboard', 'submitted-cue-carries-the-placing',
+    placed.last?.outcome === 'placed' && placed.last?.rank === expectedRank,
+    `leaderboard:submitted ${JSON.stringify(placed.last)}, expected rank ${expectedRank}`);
+  check('leaderboard', 'results-screen-shows-the-placing',
+    !placedUi.hidden && placedUi.text.includes(`#${expectedRank}`),
+    `result line ${placedUi.hidden ? 'hidden' : `"${placedUi.text}"`}`);
+
+  const own = await page.evaluate(() => {
+    const cr = window.carRacer;
+    cr.toMenu();
+    cr.step(3);
+    return [...document.querySelectorAll('#leaderboard-rows tr.lb-you .lb-name')].map((n) => n.textContent);
+  });
+  check('leaderboard', 'own-row-is-marked', own.length === 1 && own[0] === 'RACER',
+    `rows marked as the driver's: ${own.join(', ') || 'none'}`);
+
+  // A run finished with the server out of reach: kept, said so, and sent later.
+  scores.offline = true;
+  await page.evaluate(async () => {
+    const cr = window.carRacer;
+    await cr.refreshLeaderboard(); // Let the menu's own fetch finish before the run.
+    cr.clearCues();
+    cr.startRun(78);
+    cr.drive(6, 0);
+    cr.endRun();
+  });
+  const queued = await settle('leaderboard:submitted');
+  const offlineUi = await page.evaluate(() => {
+    const cr = window.carRacer;
+    const line = document.getElementById('result-rank');
+    const result = { hidden: line.hidden, text: line.textContent, status: cr.leaderboard().status };
+    cr.toMenu();
+    cr.step(3);
+    return { ...result, caption: !document.getElementById('leaderboard-status').hidden };
+  });
+  check('leaderboard', 'offline-run-is-queued',
+    queued.last?.outcome === 'queued' && offlineUi.status === 'offline',
+    `leaderboard:submitted ${JSON.stringify(queued.last)}, board status ${offlineUi.status}`);
+  check('leaderboard', 'offline-is-said-plainly',
+    !offlineUi.hidden && /offline/i.test(offlineUi.text) && offlineUi.caption,
+    `result line ${offlineUi.hidden ? 'hidden' : `"${offlineUi.text}"`}, board caption flagged: ${offlineUi.caption}`);
+
+  scores.offline = false;
+  const recovered = await page.evaluate(async () => {
+    const cr = window.carRacer;
+    // The first call may join a fetch that started while still offline.
+    for (let i = 0; i < 3 && cr.leaderboard().status !== 'live'; i++) await cr.refreshLeaderboard();
+    const cache = JSON.parse(localStorage.getItem('speedrush.board.v1') || '{}');
+    return { status: cr.leaderboard().status, pending: cache.pending?.length ?? -1 };
+  });
+  check('leaderboard', 'queued-run-is-sent-on-reconnect',
+    recovered.status === 'live' && recovered.pending === 0 && scores.posts.length === 2,
+    `status ${recovered.status}, ${recovered.pending} still queued, server received ${scores.posts.length} runs`);
+
+  await page.evaluate(() => window.carRacer.resetSave());
 }
 
 /* The garage screen has to render the roster and actually transact from it. */

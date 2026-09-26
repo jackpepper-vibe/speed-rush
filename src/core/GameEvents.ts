@@ -68,6 +68,22 @@ export type GameEvents = {
   'garage:equip': { carId: string };
   'garage:upgrade': { carId: string; stat: string; level: number; price: number };
   'save:write': { coins: number; best: number };
+
+  /* -- leaderboard -------------------------------------------------------- */
+  /** The board on hand changed: fetched, submitted to, or fell back to the cache. */
+  'leaderboard:update': { status: LeaderboardStatus; rows: number };
+  /**
+   * What became of a finished run. `placed`: the server took it, and `rank` is
+   * the driver's best, 1-based. `queued`: the server could not be reached and
+   * it will be sent later. `rejected`: the server refused it.
+   */
+  'leaderboard:submitted': { outcome: 'placed' | 'queued' | 'rejected'; rank: number | null; improved: boolean };
 };
+
+/**
+ * Where the board on screen came from. `live` is the server's answer; `offline`
+ * is the last board the server gave, plus any runs still waiting to be sent.
+ */
+export type LeaderboardStatus = 'loading' | 'live' | 'offline';
 
 export type GameEventName = keyof GameEvents;

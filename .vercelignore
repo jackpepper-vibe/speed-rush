@@ -1,0 +1,15 @@
+# Kept out of `vercel deploy` uploads. The build needs only the sources
+# (src, shared, api), index.html and the package/tsconfig/vite config files.
+
+# Probe and comparison captures (hundreds of MB, not in git either).
+shots/
+# Art-direction references and the pre-rebuild game.
+reference/
+legacy/
+# Dev tooling and test fixtures.
+tools/
+tests/
+docs/
+# Rebuilt on Vercel.
+dist/
+.env*
