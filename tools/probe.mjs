@@ -205,12 +205,12 @@ const noise = [];
 /**
  * A stand-in for the `/api/scores` function, which the Vite dev server does not
  * run. In memory and per page, answering in the same shape as the real one:
- * one row per driver, kept only when beaten. `offline` makes it drop requests,
+ * every run kept, the board the best ten of them. `offline` makes it drop requests,
  * as a lost connection would; `posts` records every submission it received.
  */
 function fakeScoresServer(seed = []) {
   const server = { board: seed.map((r) => ({ ...r })), posts: [], offline: false };
-  const top = () => [...server.board].sort((a, b) => b.score - a.score).slice(0, 10);
+  const top = () => [...server.board].sort((a, b) => b.score - a.score).slice(0, 10);   // stable: earlier runs first
   server.handle = async (route) => {
     if (server.offline) return route.abort('internetdisconnected');
     const req = route.request();
@@ -221,14 +221,11 @@ function fakeScoresServer(seed = []) {
     if (req.method() !== 'POST') return json(405, { ok: false, board: [], error: 'method not allowed' });
     const entry = JSON.parse(req.postData() || '{}');
     server.posts.push(entry);
-    const existing = server.board.find((r) => r.name === entry.name);
-    const improved = !existing || existing.score < entry.score;
-    if (improved) {
-      server.board = server.board.filter((r) => r.name !== entry.name);
-      server.board.push({ name: entry.name, score: entry.score, distance: entry.distance });
-    }
-    const best = server.board.find((r) => r.name === entry.name).score;
-    const rank = server.board.filter((r) => r.score > best).length + 1;
+    // every run is kept; the board is the best ten, earlier runs first on a tie
+    const mine = server.board.filter((r) => r.name === entry.name);
+    const improved = mine.every((r) => r.score < entry.score);
+    const rank = server.board.filter((r) => r.score >= entry.score).length + 1;
+    server.board.push({ name: entry.name, score: entry.score, distance: entry.distance });
     return json(200, { ok: true, improved, rank, board: top() });
   };
   return server;
@@ -1958,6 +1955,17 @@ phase = 'leaderboard';
   check('leaderboard', 'queued-run-is-sent-on-reconnect',
     recovered.status === 'live' && recovered.pending === 0 && scores.posts.length === 2,
     `status ${recovered.status}, ${recovered.pending} still queued, server received ${scores.posts.length} runs`);
+
+  // Every run keeps its own place: the driver's two runs are both on the board.
+  const both = await page.evaluate(() => {
+    const cr = window.carRacer;
+    cr.toMenu();
+    cr.step(3);
+    return [...document.querySelectorAll('#leaderboard-rows .lb-name')].map((n) => n.textContent);
+  });
+  check('leaderboard', 'each-run-keeps-its-place',
+    both.filter((n) => n === 'RACER').length === 2 && both.length === 5,
+    `rows shown: ${both.join(', ')}`);
 
   await page.evaluate(() => window.carRacer.resetSave());
 }

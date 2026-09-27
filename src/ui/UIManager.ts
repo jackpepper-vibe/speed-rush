@@ -275,7 +275,7 @@ export class UIManager implements Manager {
       this.awaitingRank = false;
       if (outcome === 'placed' && rank !== null) {
         this.showRank(improved ? `Your best yet — <b>#${rank}</b> on the leaderboard`
-          : `Your best stands at <b>#${rank}</b> on the leaderboard`);
+          : `That run is <b>#${rank}</b> on the leaderboard`);
       } else if (outcome === 'queued') {
         // Said plainly, rather than leave the player waiting for a placing
         // that is not coming until they are back online.

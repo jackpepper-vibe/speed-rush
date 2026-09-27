@@ -21,7 +21,7 @@ export const BOARD_SIZE = 10;
  */
 export const LEADERBOARD_SEASON = 1;
 
-/** One row of the board: a driver's best run this season. */
+/** One row of the board: one run this season. A driver may hold several. */
 export interface BoardEntry {
   name: string;
   score: number;
@@ -33,9 +33,9 @@ export interface BoardResponse {
   ok: boolean;
   season: number;
   board: BoardEntry[];
-  /** POST only: 1-based position of the submitting driver's best run. */
+  /** POST only: 1-based position of the run just submitted among all this season's runs. */
   rank?: number;
-  /** POST only: whether this run replaced the driver's previous best. */
+  /** POST only: whether this run beat everything the driver had posted this season. */
   improved?: boolean;
   error?: string;
 }

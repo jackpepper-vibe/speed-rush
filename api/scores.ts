@@ -1,14 +1,18 @@
 /**
  * The global leaderboard for Speed Rush.
  *
- *   GET  /api/scores   this season's top drivers, best run each
+ *   GET  /api/scores   this season's ten best runs
  *   POST /api/scores   submit a run: { name, score, distance }
  *
  * Backed by the account's shared Neon Postgres store, in tables of its own
- * (prefixed `speed_rush_`, since other games live in the same database). One
- * row per driver per season, keyed on the cleaned name and overwritten only by
- * a better run, so the board shows ten drivers rather than one good session
- * ten times.
+ * (prefixed `speed_rush_`, since other games live in the same database). Every
+ * run is kept, one row each, and the board is the season's ten best runs — so a
+ * driver with a good session can hold several places, and the board fills from
+ * the first evening's play rather than waiting for ten different drivers.
+ *
+ * The board used to keep one row per driver (`speed_rush_scores`). That table
+ * is left as it was; its rows are copied into the runs table once, the first
+ * time the runs table is found empty, so no score on it was lost.
  *
  * If the store is not configured the endpoint says so plainly with a 503 and
  * the game shows its cached board. The leaderboard never blocks play.
@@ -65,6 +69,23 @@ function database(url: string): Promise<Sql> {
       CREATE INDEX IF NOT EXISTS speed_rush_scores_rank
       ON speed_rush_scores (season, score DESC)`;
     await sql`
+      CREATE TABLE IF NOT EXISTS speed_rush_runs (
+        id         bigserial   PRIMARY KEY,
+        season     integer     NOT NULL,
+        name       text        NOT NULL,
+        score      integer     NOT NULL,
+        distance   integer     NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now()
+      )`;
+    await sql`
+      CREATE INDEX IF NOT EXISTS speed_rush_runs_rank
+      ON speed_rush_runs (season, score DESC)`;
+    // carry the one-row-per-driver board over, once
+    await sql`
+      INSERT INTO speed_rush_runs (season, name, score, distance, created_at)
+      SELECT season, name, score, distance, updated_at FROM speed_rush_scores
+      WHERE NOT EXISTS (SELECT 1 FROM speed_rush_runs)`;
+    await sql`
       CREATE TABLE IF NOT EXISTS speed_rush_rate (
         ip    text        PRIMARY KEY,
         n     integer     NOT NULL,
@@ -81,9 +102,9 @@ function database(url: string): Promise<Sql> {
 async function board(sql: Sql): Promise<BoardEntry[]> {
   const rows = await sql`
     SELECT name, score, distance
-    FROM speed_rush_scores
+    FROM speed_rush_runs
     WHERE season = ${LEADERBOARD_SEASON}
-    ORDER BY score DESC, updated_at ASC
+    ORDER BY score DESC, created_at ASC
     LIMIT ${BOARD_SIZE}`;
   return rows.map((r) => ({ name: String(r.name), score: Number(r.score), distance: Number(r.distance) }));
 }
@@ -149,24 +170,24 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
       }
 
       const { name, score, distance } = result.entry;
-      // One row per driver, replaced only by a better run.
-      const improved = await sql`
-        INSERT INTO speed_rush_scores (season, name, score, distance)
-        VALUES (${LEADERBOARD_SEASON}, ${name}, ${score}, ${distance})
-        ON CONFLICT (season, name) DO UPDATE SET
-          score = EXCLUDED.score, distance = EXCLUDED.distance, updated_at = now()
-        WHERE speed_rush_scores.score < EXCLUDED.score
-        RETURNING name`;
+      // Whether this beats everything the driver has posted this season, asked
+      // before the run is added so it is not compared with itself.
+      const previous = await sql`
+        SELECT max(score)::int AS best FROM speed_rush_runs
+        WHERE season = ${LEADERBOARD_SEASON} AND name = ${name}`;
+      const best = previous[0]?.best;
+      await sql`
+        INSERT INTO speed_rush_runs (season, name, score, distance)
+        VALUES (${LEADERBOARD_SEASON}, ${name}, ${score}, ${distance})`;
+      // This run's place among every run of the season; ties go to the earlier run.
       const ahead = await sql`
-        SELECT count(*)::int AS n FROM speed_rush_scores
-        WHERE season = ${LEADERBOARD_SEASON}
-          AND score > (SELECT score FROM speed_rush_scores
-                       WHERE season = ${LEADERBOARD_SEASON} AND name = ${name})`;
+        SELECT count(*)::int AS n FROM speed_rush_runs
+        WHERE season = ${LEADERBOARD_SEASON} AND score >= ${score}`;
 
       reply(res, 200, {
         ok: true,
-        improved: improved.length > 0,
-        rank: Number(ahead[0]?.n ?? 0) + 1,
+        improved: best === null || best === undefined || score > Number(best),
+        rank: Number(ahead[0]?.n ?? 1),
         board: await board(sql),
       });
       return;

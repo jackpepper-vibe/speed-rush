@@ -260,16 +260,16 @@ export class LeaderboardService {
 }
 
 /**
- * Put a run on a board the way the server would: one row per driver, kept
- * only if it beats that driver's existing row.
+ * Put a run on a board the way the server would: every run is its own row, so
+ * a driver can hold several places; the board is the best ten of them, an
+ * earlier run keeping its place over a later one on the same score.
  */
 function placeOnBoard(board: readonly BoardEntry[], run: Submission): BoardEntry[] {
-  const name = cleanName(run.name);
-  const existing = board.find((r) => r.name === name);
-  if (existing && existing.score >= run.score) return [...board];
-  return [...board.filter((r) => r.name !== name), { name, score: run.score, distance: run.distance }]
-    .sort((a, b) => b.score - a.score)
-    .slice(0, BOARD_SIZE);
+  const entry = { name: cleanName(run.name), score: run.score, distance: run.distance };
+  const at = board.findIndex((r) => r.score < entry.score);
+  const next = [...board];
+  next.splice(at < 0 ? next.length : at, 0, entry);
+  return next.slice(0, BOARD_SIZE);
 }
 
 function safeStorage(): Storage | null {
